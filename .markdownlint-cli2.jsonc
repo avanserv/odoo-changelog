@@ -1,0 +1,16 @@
+// Every rule is at https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md; the defaults
+// stand, so only the rules switched off below need an argument.
+{
+  // A manual run or an editor walks the tree, where target/ holds Markdown from dependencies.
+  // Following .gitignore keeps one list of what is not ours instead of a second one here.
+  "gitignore": true,
+  // Release Please writes it, and a fix applied there dies with the next release. The hook
+  // excludes the same file.
+  "ignores": ["CHANGELOG.md"],
+  "config": {
+    // Wrap width is a judgement each page makes: a table, a long link and a fence cannot wrap.
+    "MD013": false,
+    // The pull request template is the body of a page whose title GitHub supplies.
+    "MD041": false
+  }
+}

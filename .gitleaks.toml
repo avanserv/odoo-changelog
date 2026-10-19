@@ -1,0 +1,5 @@
+# What the secret scanner is allowed to walk past, and why: nothing. The default rules stand with
+# no allowlist. An entry added here needs the argument for it written beside it.
+
+[extend]
+useDefault = true

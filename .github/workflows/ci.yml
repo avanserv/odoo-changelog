@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  pull_request:
+    # The default set, listed so that `edited` is not added here: pr-title.yml answers that one.
+    types: [opened, synchronize, reopened]
+  # The run the README badge reports.
+  push:
+    branches:
+      - main
+
+# A superseded push to a pull request should not keep burning minutes, so its in-progress runs are
+# cancelled when a newer commit lands. A run on main is left to finish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Read-only by default, so a job gets write access only by asking for it in its own block and
+# saying there what it needs it for. No job in this file does.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Every job takes its toolchain from rust-toolchain.toml: rustup installs it on the first cargo
+# call, so no toolchain action is needed.
+jobs:
+  pre-commit:
+    name: Pre-commit Hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache the build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-machete@0.9.2
+
+      # Format, clippy and unused dependencies live here, along with the workflow audits and the
+      # spelling and Markdown checks. The gitleaks hook is the one that proves nothing in this job:
+      # it reads the staged diff, and nothing is staged. The Security Scan job covers the tree.
+      - name: Run pre-commit
+        uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
+        with:
+          prek-version: 0.5.5
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache the build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # crates/cli/tests/determinism.rs is the determinism gate: it builds a fixture repository,
+      # walks it incrementally and from scratch, and fails unless both databases dump the same.
+      - name: Run the tests
+        run: make test
+
+  deps:
+    name: Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the dependency checkers
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-deny@0.20.2,cargo-machete@0.9.2
+
+      # Advisories come from the RustSec database at run time, so this job can turn red on main
+      # with no change: that is the point of running it on every push.
+      - name: Check advisories, licenses, sources and unused dependencies
+        run: make deps
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A pinned binary download rather than the vendor action, checked against a digest recorded
+      # here. Dependabot does not see it: bump the version and its digest together.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_SHA256" "$RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xz -C "$RUNNER_TEMP" -f "$RUNNER_TEMP/gitleaks.tar.gz" gitleaks
+
+      # The step the gitleaks hook cannot replace: scanning the working tree is what makes a green
+      # Security Scan mean there are no secrets in it. .gitleaks.toml says what is allowed past.
+      - name: Scan the working tree for secrets
+        run: |
+          "$RUNNER_TEMP/gitleaks" dir . --redact --no-banner --exit-code 1
+
+  build:
+    name: Build
+    # The image the release binary is built on, see release.yml.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache the build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # The release profile is what a user downloads, and the only build with thin LTO.
+      - name: Build the release binary
+        run: make build
+
+      - name: Run the binary
+        run: ./target/release/odoo-changelog --version
+
+  # Single aggregation gate: passes if no job failed or was cancelled, and a skipped job counts as
+  # a pass, exactly as GitHub treats a skipped required check. This is the one required status
+  # check, so branch protection stays stable as jobs are added.
+  ci-gate:
+    name: CI Passed
+    needs:
+      - pre-commit
+      - tests
+      - deps
+      - security
+      - build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Evaluate CI job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS_JSON"
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<<"$NEEDS_JSON" >/dev/null

@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# Nothing by default; each job below names what it holds and why.
+permissions: {}
+
+# One at a time and never cancelled: a run interrupted between tagging and uploading would leave a
+# GitHub release with no binary attached.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The job's own token writes nothing: everything below goes through the release App's token.
+    permissions:
+      contents: read
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # The release App rather than the job's own token: GitHub holds the workflows of a pull
+      # request that token opens until someone approves them, so the release pull request would
+      # never get its CI unattended.
+      - name: Generate the release App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # Named rather than left blank, because blank means every permission the installation
+          # holds. A permission it does not hold fails the token request itself.
+          permission-contents: write # the tag, the GitHub release, the lockfile commit
+          permission-pull-requests: write # opens and updates the release pull request
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Release Please rewrites the workspace version in Cargo.toml and knows nothing of
+      # Cargo.lock, which records the same version for each workspace crate. Left alone the release
+      # branch fails every `--locked` build, so the lockfile is brought back in step on the branch
+      # before anyone merges it.
+      - name: Checkout the release branch
+        if: ${{ steps.release.outputs.pr }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ steps.release.outputs.pr && fromJSON(steps.release.outputs.pr).headBranchName || '' }}
+          # The push below is the whole reason for this checkout, so the credential stays.
+          persist-credentials: true # zizmor: ignore[artipacked]
+
+      # `--workspace` touches only the workspace crates' own entries, never a dependency's version.
+      - name: Sync the lockfile
+        if: ${{ steps.release.outputs.pr }}
+        run: |
+          cargo update --workspace
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock already matches the release version."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: sync Cargo.lock with the release version" -- Cargo.lock
+          git push
+
+  binaries:
+    name: Attach the Linux binary
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    # Pinned rather than ubuntu-latest: the image's glibc is the oldest one the binary runs on.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write # uploads the archive to the release Release Please just created
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      # No build cache in a job that holds a write token and publishes: a cache is writable by any
+      # job that can reach the same key.
+      - name: Build the release binary
+        run: make build
+
+      - name: Package and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          name="odoo-changelog-${TAG}-x86_64-unknown-linux-gnu"
+          mkdir "$name"
+          cp target/release/odoo-changelog LICENSE README.md "$name/"
+          cp config/odoo-changelog.example.toml "$name/"
+          tar -czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          gh release upload --clobber "$TAG" "$name.tar.gz" "$name.tar.gz.sha256"

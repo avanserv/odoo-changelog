@@ -1,0 +1,16 @@
+# <type>(<scope>): Sentence case summary, under 72 characters
+#
+# Then a blank line, then the body: why this change exists.
+#
+# The diff already says what changed. What it cannot say is the problem being solved,
+# the constraint that ruled out the obvious approach, or the failure mode that
+# odd-looking line prevents. Write that, in prose.
+#
+# type: feat fix refactor docs chore test style ci perf build revert
+# scope (optional): a crate or a command: core git store cli walk stats ...
+#
+# feat -> minor bump, fix perf revert -> patch, feat! or a BREAKING CHANGE: footer -> major
+# (minor while the version is below 1.0). Everything else bumps nothing.
+# Release Please owns every version; never edit one.
+#
+# Enable this template with:  git config commit.template .gitmessage
