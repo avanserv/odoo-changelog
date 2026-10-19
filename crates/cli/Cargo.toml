@@ -1,0 +1,23 @@
+[package]
+name = "odoo-changelog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "odoo-changelog"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+gix.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+odoo-changelog-core.workspace = true
+odoo-changelog-git.workspace = true
+odoo-changelog-store.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true

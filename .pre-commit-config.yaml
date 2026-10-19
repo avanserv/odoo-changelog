@@ -1,0 +1,114 @@
+repos:
+
+  # ----------------------------------------------------------------------------
+  # All files
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: all      | fix trailing whitespaces
+      - id: end-of-file-fixer
+        name: all      | fix end of files
+      - id: check-yaml
+        name: all      | check yaml
+      - id: check-toml
+        name: all      | check toml
+      - id: check-merge-conflict
+        name: all      | check merge conflict markers
+      - id: check-added-large-files
+        name: all      | check large files
+        args: ['--maxkb=500']
+
+  # CHANGELOG.md is release-please's output, so a fix applied there is undone by the next release.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.2
+    hooks:
+      - id: markdownlint-cli2
+        name: all      | markdown format (markdownlint)
+        args: ['--fix']
+        exclude: ^CHANGELOG\.md$
+        language_version: '22'
+        additional_dependencies: ['markdownlint-cli2@0.23.2']
+
+  # typos rather than codespell: it splits identifiers, so it reads Rust names as words.
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.51.1
+    hooks:
+      - id: typos
+        name: all      | spelling (typos)
+        args: ['--force-exclude']
+
+  # The upstream hook scans the staged diff rather than the files it is handed, so it finds nothing
+  # when CI runs `prek run --all-files`: the Security Scan job in ci.yml runs `gitleaks dir` over the
+  # whole tree for that case.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        name: all      | secrets (gitleaks)
+
+  # ----------------------------------------------------------------------------
+  # GitHub Actions
+  #
+  # `check-yaml` above proves these files parse; these prove they mean something, and that they do
+  # not hand a pull request more than it should hold.
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.30.1
+    hooks:
+      - id: zizmor
+        name: actions  | workflow security (zizmor)
+        # Explicit paths, so the rules file is not itself handed over as a workflow. `files:` still
+        # decides whether the hook runs, so editing the rules re-runs the audit.
+        args: ['--no-progress', '--config', '.github/zizmor.yml', '.github/workflows', '.github/dependabot.yml']
+        pass_filenames: false
+        files: ^\.github/(workflows/.*|dependabot\.ya?ml|zizmor\.ya?ml)$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        name: actions  | workflow lint (actionlint)
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.2
+    hooks:
+      - id: check-github-workflows
+        name: actions  | workflow schema
+      # A job without a timeout holds its runner until GitHub's own six-hour ceiling.
+      - id: check-github-workflows-require-timeout
+        name: actions  | workflow timeouts
+      - id: check-dependabot
+        name: actions  | dependabot schema
+
+  # ----------------------------------------------------------------------------
+  # Rust
+  #
+  # The toolchain is the one rust-toolchain.toml pins, so the hooks, `make check` and CI apply the
+  # same rustfmt and clippy.
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: rust     | format (rustfmt)
+        entry: cargo fmt --all
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: rust     | lint (clippy)
+        entry: cargo clippy --workspace --all-targets --locked -- -D warnings
+        language: system
+        files: (\.rs|Cargo\.toml|Cargo\.lock|clippy\.toml)$
+        pass_filenames: false
+        require_serial: true
+
+      # A dependency is declared in the same change as the code that uses it, never ahead of it.
+      - id: cargo-machete
+        name: rust     | unused dependencies (cargo-machete)
+        entry: cargo machete
+        language: system
+        files: (\.rs|Cargo\.toml)$
+        pass_filenames: false

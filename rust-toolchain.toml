@@ -1,0 +1,7 @@
+# Pinned so that the hooks, `make check` and CI apply the same rustfmt and clippy: a new stable
+# adds lints, and `-D warnings` would turn each into a failure nobody's change caused. Dependabot
+# bumps it in a pull request of its own.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

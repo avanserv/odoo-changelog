@@ -1,0 +1,24 @@
+# Copy to odoo-changelog.toml (ignored by git) and point each path at a full clone.
+# Relative paths are resolved against this file's directory.
+db = "../data/odoo-changelog.db"
+remote = "origin"
+first_version = "12.0"
+
+[[repos]]
+name = "odoo"
+path = "/path/to/odoo"
+# Master's release.py bumps right after each fork; used when the first-parent chain cannot reach the fork
+# (shallow clones).
+release_file = "odoo/release.py"
+
+[[repos]]
+name = "enterprise"
+path = "/path/to/enterprise"
+
+[[repos]]
+name = "design-themes"
+path = "/path/to/design-themes"
+
+# Pin a fork point when neither the first-parent chain nor release.py resolves it:
+# [fork_overrides.odoo]
+# "18.0" = "<sha of the last master commit shared with 18.0>"

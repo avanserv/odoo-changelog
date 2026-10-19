@@ -1,0 +1,13 @@
+[package]
+name = "odoo-changelog-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+gix.workspace = true
+regex.workspace = true
+tracing.workspace = true
+odoo-changelog-core.workspace = true
