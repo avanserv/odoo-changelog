@@ -78,8 +78,9 @@ impl Extractor for Data {
     }
 
     /// `<xmlid>@<module>` with Odoo's rule for an id written without its module; a view node
-    /// keeps its `#<node key>` after the xmlid. Calls and deletes by search are named after
-    /// their model, which no module prefixes.
+    /// keeps its `#<node key>` after the xmlid, and an id too long to repeat, which reads
+    /// `~<hash>` there, as written. Calls and deletes by search are named after their model,
+    /// which no module prefixes.
     fn qualify(&self, path: &str, symbol: &Symbol) -> String {
         let module = module_of(path).unwrap_or_default();
         if symbol.kind == DATA_FUNCTION || (symbol.kind == DELETE && symbol.name.contains('#')) {
@@ -89,7 +90,8 @@ impl Extractor for Data {
             Some((id, rest)) => (id, format!("#{rest}")),
             None => (symbol.name.as_str(), String::new()),
         };
-        let id = xml_id(module, id).unwrap_or_else(|| id.to_string());
+        let hashed = symbol.kind == VIEW_NODE && id.starts_with('~');
+        let id = xml_id(module, id).filter(|_| !hashed).unwrap_or_else(|| id.to_string());
         format!("{id}{rest}@{module}")
     }
 

@@ -6,7 +6,7 @@ mod common;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use common::{batch, check, clones, find, fixtures, git, render};
+use common::{batch, check, clones, edit, find, fixtures, git, render};
 use odoo_changelog_extract::{Extractor, Op, Scss, Symbol, SymbolTable, delta};
 use serde_json::{Value, json};
 
@@ -93,7 +93,9 @@ fn conditional_and_repeated_assignments() {
         })
     );
     let flags = |src: &str| attrs(find(&extract(src), "scss_variable", "$x"));
-    assert_eq!(flags("$x: 1 !global !default;"), flags("$x: 1!default ! global;"));
+    let both = json!({"default": true, "global": true, "value": "1"});
+    assert_eq!(flags("$x: 1 !global !default;"), both);
+    assert_eq!(flags("$x: 1!default ! global;"), both);
     assert_eq!(flags(".a { $x: 1 !global; }"), json!({"global": true, "value": "1"}));
     assert!(!extract(".a { $x: 1; }\n@mixin m { $x: 1; }").contains("scss_variable", "$x"));
 }
@@ -103,12 +105,18 @@ fn reformatting_scss_gives_no_event() {
     let src = String::from_utf8(fixture("mixins")).unwrap();
     let old = extract(&src);
     for reformatted in [
-        src.replace("    ", "\t").replace(": ", ":  "),
-        src.replace("($px / $base)", "( $px  /  $base )").replace(
-            "$bottom: auto, $left: auto)",
-            "$bottom: auto,\n    $left: auto, // last\n)",
+        edit(&src, &[("    ", "\t"), (": ", ":  ")]),
+        edit(
+            &src,
+            &[
+                ("($px / $base)", "( $px  /  $base )"),
+                (
+                    "$bottom: auto, $left: auto)",
+                    "$bottom: auto,\n    $left: auto, // last\n)",
+                ),
+            ],
         ),
-        src.replace("margin: 0;", "margin: 0; /* none */"),
+        edit(&src, &[("margin: 0;", "margin: 0; /* none */")]),
     ] {
         let new = extract(&reformatted);
         assert!(
@@ -123,7 +131,10 @@ fn reformatting_scss_gives_no_event() {
         );
     }
 
-    let edited = extract(&src.replace("@return ($px / $base) * 1rem;", "@return $px / $base * 1rem;"));
+    let edited = extract(&edit(
+        &src,
+        &[("@return ($px / $base) * 1rem;", "@return $px / $base * 1rem;")],
+    ));
     let changes = delta(&Scss, Some((PATH, &old)), Some((PATH, &edited)));
     let ops: Vec<(&str, &str, Op)> = changes
         .iter()
@@ -212,40 +223,78 @@ fn deep_nesting_reads_within_a_worker_stack() {
     }
 }
 
-/// Inputs that repeat a long text or a deep context in every entry they give, each over 1 MiB so
-/// that the output budget's constant does not hide a faster growth.
+/// Inputs that repeat a long text or a deep context in every entry they give, each over 1 MiB.
+/// Bounding keeps most well under the budget's 24 bytes per input byte, so they give no
+/// warning; those that repeat eight headers per tiny statement reach the budget, which caps them.
 #[test]
 fn reassignments_and_deep_control_flow_stay_linear() {
     let long = format!("@if {} {{\n", "c".repeat(5000));
     let k = 200_000;
     let shapes = [
-        format!("{long}{}}}", "$a: 1;\n".repeat(k)),
-        format!("{}{}", "@if a { $x: 1; ".repeat(k / 2), "}".repeat(k / 2)),
-        format!("{}{}{}", long.repeat(10), "$a: 1;\n".repeat(k), "}".repeat(10)),
-        format!(
-            "{}{}{}",
-            "@each $i in (1, 2) {\n".repeat(200),
-            "$v: $i;\n".repeat(k),
-            "}".repeat(200)
+        (format!("{long}{}}}", "$a: 1;\n".repeat(k)), false),
+        (
+            format!("{}{}", "@if a { $x: 1; ".repeat(k / 2), "}".repeat(k / 2)),
+            false,
         ),
-        format!(
-            "{long}{}}}",
-            (0..k / 4)
-                .map(|i| format!("@mixin m{i} {{ a: b; }}\n"))
-                .collect::<String>()
+        (
+            format!("{}{}{}", long.repeat(10), "$a: 1;\n".repeat(k), "}".repeat(10)),
+            true,
         ),
+        (
+            format!(
+                "{}{}{}",
+                "@each $i in (1, 2) {\n".repeat(200),
+                "$v: $i;\n".repeat(k),
+                "}".repeat(200)
+            ),
+            true,
+        ),
+        (
+            format!(
+                "{long}{}}}",
+                (0..k / 4)
+                    .map(|i| format!("@mixin m{i} {{ a: b; }}\n"))
+                    .collect::<String>()
+            ),
+            false,
+        ),
+        (format!("$a: {};", "url(".repeat(2 * k)), false),
+        (format!("$a: {};", "url(#{".repeat(k)), false),
     ];
-    for src in shapes {
+    for (src, budgeted) in shapes {
         let table = extract(&src);
         let size = table.to_bytes().len();
         let head = &src[..60];
         assert!(src.len() > 1 << 20, "{} bytes for {head}", src.len());
         assert!(size < 30 * src.len(), "{size} bytes from {} for {head}", src.len());
-        assert!(
-            table.warnings().iter().all(|w| w.contains("output budget exceeded")),
-            "{:?} for {head}",
-            table.warnings()
-        );
+        let warnings = table.warnings();
+        match budgeted {
+            false => assert!(
+                warnings.iter().all(|w| w.contains("unclosed")),
+                "{warnings:?} for {head}"
+            ),
+            true => assert!(
+                warnings.len() == 1 && warnings[0].contains("output budget exceeded"),
+                "{warnings:?} for {head}"
+            ),
+        }
+    }
+}
+
+/// A `url(` that never closes is read once, not once per later `url(`: lexing a megabyte of
+/// them takes well under the seconds a rescan per `url(` would.
+#[test]
+fn unclosed_urls_lex_in_linear_time() {
+    for src in [
+        "url(".repeat(1 << 18),
+        "url(#{".repeat(1 << 17),
+        "a url(b ".repeat(1 << 17),
+    ] {
+        let start = std::time::Instant::now();
+        let table = extract(&src);
+        let elapsed = start.elapsed();
+        assert!(elapsed < std::time::Duration::from_secs(10), "{elapsed:?}");
+        assert!(table.to_bytes().len() < src.len());
     }
 }
 

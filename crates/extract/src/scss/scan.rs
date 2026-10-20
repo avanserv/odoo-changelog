@@ -66,41 +66,87 @@ fn is_word_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b >= 0x80
 }
 
-/// The end of the string quoted at `at`, and whether it closed before the end of its line.
+/// Where a string scan stands: in a string with its quote, or in an interpolation inside one
+/// with its brace depth.
+enum Nested {
+    Str(u8),
+    Interp(usize),
+}
+
+/// The end of the string quoted at `at`, and whether it closed before the end of its line. An
+/// interpolation inside it may hold strings of either quote; a stack, not recursion, tracks them.
 fn string_end(src: &[u8], at: usize) -> (usize, bool) {
-    let quote = src[at];
+    let mut stack = vec![Nested::Str(src[at])];
     let mut j = at + 1;
     while j < src.len() {
-        match src[j] {
-            b'\\' => j += 2,
-            b'\n' => return (j, false),
-            b if b == quote => return (j + 1, true),
-            _ => j += 1,
+        let b = src[j];
+        match stack.last_mut().expect("the scan stops when the stack empties") {
+            Nested::Str(quote) => match b {
+                b'\\' if src[j + 1..].starts_with(b"\r\n") => j += 2,
+                b'\\' => j += 1,
+                b'\n' => return (j, false),
+                b'#' if src.get(j + 1) == Some(&b'{') => {
+                    stack.push(Nested::Interp(1));
+                    j += 1;
+                }
+                b if b == *quote => {
+                    stack.pop();
+                    if stack.is_empty() {
+                        return (j + 1, true);
+                    }
+                }
+                _ => {}
+            },
+            Nested::Interp(depth) => match b {
+                b'{' => *depth += 1,
+                b'}' if *depth == 1 => {
+                    stack.pop();
+                }
+                b'}' => *depth -= 1,
+                b'"' | b'\'' => stack.push(Nested::Str(b)),
+                _ => {}
+            },
         }
+        j += 1;
     }
     (src.len(), false)
 }
 
-/// The end of an unquoted `url(...)` starting at `at`, if there is one there.
-fn url_end(src: &[u8], at: usize) -> Option<usize> {
+/// The end of an unquoted `url(...)` starting at `at`, if there is one there: the first `)`
+/// outside interpolation on its line. A scan that finds none moves `fail` to where it stopped,
+/// and a later `url(` before that point is no url either, so each byte is scanned once.
+fn url_end(src: &[u8], at: usize, fail: &mut usize) -> Option<usize> {
     let head = src.get(at..at + 4)?;
     if !head.eq_ignore_ascii_case(b"url(") || (at > 0 && is_word_byte(src[at - 1])) {
         return None;
     }
     let inner = at + 4 + src[at + 4..].iter().take_while(|b| is_space(**b)).count();
-    if matches!(src.get(inner), Some(b'"' | b'\'')) {
+    if matches!(src.get(inner), Some(b'"' | b'\'')) || inner < *fail {
         return None;
     }
-    src[inner..]
-        .iter()
-        .position(|&b| b == b')')
-        .map(|close| inner + close + 1)
+    let (mut depth, mut j) = (0usize, inner);
+    while j < src.len() {
+        match src[j] {
+            b'#' if src.get(j + 1) == Some(&b'{') => {
+                depth += 1;
+                j += 1;
+            }
+            b'{' if depth > 0 => depth += 1,
+            b'}' if depth > 0 => depth -= 1,
+            b')' if depth == 0 => return Some(j + 1),
+            b'\n' => break,
+            _ => {}
+        }
+        j += 1;
+    }
+    *fail = j;
+    None
 }
 
 /// The tokens of `src` from `start`, past a BOM.
 pub(super) fn lex(src: &[u8], start: usize, lines: &Lines, warnings: &mut Warnings) -> Vec<Token> {
     let mut tokens = Vec::new();
-    let mut i = start;
+    let (mut i, mut url_fail) = (start, 0);
     while i < src.len() {
         let b = src[i];
         let next = src.get(i + 1).copied();
@@ -128,7 +174,7 @@ pub(super) fn lex(src: &[u8], start: usize, lines: &Lines, warnings: &mut Warnin
             (Kind::Interp, interpolation_end(src, i, lines, warnings))
         } else if is_punct(b) {
             (Kind::Punct(b), i + 1)
-        } else if let Some(end) = url_end(src, i) {
+        } else if let Some(end) = url_end(src, i, &mut url_fail) {
             (Kind::Url, end)
         } else {
             let mut j = i + 1;
@@ -354,6 +400,25 @@ mod tests {
                 (Kind::Punct(b';'), ";"),
             ]
         );
+    }
+
+    #[test]
+    fn urls_skip_interpolation_and_strings_nest_it() {
+        let (tokens, warnings) = lexed("url(#{map-get($m, k)}/x.png) \"a #{\"b\"} c\" 'd\\\r\ne' x");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let kinds: Vec<(Kind, &str)> = tokens.iter().map(|(k, t)| (*k, t.as_str())).collect();
+        assert_eq!(
+            kinds,
+            [
+                (Kind::Url, "url(#{map-get($m, k)}/x.png)"),
+                (Kind::Str, "\"a #{\"b\"} c\""),
+                (Kind::Str, "'d\\\r\ne'"),
+                (Kind::Word, "x"),
+            ]
+        );
+        let (tokens, _) = lexed("url(a\nb) url(c)");
+        assert_eq!(tokens[0], (Kind::Word, "url".to_string()));
+        assert_eq!(tokens.last().unwrap(), &(Kind::Url, "url(c)".to_string()));
     }
 
     #[test]

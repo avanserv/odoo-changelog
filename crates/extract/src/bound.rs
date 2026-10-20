@@ -1,11 +1,18 @@
 //! What keeps one file's output linear in its size: a bound on the text a symbol may repeat, and
 //! a budget on the bytes a file may give.
 
-use crate::Symbol;
 use crate::hash::digest;
+use crate::{Symbol, SymbolTable};
 
 /// The most bytes of input-derived text an extractor repeats as written, per copy.
 pub(crate) const MAX_TEXT: usize = 256;
+
+/// An upper estimate of a symbol's serialized bytes beyond its name and attr texts, for
+/// charging the budget before a symbol is built.
+pub(crate) const ENVELOPE: usize = 128;
+
+/// Warnings past this many are summed up in one by `warn_capped`.
+const MAX_WARNINGS: usize = 10;
 
 /// The longest last segment `bounded` keeps.
 const MAX_TAIL: usize = 64;
@@ -63,14 +70,35 @@ impl Budget {
 
     /// `afford` for `symbol`'s serialized size, at its span.
     pub(crate) fn symbol(&mut self, symbol: &Symbol) -> bool {
+        self.symbol_at(symbol, symbol.span.start as usize)
+    }
+
+    /// `afford` for `symbol`'s serialized size, at position `at`.
+    pub(crate) fn symbol_at(&mut self, symbol: &Symbol, at: usize) -> bool {
         let size = serde_json::to_vec(symbol).map_or(usize::MAX, |b| b.len());
-        self.afford(size, symbol.span.start as usize)
+        self.afford(size, at)
     }
 
     /// `output budget exceeded; <n> <items> dropped`, at the first dropped item's position.
     pub(crate) fn warning(&self, items: &str) -> Option<(usize, String)> {
         self.dropped
             .map(|(count, at)| (at, format!("output budget exceeded; {count} {items} dropped")))
+    }
+}
+
+/// Records `warnings` in position order, past `MAX_WARNINGS` summed up in one, then the
+/// budget's own warning whatever their number, since it says symbols are missing.
+pub(crate) fn warn_capped(table: &mut SymbolTable, mut warnings: Vec<(usize, String)>, budget: &Budget, items: &str) {
+    warnings.sort_by_key(|(at, _)| *at);
+    let more = warnings.len().saturating_sub(MAX_WARNINGS);
+    for (_, warning) in warnings.into_iter().take(MAX_WARNINGS) {
+        table.warn(warning);
+    }
+    if more > 0 {
+        table.warn(format!("{more} more warnings"));
+    }
+    if let Some((_, warning)) = budget.warning(items) {
+        table.warn(warning);
     }
 }
 
@@ -85,6 +113,21 @@ mod tests {
         assert!(long.starts_with('~') && long.ends_with(".registry"), "{long}");
         assert_eq!(long.len(), 1 + 32 + ".registry".len());
         assert_eq!(bounded(format!("{}/{}", "a".repeat(300), "b".repeat(100))).len(), 33);
+    }
+
+    #[test]
+    fn capped_warnings_keep_the_budgets_own() {
+        let mut budget = Budget::new(b"", 0, 0);
+        assert!(!budget.afford(1, 0));
+        let warnings = (0..20).rev().map(|i| (i, format!("w{i}"))).collect();
+        let mut table = SymbolTable::default();
+        warn_capped(&mut table, warnings, &budget, "symbols");
+        let got = table.warnings();
+        assert_eq!((got.len(), got[0].as_str(), got[9].as_str()), (12, "w0", "w9"));
+        assert_eq!(
+            got[10..],
+            ["10 more warnings", "output budget exceeded; 1 symbols dropped"]
+        );
     }
 
     #[test]

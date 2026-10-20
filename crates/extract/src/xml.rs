@@ -9,12 +9,18 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
+use crate::bound::{Budget, bounded};
 use crate::data::{ACTION, DATA_FUNCTION, DELETE, MENU, RECORD, VIEW, VIEW_NODE, kind_of};
 use crate::hash::digest;
 use crate::{Span, Symbol, SymbolTable};
 use dom::{Attr, Element, Node, elements};
 
 const ROOTS: [&str; 3] = ["odoo", "openerp", "data"];
+
+/// The serialized symbols one file may give, per byte of it plus a constant, past which the
+/// walker drops the symbols it has yet to give and warns once.
+const OUTPUT_PER_BYTE: usize = 24;
+const OUTPUT_SLACK: usize = 1 << 20;
 
 pub(crate) fn extract(blob: &[u8]) -> SymbolTable {
     let doc = dom::parse(blob, |tag| ROOTS.contains(&tag));
@@ -35,7 +41,7 @@ pub(crate) fn extract(blob: &[u8]) -> SymbolTable {
         None if empty => {}
         None => walker.warnings.push((1, "line 1: no root element".into())),
     }
-    walker.finish()
+    walker.finish(Budget::new(blob, OUTPUT_PER_BYTE, OUTPUT_SLACK))
 }
 
 /// Odoo's `nodeattr2bool` and `str2bool`, trimmed and in any case; a value they reject inherits.
@@ -251,32 +257,47 @@ impl<'d> Walker<'d> {
         }
     }
 
-    fn finish(self) -> SymbolTable {
+    /// Each declaration, then its view's nodes, named under its id as `bounded` keeps it since
+    /// every node repeats it, in `(kind, name)` order within the budget.
+    fn finish(self, mut budget: Budget) -> SymbolTable {
         let mut table = SymbolTable::default();
+        let mut keep = |table: &mut SymbolTable, symbol: Symbol| {
+            if budget.symbol_at(&symbol, symbol.line as usize) {
+                table.insert(symbol);
+            }
+        };
         for ((kind, name), decl) in &self.decls {
             let (attrs, nodes) = attrs(kind, decl);
-            for node in nodes {
-                let mut node_attrs = BTreeMap::from([("count".to_string(), Value::from(node.count))]);
-                if !node.path.is_empty() {
-                    node_attrs.insert("path".into(), node.path.into());
-                }
-                table.insert(Symbol {
-                    kind: VIEW_NODE.into(),
-                    name: format!("{name}#{}", node.key),
-                    line: node.line,
-                    span: node.span,
-                    attrs: node_attrs,
-                });
-            }
-            table.insert(Symbol {
+            let symbol = Symbol {
                 kind: (*kind).into(),
                 name: name.clone(),
                 line: decl.line,
                 span: decl.span,
                 attrs,
-            });
+            };
+            keep(&mut table, symbol);
+            let owner = if nodes.is_empty() {
+                String::new()
+            } else {
+                bounded(name.clone())
+            };
+            for node in nodes {
+                let mut node_attrs = BTreeMap::from([("count".to_string(), Value::from(node.count))]);
+                if !node.path.is_empty() {
+                    node_attrs.insert("path".into(), node.path.into());
+                }
+                let symbol = Symbol {
+                    kind: VIEW_NODE.into(),
+                    name: format!("{owner}#{}", node.key),
+                    line: node.line,
+                    span: node.span,
+                    attrs: node_attrs,
+                };
+                keep(&mut table, symbol);
+            }
         }
         let mut warnings = self.warnings;
+        warnings.extend(budget.warning("symbols").map(|(line, w)| (line as u32, w)));
         warnings.sort_by_key(|(line, _)| *line);
         for (_, warning) in warnings {
             table.warn(warning);

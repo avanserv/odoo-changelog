@@ -10,7 +10,7 @@ use std::rc::Rc;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::bound::{Budget, bounded};
+use crate::bound::{Budget, ENVELOPE, bounded, warn_capped};
 use crate::hash::digest;
 use crate::path::{static_addon, static_file};
 use crate::{Extractor, Span, Symbol, SymbolTable};
@@ -31,9 +31,6 @@ const MAX_WITHIN: usize = 8;
 /// reader drops what it has yet to give and warns once.
 const OUTPUT_PER_BYTE: usize = 24;
 const OUTPUT_SLACK: usize = 1 << 20;
-
-/// Warnings past this many are summed up in one.
-const MAX_WARNINGS: usize = 10;
 
 pub struct Scss;
 
@@ -94,37 +91,53 @@ fn read(blob: &[u8]) -> SymbolTable {
 
 /// The headers of the control blocks around a statement, outermost first, each `bounded`.
 /// Past `MAX_WITHIN` levels, the last entry is `~<hash>` of the headers from that level on, so
-/// that no statement repeats more than a bounded text.
+/// that no statement repeats more than a bounded text, and a level costs a bounded size too.
 #[derive(Default)]
 struct Within {
-    headers: Vec<String>,
-    /// From the `MAX_WITHIN`th level on, the headers hashed so far.
-    fold: Option<blake3::Hasher>,
+    /// The first headers, up to `MAX_WITHIN - 1`, shared by every deeper level.
+    lead: Rc<Vec<String>>,
+    /// The `MAX_WITHIN`th entry: that level's header, or `~<hash>` below it.
+    last: Option<String>,
+    /// From the `MAX_WITHIN`th level on, the digest of the headers, each chained to the last.
+    fold: Option<[u8; 32]>,
 }
 
 impl Within {
     fn nest(&self, header: String) -> Within {
         let header = bounded(header);
-        let mut fold = self.fold.clone();
-        if fold.is_none() && self.headers.len() + 1 < MAX_WITHIN {
-            let mut headers = self.headers.clone();
-            headers.push(header);
-            return Within { headers, fold };
+        if self.last.is_none() && self.lead.len() + 1 < MAX_WITHIN {
+            let mut lead = (*self.lead).clone();
+            lead.push(header);
+            return Within {
+                lead: Rc::new(lead),
+                last: None,
+                fold: None,
+            };
         }
-        let hasher = fold.get_or_insert_with(blake3::Hasher::new);
+        let mut hasher = blake3::Hasher::new();
+        if let Some(fold) = &self.fold {
+            hasher.update(fold);
+            hasher.update(&[0]);
+        }
         hasher.update(header.as_bytes());
-        hasher.update(&[0]);
-        let mut headers = self.headers[..self.headers.len().min(MAX_WITHIN - 1)].to_vec();
-        headers.push(if self.fold.is_none() {
-            header
-        } else {
-            format!("~{}", digest(hasher))
-        });
-        Within { headers, fold }
+        let last = match self.last {
+            None => header,
+            Some(_) => format!("~{}", digest(&hasher)),
+        };
+        Within {
+            lead: self.lead.clone(),
+            last: Some(last),
+            fold: Some(*hasher.finalize().as_bytes()),
+        }
+    }
+
+    fn entries(&self) -> Vec<&str> {
+        self.lead.iter().chain(&self.last).map(String::as_str).collect()
     }
 
     fn value(&self) -> Option<Value> {
-        (!self.headers.is_empty()).then(|| self.headers.iter().map(|h| Value::from(h.as_str())).collect())
+        let entries = self.entries();
+        (!entries.is_empty()).then(|| entries.into_iter().map(Value::from).collect())
     }
 }
 
@@ -244,7 +257,7 @@ impl Reader<'_> {
                 }
             }
             None => {
-                if self.budget.afford(entry_size + name.len() + 64, name_token.start) {
+                if self.budget.afford(entry_size + name.len() + ENVELOPE, name_token.start) {
                     let span = Self::span(name_token);
                     let variable = Variable {
                         span,
@@ -376,16 +389,7 @@ impl Reader<'_> {
                 attrs,
             });
         }
-        let mut warnings = self.warnings;
-        warnings.extend(self.budget.warning("declarations"));
-        warnings.sort_by_key(|(at, _)| *at);
-        let more = warnings.len().saturating_sub(MAX_WARNINGS);
-        for (_, warning) in warnings.into_iter().take(MAX_WARNINGS) {
-            self.table.warn(warning);
-        }
-        if more > 0 {
-            self.table.warn(format!("{more} more warnings"));
-        }
+        warn_capped(&mut self.table, self.warnings, &self.budget, "declarations");
         self.table
     }
 }
@@ -435,14 +439,19 @@ mod tests {
         for i in 0..MAX_WITHIN {
             within = within.nest(format!("@if {i}"));
         }
-        assert_eq!(within.headers.len(), MAX_WITHIN);
-        assert_eq!(within.headers[MAX_WITHIN - 1], format!("@if {}", MAX_WITHIN - 1));
+        let entries = within.entries();
+        assert_eq!(entries.len(), MAX_WITHIN);
+        assert_eq!(entries[MAX_WITHIN - 1], format!("@if {}", MAX_WITHIN - 1));
         let deeper = within.nest("@if x".into());
         let other = within.nest("@if y".into());
-        assert_eq!(deeper.headers.len(), MAX_WITHIN);
-        assert_eq!(deeper.headers[..MAX_WITHIN - 1], within.headers[..MAX_WITHIN - 1]);
-        assert!(deeper.headers[MAX_WITHIN - 1].starts_with('~'));
-        assert_ne!(deeper.headers, other.headers);
-        assert_eq!(deeper.nest("@if z".into()).headers.len(), MAX_WITHIN);
+        let deep = deeper.entries();
+        assert_eq!(deep.len(), MAX_WITHIN);
+        assert_eq!(deep[..MAX_WITHIN - 1], entries[..MAX_WITHIN - 1]);
+        assert!(deep[MAX_WITHIN - 1].starts_with('~'));
+        assert_ne!(deep, other.entries());
+        let deepest = deeper.nest("@if z".into());
+        assert_eq!(deepest.entries().len(), MAX_WITHIN);
+        assert_ne!(deepest.entries(), deep);
+        assert!(Rc::ptr_eq(&deepest.lead, &within.lead));
     }
 }
