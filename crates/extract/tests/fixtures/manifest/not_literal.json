@@ -1,0 +1,32 @@
+{
+  "symbols": [
+    {
+      "kind": "module",
+      "qualname": "not_literal",
+      "line": 3,
+      "span": {
+        "start": 23,
+        "end": 230
+      },
+      "attrs": {
+        "data": {
+          "expr": "glob('views/*.xml')"
+        },
+        "depends": [
+          "garden_base"
+        ],
+        "license": "LGPL-3",
+        "name": "Compost Log",
+        "version": {
+          "expr": "VERSION"
+        }
+      }
+    }
+  ],
+  "warnings": [
+    "line 1: import_from_statement outside the manifest dictionary ignored",
+    "line 8: **extra is not a key-value pair; ignored",
+    "line 9: key 1 is not a string; ignored",
+    "line 10: duplicate key 'data'; the last one wins"
+  ]
+}

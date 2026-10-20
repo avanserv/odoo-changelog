@@ -1,0 +1,54 @@
+{
+  "symbols": [
+    {
+      "kind": "module",
+      "qualname": "v12",
+      "line": 4,
+      "span": {
+        "start": 111,
+        "end": 1038
+      },
+      "attrs": {
+        "application": true,
+        "auto_install": false,
+        "category": "Gardening",
+        "data": [
+          "security/ir.model.access.csv",
+          "views/garden_bed_views.xml",
+          "views/sowing_views.xml",
+          "data/plant_data.xml"
+        ],
+        "demo": [
+          "demo/garden_demo.xml"
+        ],
+        "depends": [
+          "plant_base",
+          "calendar",
+          "mail"
+        ],
+        "description": "\nGarden Planner\n==============\nLay out beds, schedule sowing and record what each plot gives.\n    ",
+        "external_dependencies": {
+          "bin": [
+            "moonphase"
+          ],
+          "python": [
+            "soilkit"
+          ]
+        },
+        "installable": true,
+        "license": "LGPL-3",
+        "name": "Garden Planner",
+        "post_init_hook": "_seed_default_beds",
+        "qweb": [
+          "static/src/xml/planner.xml"
+        ],
+        "sequence": "12",
+        "summary": "Plan beds, sow seeds and track harvests",
+        "uninstall_hook": "uninstall_hook",
+        "version": "1.3",
+        "website": "https://example.com/garden"
+      }
+    }
+  ],
+  "warnings": []
+}

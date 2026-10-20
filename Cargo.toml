@@ -20,7 +20,8 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1.1"
-# Pinned: their parse trees are extractor output, so a bump goes with a `Python::version()` bump.
+# Pinned: their parse trees are extractor output, so a bump goes with a `version()` bump of every
+# extractor built on them (`python`, `manifest`).
 tree-sitter = "=0.27.1"
 tree-sitter-python = "=0.25.0"
 tracing = "0.1"

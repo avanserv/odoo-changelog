@@ -1,0 +1,89 @@
+{
+  "symbols": [
+    {
+      "kind": "module",
+      "qualname": "v19",
+      "line": 1,
+      "span": {
+        "start": 0,
+        "end": 1627
+      },
+      "attrs": {
+        "assets": {
+          "web.assets_backend": [
+            "orchard_tours/static/src/views/*.js",
+            "orchard_tours/static/src/views/*.xml",
+            [
+              "remove",
+              "orchard_tours/static/src/views/legacy/**/*"
+            ],
+            [
+              "after",
+              "web/static/src/core/main.js",
+              "orchard_tours/static/src/boot.js"
+            ],
+            [
+              "before",
+              "web/static/src/start.js",
+              "orchard_tours/static/src/early.js"
+            ],
+            [
+              "replace",
+              "web/static/src/old_widget.js",
+              "orchard_tours/static/src/widget.js"
+            ]
+          ],
+          "web.assets_frontend": [
+            "orchard_tours/static/src/js/**/*",
+            [
+              "include",
+              "web._assets_helpers"
+            ],
+            [
+              "prepend",
+              "orchard_tours/static/src/scss/primary_variables.scss"
+            ]
+          ],
+          "web.assets_tests": [
+            "orchard_tours/static/tests/tours/*.js"
+          ]
+        },
+        "author": "Example Growers",
+        "auto_install": [
+          "orchard_base"
+        ],
+        "category": "Website/Tours",
+        "configurator_snippets": {
+          "about_us": [
+            "s_company_team"
+          ],
+          "homepage": [
+            "s_banner",
+            "s_text_image"
+          ]
+        },
+        "countries": [
+          "be",
+          "fr"
+        ],
+        "data": [
+          "security/orchard_security.xml",
+          "security/ir.model.access.csv",
+          "views/tour_views.xml",
+          "views/tour_templates.xml"
+        ],
+        "depends": [
+          "website",
+          "orchard_base",
+          "calendar"
+        ],
+        "license": "OEEL-1",
+        "name": "Orchard Tours",
+        "post_init_hook": "_post_init_hook",
+        "summary": "Book guided walks through the orchard",
+        "version": "1.2"
+      }
+    }
+  ],
+  "warnings": []
+}

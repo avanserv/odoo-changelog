@@ -14,7 +14,7 @@ use common::{Fixture, config, dump, git, init, odoo_changelog, rev_parse, setup,
 use gix::ObjectId;
 use odoo_changelog::extract::{Options, Timings, run};
 use odoo_changelog_core::{Config, Version};
-use odoo_changelog_extract::{Extractor, Python, Registry, Span, Symbol, SymbolTable};
+use odoo_changelog_extract::{Extractor, Manifest, Python, Registry, Span, Symbol, SymbolTable};
 use odoo_changelog_git::{FileChange, FileSide, Repo};
 use odoo_changelog_store::Store;
 use rusqlite::Connection;
@@ -261,8 +261,8 @@ fn version_bump_invalidates_only_that_extractor() {
 }
 
 /// About 30 commits across 16.0, 17.0 and master: forward-port merges, renames, deletions,
-/// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, and a model
-/// file for `Python` that gains a field and renames a method.
+/// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, a manifest per
+/// module for `Manifest`, and a model file for `Python` that gains a field and renames a method.
 fn busy(name: &str) -> (PathBuf, PathBuf) {
     let (dir, mut fx, clone) = setup(name);
     for round in 0..3 {
@@ -270,8 +270,12 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
             fx.git(&["checkout", "-q", branch]);
             let m = format!("addons/m{branch}_{round}");
             let body = format!("def a: {branch} {round}\ndef b: same\ndef c: {round}\n");
+            // A directory with a dot is no module name, so the manifest goes in a sibling.
+            let module = format!("addons/m{}_{round}", branch.replace('.', ""));
+            let manifest = format!("{{'name': 'M', 'depends': ['base', 'm{branch}_{round}']}}\n");
             fx.commit_files(
                 &[
+                    (&format!("{module}/__manifest__.py"), &manifest),
                     (&format!("{m}/__init__.py"), "def init: shared\n"),
                     (&format!("{m}/models.py"), &body),
                     (&format!("{m}/views.xml"), &format!("def v: {branch}\n")),
@@ -323,7 +327,7 @@ fn thread_count_does_not_change_the_database() {
             threads: NonZeroUsize::new(threads),
             ..options()
         };
-        extract(&cfg, vec![py, xml, Box::new(Python)], &opts);
+        extract(&cfg, vec![py, xml, Box::new(Manifest), Box::new(Python)], &opts);
         dumps.push(dump(&dir.join(format!("t{threads}.db"))));
     }
     let n = dumps[0].iter().filter(|r| r.starts_with("events: ")).count();
@@ -335,7 +339,7 @@ fn thread_count_does_not_change_the_database() {
         EXISTS (SELECT 1 FROM extracted e WHERE e.sha = c.sha) OR EXISTS (SELECT 1 FROM events e WHERE e.sha = c.sha))";
     assert_eq!(count(&db, merges, []), 0, "a merge was extracted");
     let unmarked = "SELECT COUNT(*) FROM commits c WHERE is_merge = 0
-        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 3";
+        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 4";
     assert_eq!(
         count(&db, unmarked, []),
         0,
@@ -343,6 +347,8 @@ fn thread_count_does_not_change_the_database() {
     );
     let python = "SELECT COUNT(*) FROM events WHERE extractor = 'python' AND path = ?1";
     assert!(count(&db, python, [SALE_EXT]) >= 4, "python gave too few events");
+    let modules = "SELECT COUNT(*) FROM events WHERE extractor = 'manifest' AND op = 'added'";
+    assert_eq!(count(&db, modules, []), 9, "one module per [ADD] commit");
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
     let broken = rev_parse(&clone, "origin/master~3");
@@ -686,6 +692,83 @@ fn builtin_python_extractor_records_model_events() {
     );
     assert_eq!(at("origin/master~2"), []);
     assert_eq!(at("origin/master~1"), [field("changed")]);
+}
+
+/// `(op, qualname, old_path, attrs_after)` of the manifest events of `sha`.
+fn module_events(db: &Path, sha: &str) -> Vec<(String, String, Option<String>, Option<String>)> {
+    let conn = Connection::open(db).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.op, s.qualname, e.old_path, e.attrs_after FROM events e JOIN symbols s ON s.id = e.symbol_id
+              WHERE e.sha = ?1 AND e.extractor = 'manifest' ORDER BY e.path, s.qualname",
+        )
+        .unwrap();
+    stmt.query_map([sha], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn builtin_manifest_extractor_records_module_events() {
+    let (dir, mut fx, clone) = setup("extract-manifest");
+    let openerp = "addons/sale/__openerp__.py";
+    let manifest = "addons/sale/__manifest__.py";
+    let model = "class SaleOrder(models.Model):\n    _name = 'sale.order'\n";
+    let base = "{'name': 'Sales', 'depends': ['sales_team', 'payment', 'portal']}\n";
+    fx.commit_files(
+        &[(openerp, base), ("addons/sale/models/sale.py", model)],
+        "[ADD] sale: manifest",
+    );
+    fx.mv(openerp, manifest, "[MOV] sale: rename the manifest");
+    let edited = "{'name': 'Sales', 'depends': ['sales_team', 'account_payment', 'utm'],\n 'assets': {'web.assets_backend': ['sale/static/src/**/*', ('remove', 'sale/static/src/old/*')]}}\n";
+    fx.commit_files(&[(manifest, edited)], "[IMP] sale: depends and assets");
+    let reformatted = "{\n    \"name\": \"Sales\",\n    \"depends\": [\"sales_team\", \"account_payment\", \"utm\"],\n    \"assets\": {\n        \"web.assets_backend\": [\n            \"sale/static/src/**/*\",\n            (\"remove\", \"sale/static/src/old/*\"),\n        ],\n    },\n}\n";
+    fx.commit_files(&[(manifest, reformatted)], "[REF] sale: reformat the manifest");
+    fx.commit_files(
+        &[(manifest, "{'name': 'Sales', 'depends': ['sales_team',\n")],
+        "[BRK] sale",
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+
+    let out = odoo_changelog(&cfg, &["extract"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(output.contains("gave warnings"), "{output}");
+
+    let db = dir.join("walk.db");
+    let at = |rev: &str| module_events(&db, &rev_parse(&clone, rev));
+    let added = at("origin/master~4");
+    assert_eq!(added.len(), 1, "{added:?}");
+    assert_eq!((added[0].0.as_str(), added[0].1.as_str()), ("added", "sale"));
+    let on_manifests = "SELECT COUNT(*) FROM events WHERE path IN (?1, ?2) AND extractor != 'manifest'";
+    assert_eq!(count(&db, on_manifests, [openerp, manifest]), 0);
+
+    let moved = at("origin/master~3");
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert_eq!(
+        (moved[0].0.as_str(), moved[0].1.as_str(), moved[0].2.as_deref()),
+        ("moved", "sale", Some(openerp))
+    );
+
+    let changed = at("origin/master~2");
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0].0, "changed");
+    let after = changed[0].3.as_deref().unwrap();
+    assert!(
+        after.contains(r#""depends":["sales_team","account_payment","utm"]"#),
+        "{after}"
+    );
+    let bundle = r#""web.assets_backend":["sale/static/src/**/*",["remove","sale/static/src/old/*"]]"#;
+    assert!(after.contains(bundle), "{after}");
+
+    assert_eq!(at("origin/master~1"), []);
 }
 
 #[test]
