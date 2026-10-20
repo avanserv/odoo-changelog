@@ -109,8 +109,6 @@
       "attrs": {
         "action": "base.action_settings",
         "declared": "menuitem",
-        "name": "Settings",
-        "parent": "demo.menu_demo_config",
         "sequence": "99"
       }
     }

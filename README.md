@@ -120,21 +120,21 @@ module's record has a history of its own. Declarations of one id in a file merge
 fields winning, as Odoo updates the record. `declared` says which tag declared the symbol, so a
 `<report>` that became an `ir.actions.report` record is one `changed` event.
 
-A view records its `model`, `type`, `inherit_id`, `priority`, `mode` and an `arch` hash. Every
-node of its arch with a `name`, `id` or `t-name` attribute is a `view_node`, keyed like
-`button[@id='action_confirm']`, with a `count` (above 1, a shorthand spec matches the first) and
-the `path` of its named ancestors. An inheriting view lists its `specs` in the order Odoo applies
-them: an `xpath` gives its `expr`, any other spec a `target` keyed like a node, so that
-`field[@name='partner_id']` joins the node it changes; the nodes its specs add are its own.
-Other records keep `name`, `model`, `res_model` and a `model_id` reference in clear, and hash
-everything else into `values`. Arch and markup hashes ignore indentation, comments, attribute
-order and how a character is escaped; plain field text is hashed as written, since Odoo stores
-it verbatim. Menuitems and access rows keep every attribute or cell in clear.
+A view records its `model`, `type`, `inherit_id`, `priority`, `mode`, an `arch` hash and a `values`
+hash of its other fields. Every node of its arch with a `name`, `id` or `t-name` attribute is a
+`view_node`, keyed like `button[@id='action_confirm']`, with a `count` (above 1, a shorthand spec
+matches the first) and the `path` of its named ancestors. An inheriting view lists its `specs` in
+the order Odoo applies them: an `xpath` gives its `expr`, any other spec a `target` keyed like a
+node, so that `field[@name='partner_id']` joins the node it changes; the nodes its specs add are its
+own. Other records keep `name`, `model`, `res_model` and a `model_id` reference in clear, and hash
+everything else into `values`. Arch and markup hashes ignore whitespace runs, comments, attribute
+order and how a character is escaped; plain field text is hashed as written, since Odoo stores it
+verbatim. Menuitems and access rows keep every attribute or cell in clear.
 
 A file with a syntax error keeps the declarations closed before it, and leaves a warning.
 
-On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) with both extractors
-takes 123 s with an empty cache and 31 s with a warm one (2026-10-20).
+On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) with the three
+extractors takes 130 s with an empty cache and 42 s with a warm one (2026-10-20).
 
 ## Contributing
 

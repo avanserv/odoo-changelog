@@ -1,6 +1,6 @@
 //! A small owned tree of an XML blob, as lxml would give Odoo: decoded per the declaration,
 //! references resolved, comments and processing instructions dropped. Spans are byte offsets
-//! into the blob, exact for UTF-8 and approximate after transcoding or a lossy decode.
+//! into the blob, mapped back through any transcoding or replaced invalid bytes.
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
@@ -13,6 +13,10 @@ use quick_xml::reader::Reader;
 use crate::Span;
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
+
+/// libxml2's limit without `XML_PARSE_HUGE`, so lxml refuses deeper files too. It also bounds
+/// the recursion of every walk over the tree.
+const MAX_DEPTH: usize = 256;
 
 pub(crate) struct Element {
     pub tag: String,
@@ -71,13 +75,12 @@ pub(crate) fn elements(nodes: &[Node]) -> impl Iterator<Item = &Element> {
 pub(crate) fn parse(blob: &[u8], keep: impl Fn(&str) -> bool) -> Document {
     let offset = if blob.starts_with(BOM) { BOM.len() } else { 0 };
     let body = &blob[offset..];
-    let text = match declared_encoding(body).and_then(encoding_rs::Encoding::for_label) {
-        Some(encoding) if encoding != encoding_rs::UTF_8 => encoding.decode_without_bom_handling(body).0,
-        _ => String::from_utf8_lossy(body),
-    };
+    let (text, offsets) = decode(body);
     let mut parser = Parser {
         text: &text,
-        offset: offset as u32,
+        offset,
+        len: body.len(),
+        offsets,
         newlines: text.match_indices('\n').map(|(i, _)| i).collect(),
         open: Vec::new(),
         root: None,
@@ -90,6 +93,59 @@ pub(crate) fn parse(blob: &[u8], keep: impl Fn(&str) -> bool) -> Document {
     Document {
         root: parser.root,
         warnings: parser.warnings,
+    }
+}
+
+/// `body` as UTF-8, transcoded from the declared encoding or with invalid bytes replaced, and
+/// where its offsets sit in `body` when they differ.
+fn decode(body: &[u8]) -> (Cow<'_, str>, Offsets) {
+    if let Some(encoding) = declared_encoding(body).and_then(encoding_rs::Encoding::for_label)
+        && encoding != encoding_rs::UTF_8
+    {
+        let mut decoder = encoding.new_decoder_without_bom_handling();
+        let (mut text, mut offsets, mut start) = (String::new(), Vec::new(), 0);
+        for i in 0..body.len() {
+            let before = text.len();
+            text.reserve(16);
+            let _ = decoder.decode_to_string(&body[i..=i], &mut text, i + 1 == body.len());
+            if text.len() > before {
+                offsets.push((before, start));
+                start = i + 1;
+            }
+        }
+        return (Cow::Owned(text), Offsets(offsets));
+    }
+    if let Ok(text) = std::str::from_utf8(body) {
+        return (Cow::Borrowed(text), Offsets::default());
+    }
+    let (mut text, mut offsets) = (String::new(), Vec::new());
+    for chunk in body.utf8_chunks() {
+        let source = chunk.valid().as_ptr() as usize - body.as_ptr() as usize;
+        offsets.push((text.len(), source));
+        text.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            offsets.push((text.len(), source + chunk.valid().len()));
+            text.push(char::REPLACEMENT_CHARACTER);
+        }
+    }
+    (Cow::Owned(text), Offsets(offsets))
+}
+
+/// `(text offset, body offset)` pairs in order: text from each pair on maps byte for byte to the
+/// body until the next one, which is exact at every character boundary. Empty when the text is
+/// the body.
+#[derive(Default)]
+struct Offsets(Vec<(usize, usize)>);
+
+impl Offsets {
+    /// Within `len`, the body's length: a replacement character is longer than the bytes it
+    /// stands for.
+    fn source(&self, at: usize, len: usize) -> usize {
+        let mapped = match self.0.partition_point(|&(text, _)| text <= at) {
+            0 => at,
+            i => self.0[i - 1].1 + (at - self.0[i - 1].0),
+        };
+        mapped.min(len)
     }
 }
 
@@ -106,8 +162,11 @@ fn declared_encoding(body: &[u8]) -> Option<&[u8]> {
 
 struct Parser<'t> {
     text: &'t str,
-    /// Bytes before `text` in the blob: a BOM.
-    offset: u32,
+    /// Bytes before the body in the blob: a BOM.
+    offset: usize,
+    /// The body's length.
+    len: usize,
+    offsets: Offsets,
     newlines: Vec<usize>,
     open: Vec<Element>,
     root: Option<Element>,
@@ -136,6 +195,11 @@ impl<'t> Parser<'t> {
                 return;
             }
             match event {
+                Event::Start(_) if self.open.len() == MAX_DEPTH => {
+                    let line = self.line(at);
+                    self.warn(line, format!("nesting deeper than {MAX_DEPTH}"));
+                    return;
+                }
                 Event::Start(start) => {
                     let Some(element) = self.element(&start, at) else {
                         return;
@@ -219,9 +283,12 @@ impl<'t> Parser<'t> {
                     return None;
                 }
             };
-            let span = match &attr.value {
-                Cow::Borrowed(raw) => self.span_of(raw),
-                Cow::Owned(_) => self.span(at, at),
+            let (start, end) = match &attr.value {
+                Cow::Borrowed(raw) => {
+                    let start = raw.as_ptr() as usize - self.text.as_ptr() as usize;
+                    (start, start + raw.len())
+                }
+                Cow::Owned(_) => (at, at),
             };
             let value = match attr.normalized_value(XmlVersion::Implicit1_0) {
                 Ok(value) => value.into_owned(),
@@ -233,8 +300,8 @@ impl<'t> Parser<'t> {
             attrs.push(Attr {
                 name: attr.key.as_ref().to_string(),
                 value,
-                line: self.line(span.start as usize - self.offset as usize),
-                span,
+                line: self.line(start),
+                span: self.span(start, end),
             });
         }
         Some(Element {
@@ -275,17 +342,13 @@ impl<'t> Parser<'t> {
         self.newlines.partition_point(|&nl| nl < at) as u32 + 1
     }
 
+    /// The blob bytes of text `start..end`.
     fn span(&self, start: usize, end: usize) -> Span {
+        let source = |at: usize| (self.offsets.source(at, self.len) + self.offset) as u32;
         Span {
-            start: start as u32 + self.offset,
-            end: end as u32 + self.offset,
+            start: source(start),
+            end: source(end),
         }
-    }
-
-    /// The span of `raw`, a slice of `text`.
-    fn span_of(&self, raw: &str) -> Span {
-        let start = raw.as_ptr() as usize - self.text.as_ptr() as usize;
-        self.span(start, start + raw.len())
     }
 }
 
@@ -316,6 +379,44 @@ mod tests {
         let field = odoo.elements().next().unwrap().elements().next().unwrap();
         assert_eq!(text(field), "été");
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn spans_map_back_through_transcoding_and_replaced_bytes() {
+        let latin1 = [
+            &b"<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<odoo><!-- "[..],
+            &[0xE9; 200],
+            b" -->\n<record id=\"x\" model=\"m\"><field name=\"name\">\xe9t\xe9</field></record></odoo>",
+        ]
+        .concat();
+        let invalid = [
+            &b"<odoo>\n<!-- "[..],
+            &[0xFF, 0xFE].repeat(8),
+            b" -->\n<record id=\"x\" model=\"m\"/></odoo>",
+        ]
+        .concat();
+        for blob in [latin1, invalid] {
+            let (odoo, warnings) = root(&blob);
+            assert!(warnings.is_empty(), "{warnings:?}");
+            let record = odoo.elements().next().unwrap();
+            let id = record.attr_node("id").unwrap();
+            assert_eq!(&blob[id.span.range()], b"x");
+            assert_eq!(&blob[record.attr_node("model").unwrap().span.range()], b"m");
+            assert_eq!(id.line, 3);
+        }
+    }
+
+    #[test]
+    fn nesting_stops_at_the_depth_limit() {
+        let deep = format!("<odoo>{}{}</odoo>", "<data>".repeat(10_000), "</data>".repeat(10_000));
+        let (odoo, warnings) = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || root(deep.as_bytes()))
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(!odoo.complete);
+        assert_eq!(warnings, ["line 1: nesting deeper than 256"]);
     }
 
     #[test]

@@ -1,6 +1,5 @@
 //! What a view's arch offers to others: its named nodes, the inheritance specs it applies in
-//! order, and a hash that layout leaves alone. Shared with the OWL template extractor; a change to
-//! its output bumps both extractors' `version()`.
+//! order, and a hash that layout leaves alone.
 
 use std::collections::{BTreeMap, VecDeque};
 

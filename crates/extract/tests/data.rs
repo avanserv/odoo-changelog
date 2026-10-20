@@ -267,6 +267,8 @@ fn nested_menus_take_their_parent() {
             <menuitem id="child" name="Child" parent="elsewhere" sequence="3"/>
         </menuitem>
         <menuitem id="flat" parent="base.menu_x"/>
+        <menuitem id="moved" name="Moved" parent="base.menu_x" active="False" sequence="4"/>
+        <menuitem id="moved" action="action_x"/>
     </odoo>"#;
     let table = extract(src);
     let path = "addons/sale/views/menus.xml";
@@ -277,6 +279,30 @@ fn nested_menus_take_their_parent() {
     );
     assert_eq!(attrs(path, find(&table, "menu", "flat"))["parent"], "base.menu_x");
     assert!(attrs(path, find(&table, "menu", "root")).get("parent").is_none());
+    assert_eq!(
+        attrs(path, find(&table, "menu", "moved")),
+        json!({"declared": "menuitem", "action": "sale.action_x", "sequence": "4"}),
+        "a later menuitem resets the parent, name and active state"
+    );
+}
+
+#[test]
+fn noupdate_reads_like_odoo() {
+    let src = r#"<odoo noupdate="1">
+        <record id="outer" model="m"/>
+        <data noupdate=" Off "><record id="off" model="m"/></data>
+        <data noupdate="bogus"><record id="inherited" model="m"/></data>
+        <data noupdate="0"><data noupdate="YES"><record id="yes" model="m"/></data></data>
+    </odoo>"#;
+    let table = extract(src);
+    let noupdate: Vec<(&str, bool)> = table
+        .iter()
+        .map(|s| (s.name.as_str(), s.attrs.get("noupdate") == Some(&json!(true))))
+        .collect();
+    assert_eq!(
+        noupdate,
+        [("inherited", true), ("off", false), ("outer", true), ("yes", true)]
+    );
 }
 
 #[test]
@@ -323,9 +349,37 @@ fn malformed_files_give_a_partial_table_and_a_warning() {
         (comment.iter().count(), comment.warnings()),
         (0, &["line 1: no root element".to_string()][..])
     );
+    let cut = extract(r#"<odoo><menuitem id="a"><menuitem id="b"/></x></menuitem></odoo>"#);
+    let names: Vec<&str> = cut.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["a", "b"]);
+    assert_eq!(find(&cut, "menu", "b").attrs["parent"], "a");
+    assert_eq!(cut.warnings().len(), 1, "{:?}", cut.warnings());
+
     let headerless = extract("access_x,x,model_x,base.group_user,1,0,0,0\n");
     assert_eq!(headerless.iter().count(), 0);
     assert_eq!(headerless.warnings(), ["line 1: no id column; rows ignored"]);
+}
+
+/// Every recursive walk over the tree, and its drop, stays within a rayon worker's 2 MiB stack.
+#[test]
+fn deep_nesting_stops_with_a_warning() {
+    let deep = |open: &str, close: &str| format!("<odoo>{}{}</odoo>", open.repeat(10_000), close.repeat(10_000));
+    let docs = [
+        deep("<data>", "</data>"),
+        deep("<menuitem id=\"m\">", "</menuitem>"),
+        view(&deep("<div name=\"d\">", "</div>")),
+        deep("<record id=\"r\" model=\"m\"><field name=\"f\">", "</field></record>"),
+        deep("<x>", "</x>"),
+    ];
+    let warnings = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || docs.map(|doc| Data.extract(doc.as_bytes()).unwrap().warnings().to_vec()))
+        .unwrap()
+        .join()
+        .unwrap();
+    for warnings in warnings {
+        assert_eq!(warnings, ["line 1: nesting deeper than 256"]);
+    }
 }
 
 #[test]
@@ -457,9 +511,9 @@ fn real_sale_data_files() {
 /// Odoo reads its first row as one.
 const KNOWN_WARNINGS: [&str; 1] = ["enterprise origin/12.0:mrp_account/security/ir.model.access.csv:"];
 
-/// Every data file reads without a warning, and every inheriting view with an arch lists its
-/// specs. An empty list is legitimate: a template that only toggles with `active`, or a primary
-/// copy of its parent; the sweep prints how many there are.
+/// Every data file reads without a warning, and every spec has an `expr` or a `target`. An empty
+/// list of specs is legitimate: a template that only toggles with `active`, or a primary copy of
+/// its parent; the sweep prints how many there are.
 #[test]
 #[ignore = "reads every Odoo clone in config/odoo-changelog.toml"]
 fn every_data_file_at_the_tips_reads_cleanly() {
@@ -480,7 +534,8 @@ fn every_data_file_at_the_tips_reads_cleanly() {
             for line in String::from_utf8(tree).unwrap().lines() {
                 let (meta, path) = line.split_once('\t').unwrap();
                 if Data.claims(path) {
-                    blobs.insert(meta.rsplit(' ').next().unwrap().to_string(), format!("{rev}:{path}"));
+                    let oid = meta.rsplit(' ').next().unwrap().to_string();
+                    blobs.entry(oid).or_insert_with(|| format!("{rev}:{path}"));
                 }
             }
         }
@@ -494,12 +549,12 @@ fn every_data_file_at_the_tips_reads_cleanly() {
             }
             for symbol in table.iter() {
                 *kinds.entry(symbol.kind.clone()).or_default() += 1;
-                let inheriting = symbol.attrs.contains_key("inherit_id") && symbol.attrs.contains_key("arch");
-                if symbol.kind == "view" && inheriting {
-                    let specs = symbol.attrs.get("specs").and_then(Value::as_array);
-                    assert!(specs.is_some(), "{repo} {at}: {}", symbol.name);
-                    specless += specs.is_some_and(Vec::is_empty) as usize;
+                let specs = symbol.attrs.get("specs").and_then(Value::as_array);
+                for spec in specs.into_iter().flatten() {
+                    let one = spec.get("expr").is_some() != spec.get("target").is_some();
+                    assert!(one, "{repo} {at}: {}: {spec}", symbol.name);
                 }
+                specless += specs.is_some_and(Vec::is_empty) as usize;
             }
         }
         warned.retain(|w| !KNOWN_WARNINGS.iter().any(|k| w.starts_with(k)));

@@ -53,15 +53,14 @@ impl Extractor for Data {
         "data"
     }
 
-    /// Bump with any change to the output, including a quick-xml upgrade and changes to
-    /// `xml::arch`, which the OWL extractor shares.
+    /// Bump with any change to the output, including a quick-xml upgrade.
     fn version(&self) -> u32 {
         1
     }
 
     /// Data files of a module, wherever they sit (views/, data/, template/, tests/, ...): Odoo
     /// loads any listed file. A foreign root such as an e-invoice sample gives an empty table.
-    /// OWL templates under static/ belong to another extractor.
+    /// Files under static/ are client assets, which Odoo never loads as data.
     fn claims(&self, path: &str) -> bool {
         let file = path.rsplit('/').next().unwrap_or(path);
         module_of(path).is_some()

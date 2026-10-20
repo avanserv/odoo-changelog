@@ -111,6 +111,20 @@ fn count(db: &Path, sql: &str, params: impl rusqlite::Params) -> i64 {
         .unwrap()
 }
 
+/// The warnings `extractor` cached for the blob at `rev:path`.
+fn cached_warnings(db: &Path, clone: &Path, extractor: &str, at: &str) -> Vec<String> {
+    let blob = rev_parse(clone, at);
+    let symbols: Vec<u8> = Connection::open(db)
+        .unwrap()
+        .query_row(
+            "SELECT symbols FROM blob_cache WHERE blob_oid = ?1 AND extractor = ?2",
+            [&blob, extractor],
+            |r| r.get(0),
+        )
+        .unwrap();
+    SymbolTable::from_bytes(&symbols).unwrap().warnings().to_vec()
+}
+
 /// `(path, op, qualname, old_path)` of every event of `sha`, in that order.
 fn events(db: &Path, sha: &str) -> Vec<(String, String, String, Option<String>)> {
     let conn = Connection::open(db).unwrap();
@@ -364,7 +378,11 @@ fn thread_count_does_not_change_the_database() {
     let views = "SELECT COUNT(*) FROM events e JOIN symbols s ON s.id = e.symbol_id
         WHERE e.extractor = 'data' AND e.op = 'added' AND s.kind = ?1";
     for (kind, added) in [("view", 9), ("view_node", 18), ("access", 9)] {
-        assert_eq!(count(&db, views, [kind]), added, "{kind}: one per [ADD] commit");
+        assert_eq!(
+            count(&db, views, [kind]),
+            added,
+            "{kind}: {added} over the 9 [ADD] commits"
+        );
     }
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
@@ -709,6 +727,8 @@ fn builtin_python_extractor_records_model_events() {
     );
     assert_eq!(at("origin/master~2"), []);
     assert_eq!(at("origin/master~1"), [field("changed")]);
+    let broken = cached_warnings(&db, &clone, "python", "origin/master:addons/sale_ext/models/broken.py");
+    assert!(!broken.is_empty());
 }
 
 /// `(op, qualname, old_path, attrs_after)` of the manifest events of `sha`.
@@ -786,6 +806,8 @@ fn builtin_manifest_extractor_records_module_events() {
     assert!(after.contains(bundle), "{after}");
 
     assert_eq!(at("origin/master~1"), []);
+    let broken = cached_warnings(&db, &clone, "manifest", &format!("origin/master:{manifest}"));
+    assert!(!broken.is_empty());
 }
 
 /// `(op, kind, qualname, attrs_after)` of the data events of `sha`.
@@ -917,6 +939,14 @@ fn builtin_data_extractor_records_view_events() {
                 "sale.view_order_form#field[@name='partner_id']@sale"
             ),
         ]
+    );
+
+    assert_eq!(at("origin/master"), []);
+    let broken = cached_warnings(&db, &clone, "data", "origin/master:addons/sale/views/broken.xml");
+    assert_eq!(broken.len(), 1, "{broken:?}");
+    assert!(
+        broken[0].starts_with("line 1: ") && broken[0].contains("</record>"),
+        "{broken:?}"
     );
 }
 

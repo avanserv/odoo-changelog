@@ -38,11 +38,12 @@ pub(crate) fn extract(blob: &[u8]) -> SymbolTable {
     walker.finish()
 }
 
-/// Odoo's `nodeattr2bool`: anything but these six values inherits.
+/// Odoo's `nodeattr2bool` and `str2bool`, trimmed and in any case; a value they reject inherits.
 fn noupdate_of(root: &Element, inherited: bool) -> bool {
-    match root.attr("noupdate") {
-        Some("1" | "true" | "True") => true,
-        Some("0" | "false" | "False") => false,
+    let value = root.attr("noupdate").map(|v| v.trim().to_ascii_lowercase());
+    match value.as_deref() {
+        Some("y" | "yes" | "1" | "true" | "t" | "on") => true,
+        Some("n" | "no" | "0" | "false" | "f" | "off") => false,
         _ => inherited,
     }
 }
@@ -225,7 +226,8 @@ impl<'d> Walker<'d> {
     }
 
     /// Merges a later declaration of the same `(kind, name)` into the first, as Odoo updates
-    /// the record, unless both are records of different models, which Odoo refuses to load.
+    /// the record, unless both are records of different models, which Odoo refuses to load. A
+    /// later menuitem resets what Odoo derives anew for each one: its parent, name and `active`.
     fn insert(&mut self, kind: &'static str, name: String, decl: Decl<'d>) {
         let key = (kind, name);
         let Some(first) = self.decls.get_mut(&key) else {
@@ -237,6 +239,11 @@ impl<'d> Walker<'d> {
                 self.warn(decl.line, format!("id {} is already a {model} record; ignored", key.1));
             }
             _ => {
+                if decl.declared == "menuitem" {
+                    first
+                        .attrs
+                        .retain(|key, _| !matches!(*key, "parent" | "name" | "active"));
+                }
                 first.attrs.extend(decl.attrs);
                 first.fields.extend(decl.fields);
                 first.content = decl.content.or(first.content);
@@ -436,9 +443,9 @@ fn text(el: &Element) -> String {
         .collect()
 }
 
-/// A hash over what the attrs do not hold in clear, or None when there is nothing: the
-/// declaration's attributes but `skip`, as `name 0x02 value 0x00` in name order, then each field
-/// but `skip_fields` as `0x07 name 0x00`, its other attributes likewise, `0x03`, its content and
+/// A hash, or None when there is nothing to hash: the declaration's attributes but `skip`, as
+/// `name 0x02 value 0x00` in name order, then every field but `skip_fields`, those the attrs hold
+/// in clear included, as `0x07 name 0x00`, its other attributes likewise, `0x03`, its content and
 /// `0x04`, then `0x06` and `content` when it has any. Plain field text is hashed as written, since
 /// Odoo stores it verbatim (Python code is indentation-sensitive); markup like an arch.
 fn values(decl: &Decl, skip: &[&str], skip_fields: &[&str], content: Option<&[Node]>) -> Option<Value> {
