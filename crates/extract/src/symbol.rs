@@ -89,9 +89,10 @@ impl SymbolTable {
 
     /// `{"symbols":[...],"warnings":[...]}` as compact JSON, without `warnings` when there are
     /// none and with symbols in `(kind, name)` order, so that equal tables give equal bytes. The
-    /// blob cache stores this, warnings included, so that a hit warns like a fresh parse. A change that old bytes no longer decode under needs a store
-    /// migration running `DELETE FROM blob_cache; DELETE FROM events; DELETE FROM extracted;
-    /// DELETE FROM symbols; DELETE FROM extractors;`.
+    /// blob cache stores this, warnings included, so that a hit warns like a fresh parse. A change
+    /// that old bytes no longer decode under needs a store migration running
+    /// `DELETE FROM blob_cache; DELETE FROM events; DELETE FROM extracted; DELETE FROM symbols;
+    /// DELETE FROM extractors;`.
     pub fn to_bytes(&self) -> Vec<u8> {
         let envelope = Envelope {
             symbols: self.symbols.values().collect(),
