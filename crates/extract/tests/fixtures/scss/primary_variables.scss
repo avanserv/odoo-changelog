@@ -1,0 +1,24 @@
+/* Demo palette, read before the theme's.
+ * A block comment over two lines. */
+
+$o-demo-brand: #714b67 !default;
+$o-demo-text: $o-demo-brand !default; // the brand, for text
+$o-demo-line-height: 1.5 !default;
+$o-demo-margins: map-merge((a: 1), (b: 2))!default;
+$o-demo-grays: (
+    100: $o-demo-gray-100,
+    // 150 was dropped
+    200: $o-demo-gray-200, /* the darkest */
+    300: $o-demo-gray-300,
+) !default;
+$o-demo-font: "Demo Sans, sans-serif // not a comment";
+$o-demo-bg: url(https://demo.example/bg.png) !default;
+$o-demo-icon: "#{$o-demo-icon-path}/icon.svg";
+$o-demo-buttons: (primary: $o-demo-brand);
+$o-demo-buttons: map-merge($o-demo-buttons, (secondary: $o-demo-text));
+
+.o_demo_card {
+    $o-demo-card-padding: 4px;
+    $o-demo-card-radius: 2px !global;
+    padding: $o-demo-card-padding;
+}

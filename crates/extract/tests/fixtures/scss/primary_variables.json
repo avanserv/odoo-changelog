@@ -1,0 +1,137 @@
+{
+  "symbols": [
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-bg@demo",
+      "line": 15,
+      "span": {
+        "start": 469,
+        "end": 479
+      },
+      "attrs": {
+        "default": true,
+        "value": "url(https://demo.example/bg.png)"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-brand@demo",
+      "line": 4,
+      "span": {
+        "start": 81,
+        "end": 94
+      },
+      "attrs": {
+        "default": true,
+        "value": "#714b67"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-buttons@demo",
+      "line": 17,
+      "span": {
+        "start": 571,
+        "end": 586
+      },
+      "attrs": {
+        "reassigned": [
+          {
+            "value": "map-merge($o-demo-buttons, (secondary: $o-demo-text))"
+          }
+        ],
+        "value": "(primary: $o-demo-brand)"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-card-radius@demo",
+      "line": 22,
+      "span": {
+        "start": 737,
+        "end": 756
+      },
+      "attrs": {
+        "global": true,
+        "value": "2px"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-font@demo",
+      "line": 14,
+      "span": {
+        "start": 413,
+        "end": 425
+      },
+      "attrs": {
+        "value": "\"Demo Sans, sans-serif // not a comment\""
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-grays@demo",
+      "line": 8,
+      "span": {
+        "start": 262,
+        "end": 275
+      },
+      "attrs": {
+        "default": true,
+        "value": "(100: $o-demo-gray-100, 200: $o-demo-gray-200, 300: $o-demo-gray-300)"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-icon@demo",
+      "line": 16,
+      "span": {
+        "start": 524,
+        "end": 536
+      },
+      "attrs": {
+        "value": "\"#{$o-demo-icon-path}/icon.svg\""
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-line-height@demo",
+      "line": 6,
+      "span": {
+        "start": 175,
+        "end": 194
+      },
+      "attrs": {
+        "default": true,
+        "value": "1.5"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-margins@demo",
+      "line": 7,
+      "span": {
+        "start": 210,
+        "end": 225
+      },
+      "attrs": {
+        "default": true,
+        "value": "map-merge((a: 1), (b: 2))"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-text@demo",
+      "line": 5,
+      "span": {
+        "start": 114,
+        "end": 126
+      },
+      "attrs": {
+        "default": true,
+        "value": "$o-demo-brand"
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -11,6 +11,7 @@ mod manifest;
 mod owl;
 mod path;
 mod python;
+mod scss;
 mod symbol;
 mod syntax;
 mod xml;
@@ -28,6 +29,7 @@ pub use manifest::Manifest;
 pub use owl::Owl;
 pub use path::module_of;
 pub use python::Python;
+pub use scss::Scss;
 pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
 
 pub trait Extractor: Send + Sync {
@@ -72,6 +74,7 @@ impl Registry {
             Box::new(Manifest),
             Box::new(Owl),
             Box::new(Python),
+            Box::new(Scss),
         ])
         .expect("builtin extractor names are unique")
     }

@@ -350,12 +350,18 @@ fn every_symbol_spans_its_name() {
 }
 
 #[test]
-fn builtin_registry_gives_templates_one_claimant() {
+fn builtin_registry_gives_templates_and_stylesheets_one_claimant() {
     let registry = Registry::builtin();
     let claimants =
         |path: &str| -> Vec<&str> { registry.iter().filter(|e| e.claims(path)).map(|e| e.name()).collect() };
     assert_eq!(claimants("addons/sale/static/src/x.xml"), ["owl"]);
     assert_eq!(claimants("addons/sale/views/x.xml"), ["data"]);
+    for path in [
+        "addons/sale/static/src/x.scss",
+        "addons/web/static/lib/bootstrap/scss/_variables.scss",
+    ] {
+        assert_eq!(claimants(path), ["scss"], "{path}");
+    }
     for path in ["addons/sale/static/tests/x.xml", "addons/web/static/lib/qweb/a.xml"] {
         assert!(claimants(path).is_empty(), "{path}");
     }

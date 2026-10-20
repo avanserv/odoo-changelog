@@ -14,7 +14,7 @@ use common::{Fixture, config, dump, git, init, odoo_changelog, rev_parse, setup,
 use gix::ObjectId;
 use odoo_changelog::extract::{Options, Timings, run};
 use odoo_changelog_core::{Config, Version};
-use odoo_changelog_extract::{Data, Extractor, Js, Manifest, Python, Registry, Span, Symbol, SymbolTable};
+use odoo_changelog_extract::{Data, Extractor, Js, Manifest, Owl, Python, Registry, Scss, Span, Symbol, SymbolTable};
 use odoo_changelog_git::{FileChange, FileSide, Repo};
 use odoo_changelog_store::Store;
 use rusqlite::Connection;
@@ -277,7 +277,8 @@ fn version_bump_invalidates_only_that_extractor() {
 /// About 30 commits across 16.0, 17.0 and master: forward-port merges, renames, deletions,
 /// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, a manifest per
 /// module for `Manifest`, a model file for `Python` that gains a field and renames a method, a
-/// view and an access CSV per module for `Data`, and a registry entry per module for `Js`.
+/// view and an access CSV per module for `Data`, a registry entry per module for `Js`, and a
+/// template and a stylesheet per module for `Owl` and `Scss`.
 fn busy(name: &str) -> (PathBuf, PathBuf) {
     let (dir, mut fx, clone) = setup(name);
     for round in 0..3 {
@@ -296,12 +297,17 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
             let app = format!(
                 "/** @odoo-module **/\nimport {{ registry }} from \"@web/core/registry\";\nregistry.category(\"fields\").add(\"f{branch}_{round}\", {{}});\n"
             );
+            let template =
+                format!("<templates><t t-name=\"m.App\"><div t-ref=\"r{branch}_{round}\"/></t></templates>\n");
+            let style = format!("$m-color: c{branch}_{round} !default;\n");
             fx.commit_files(
                 &[
                     (&format!("{module}/__manifest__.py"), &manifest),
                     (&format!("{m}/views/data.xml"), &view),
                     (&format!("{m}/security/ir.model.access.csv"), access),
                     (&format!("{module}/static/src/app.js"), &app),
+                    (&format!("{module}/static/src/app.xml"), &template),
+                    (&format!("{module}/static/src/app.scss"), &style),
                     (&format!("{m}/__init__.py"), "def init: shared\n"),
                     (&format!("{m}/models.py"), &body),
                     (&format!("{m}/views.xml"), &format!("def v: {branch}\n")),
@@ -361,7 +367,9 @@ fn thread_count_does_not_change_the_database() {
                 Box::new(Data),
                 Box::new(Js),
                 Box::new(Manifest),
+                Box::new(Owl),
                 Box::new(Python),
+                Box::new(Scss),
             ],
             &opts,
         );
@@ -376,7 +384,7 @@ fn thread_count_does_not_change_the_database() {
         EXISTS (SELECT 1 FROM extracted e WHERE e.sha = c.sha) OR EXISTS (SELECT 1 FROM events e WHERE e.sha = c.sha))";
     assert_eq!(count(&db, merges, []), 0, "a merge was extracted");
     let unmarked = "SELECT COUNT(*) FROM commits c WHERE is_merge = 0
-        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 6";
+        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 8";
     assert_eq!(
         count(&db, unmarked, []),
         0,
@@ -399,6 +407,11 @@ fn thread_count_does_not_change_the_database() {
         WHERE e.extractor = 'js' AND e.op = 'added' AND s.kind = ?1";
     for kind in ["js_module", "js_registry"] {
         assert_eq!(count(&db, js, [kind]), 9, "{kind}: one per [ADD] commit");
+    }
+    let client = "SELECT COUNT(*) FROM events e JOIN symbols s ON s.id = e.symbol_id
+        WHERE e.extractor IN ('owl', 'scss') AND e.op = 'added' AND s.kind = ?1";
+    for kind in ["owl_template", "owl_node", "scss_variable"] {
+        assert_eq!(count(&db, client, [kind]), 9, "{kind}: one per [ADD] commit");
     }
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
@@ -1136,6 +1149,164 @@ fn builtin_js_extractor_records_registry_events() {
 
     let broken = cached_warnings(&db, &clone, "js", "origin/master:addons/demo/static/src/broken.js");
     assert!(!broken.is_empty());
+}
+
+/// `(op, kind, qualname, attrs_after)` of the owl and scss events of `sha`.
+fn client_events(db: &Path, sha: &str) -> Vec<(String, String, String, Option<String>)> {
+    let conn = Connection::open(db).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.op, s.kind, s.qualname, e.attrs_after FROM events e JOIN symbols s ON s.id = e.symbol_id
+              WHERE e.sha = ?1 AND e.extractor IN ('owl', 'scss') ORDER BY s.kind, s.qualname, e.op",
+        )
+        .unwrap();
+    stmt.query_map([sha], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+const DEMO_FORM: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="demo.Form">
+        <div t-ref="root" class="o_demo_form">
+            <button name="save">Save</button>
+        </div>
+    </t>
+</templates>
+"#;
+
+const DEMO_FORM_EXT: &str = r#"<templates>
+    <t t-inherit="demo.Form" t-inherit-mode="extension">
+        <xpath expr="//button[@name='save']" position="after">
+            <span class="o_demo_hint">Saved on exit</span>
+        </xpath>
+    </t>
+</templates>
+"#;
+
+const DEMO_VARIABLES: &str = "$o-demo-color: #714b67 !default;\n\n@mixin o-demo-mixin($a: 1) {\n    color: $a;\n}\n";
+
+#[test]
+fn builtin_owl_and_scss_extractors_record_events() {
+    let (dir, mut fx, clone) = setup("extract-owl-scss");
+    let form = "addons/demo/static/src/form.xml";
+    let ext = "addons/demo_ext/static/src/form.xml";
+    let variables = "addons/demo/static/src/scss/primary_variables.scss";
+    let theme = "addons/theme_demo/static/src/scss/primary_variables.scss";
+    let theme_variables = "$o-demo-color: #017e84;\n";
+    fx.commit_files(
+        &[
+            (form, DEMO_FORM),
+            (ext, DEMO_FORM_EXT),
+            (variables, DEMO_VARIABLES),
+            (theme, theme_variables),
+            ("addons/demo/static/tests/form.xml", DEMO_FORM),
+            ("addons/demo/static/lib/x.xml", DEMO_FORM),
+        ],
+        "[ADD] demo: templates and stylesheets",
+    );
+    let reformatted_form = DEMO_FORM
+        .replace("    ", "\t")
+        .replace(
+            r#"t-ref="root" class="o_demo_form""#,
+            "class=\"o_demo_form\"\n t-ref=\"root\"",
+        )
+        .replace("<button", "<!-- the only action -->\n<button");
+    let reformatted_variables = DEMO_VARIABLES
+        .replace(": #714b67", ":   #714b67")
+        .replace("    color", "  // the colour\n  color");
+    fx.commit_files(
+        &[(form, &reformatted_form), (variables, &reformatted_variables)],
+        "[REF] demo: reformat",
+    );
+    let saveless = reformatted_form.replace(r#"<button name="save">Save</button>"#, "");
+    fx.commit_files(&[(form, &saveless)], "[IMP] demo: no save button");
+    fx.commit_files(
+        &[(theme, "$o-demo-color: #017e84 !default;\n")],
+        "[IMP] theme_demo: default",
+    );
+    fx.commit_files(
+        &[
+            (
+                "addons/demo/static/src/broken.xml",
+                "<templates><t t-name=\"demo.Broken\"></div></templates>\n",
+            ),
+            ("addons/demo/static/src/scss/broken.scss", "$o-demo-a: 1;\n/* open\n"),
+        ],
+        "[ADD] demo: broken",
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+
+    let out = odoo_changelog(&cfg, &["extract"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(output.contains("gave warnings"), "{output}");
+
+    let db = dir.join("walk.db");
+    let at = |rev: &str| client_events(&db, &rev_parse(&clone, rev));
+    let ops = |events: &[(String, String, String, Option<String>)]| -> Vec<(String, String, String)> {
+        events
+            .iter()
+            .map(|(op, kind, q, _)| (op.clone(), kind.clone(), q.clone()))
+            .collect()
+    };
+    let row = |op: &str, kind: &str, qualname: &str| (op.to_string(), kind.to_string(), qualname.to_string());
+
+    let added = at("origin/master~4");
+    assert_eq!(
+        ops(&added),
+        [
+            row("added", "owl_extension", "demo.Form@demo_ext"),
+            row("added", "owl_node", "demo.Form#button[@name='save']@demo"),
+            row("added", "owl_node", "demo.Form#div[@t-ref='root']@demo"),
+            row("added", "owl_template", "demo.Form@demo"),
+            row("added", "scss_mixin", "o-demo-mixin@demo"),
+            row("added", "scss_variable", "$o-demo-color@demo"),
+            row("added", "scss_variable", "$o-demo-color@theme_demo"),
+        ]
+    );
+    let extension = added[0].3.as_deref().unwrap();
+    for part in [r#""inherit":"demo.Form""#, r#""mode":"extension""#] {
+        assert!(extension.contains(part), "{extension}");
+    }
+    assert!(added[5].3.as_deref().unwrap().contains(r#""default":true"#));
+    assert!(!added[6].3.as_deref().unwrap().contains("default"));
+    let elsewhere = "SELECT COUNT(*) FROM events WHERE path IN (?1, ?2)";
+    let unclaimed = ["addons/demo/static/tests/form.xml", "addons/demo/static/lib/x.xml"];
+    assert_eq!(count(&db, elsewhere, unclaimed), 0);
+
+    assert_eq!(at("origin/master~3"), []);
+    assert_eq!(
+        ops(&at("origin/master~2")),
+        [
+            row("removed", "owl_node", "demo.Form#button[@name='save']@demo"),
+            row("changed", "owl_template", "demo.Form@demo"),
+        ]
+    );
+    assert_eq!(
+        ops(&at("origin/master~1")),
+        [row("changed", "scss_variable", "$o-demo-color@theme_demo")]
+    );
+
+    let broken =
+        |extractor: &str, path: &str| cached_warnings(&db, &clone, extractor, &format!("origin/master:{path}"));
+    let xml = broken("owl", "addons/demo/static/src/broken.xml");
+    assert!(xml.len() == 1 && xml[0].starts_with("line 1: "), "{xml:?}");
+    assert_eq!(
+        broken("scss", "addons/demo/static/src/scss/broken.scss"),
+        ["line 2: unclosed comment"]
+    );
+    assert_eq!(
+        ops(&at("origin/master")),
+        [row("added", "scss_variable", "$o-demo-a@demo")]
+    );
 }
 
 #[test]
