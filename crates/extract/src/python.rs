@@ -26,7 +26,7 @@ const CLASS: &str = "class";
 const FUNCTION: &str = "function";
 const ROUTE: &str = "route";
 
-/// Syntax diagnostics past this many are summed up in one warning.
+/// Syntax and Python 2 warnings past this many are summed up in one.
 const MAX_SYNTAX_WARNINGS: usize = 10;
 
 const ROUTE_DECORATORS: [&str; 3] = ["http.route", "route", "odoo.http.route"];
@@ -111,7 +111,7 @@ impl Visit<'_> {
     /// Whether this is the comma of `(a,)`, which makes the tuple, unlike a trailing one.
     fn closes_single_tuple(&self) -> bool {
         self.parent
-            .is_some_and(|p| matches!(p.kind(), "tuple" | "tuple_pattern") && p.named_child_count() == 1)
+            .is_some_and(|p| matches!(p.kind(), "tuple" | "tuple_pattern") && named(p).len() == 1)
     }
 }
 
@@ -214,15 +214,29 @@ fn statements(block: Node) -> Vec<Node> {
     out
 }
 
-/// `(left, right)` of a statement assigning to one name.
-fn assignment(statement: Node) -> Option<(Node, Node)> {
-    let a = named(statement)
+/// `(name, value)` per name a statement assigns, in order: `a = b = v` assigns `v` to both.
+/// Targets that are no plain name, such as tuples and attributes, are left out.
+fn assignments(statement: Node) -> Vec<(Node, Node)> {
+    let mut targets = Vec::new();
+    let mut node = named(statement)
         .into_iter()
         .next()
-        .filter(|_| statement.kind() == "expression_statement")?;
-    let left = a.child_by_field_name("left").filter(|_| a.kind() == "assignment")?;
-    let right = a.child_by_field_name("right")?;
-    (left.kind() == "identifier").then_some((left, right))
+        .filter(|_| statement.kind() == "expression_statement");
+    while let Some(a) = node.filter(|a| a.kind() == "assignment") {
+        let (Some(left), Some(right)) = (a.child_by_field_name("left"), a.child_by_field_name("right")) else {
+            return Vec::new();
+        };
+        targets.push(left);
+        node = Some(right);
+    }
+    match node {
+        Some(value) if !targets.is_empty() => targets
+            .into_iter()
+            .filter(|t| t.kind() == "identifier")
+            .map(|t| (t, value))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// `X` when `node` is the call `<object>.X(...)`.
@@ -287,7 +301,7 @@ fn is_dotted(node: Node) -> bool {
     n.kind() == "identifier"
 }
 
-/// Positional parameters of a field type, stable from 12.0 to master.
+/// Positional parameters of a field type, the same from 12.0 to master as of 2026-10-20.
 fn field_parameters(field_type: &str) -> &'static [&'static str] {
     match field_type {
         "Selection" | "Reference" => &["selection", "string"],
@@ -352,14 +366,17 @@ fn syntax_warnings(root: Node, src: &[u8]) -> Vec<(usize, String)> {
             };
             (python2.then(|| format!("line {line}: Python 2 syntax")), true)
         };
-        found.extend(warning.map(|w| (n.start_byte(), w)));
+        // A line holding several Python 2 forms warns once.
+        if let Some(w) = warning.filter(|w| found.last().is_none_or(|(_, last)| last != w)) {
+            found.push((n.start_byte(), w));
+        }
         descend
     });
     if found.len() > MAX_SYNTAX_WARNINGS {
         let more = found.len() - MAX_SYNTAX_WARNINGS;
         let at = found[MAX_SYNTAX_WARNINGS].0;
         found.truncate(MAX_SYNTAX_WARNINGS);
-        found.push((at, format!("{more} more syntax errors")));
+        found.push((at, format!("{more} more syntax warnings")));
     }
     found
 }
@@ -434,7 +451,7 @@ impl<'t> Reader<'t> {
     }
 
     fn constant(&mut self, statement: Node<'t>) {
-        if let Some((left, right)) = assignment(statement) {
+        for (left, right) in assignments(statement) {
             let name = self.text(left).into_owned();
             if matches!(right.kind(), "list" | "tuple") {
                 self.constants.insert(name, right);
@@ -468,7 +485,7 @@ impl<'t> Reader<'t> {
         let last = |attr: &str| {
             body.iter()
                 .rev()
-                .filter_map(|&s| assignment(s))
+                .flat_map(|&s| assignments(s))
                 .find(|(left, _)| text(*left, self.src) == attr)
                 .map(|(_, right)| right)
         };
@@ -495,7 +512,7 @@ impl<'t> Reader<'t> {
         let model = |n: Node<'t>| plain_string(n, self.src).map(|s| Naming::Model(s, n));
         let sequence = |n: Node| matches!(n.kind(), "list" | "tuple");
         let name = name.filter(|n| n.kind() != "none");
-        let inherit = inherit.filter(|&i| !(sequence(i) && named(i).is_empty()));
+        let inherit = inherit.filter(|&i| i.kind() != "none" && !(sequence(i) && named(i).is_empty()));
         match (name, inherit) {
             (Some(n), _) => model(n).unwrap_or(Naming::Unnamed("_name is not a string")),
             (None, None) => Naming::Plain,
@@ -522,24 +539,8 @@ impl<'t> Reader<'t> {
         for &statement in body {
             match statement.kind() {
                 "expression_statement" => {
-                    let Some((left, right)) = assignment(statement) else {
-                        continue;
-                    };
-                    let name = self.text(left).into_owned();
-                    if let Some(field) = self.field(&name, left, right) {
-                        members.insert((FIELD, name), field);
-                    } else if let Some(constraint) = self.table_object(&name, left, right) {
-                        members.insert((CONSTRAINT, constraint.name.clone()), constraint.into());
-                    } else if let Some(constraints) = self.sql_constraints(&name, right) {
-                        for c in constraints {
-                            members.insert((CONSTRAINT, c.name.clone()), c.into());
-                        }
-                    } else if name.starts_with('_') && !name.starts_with("__") {
-                        let value = match value(right, self.src) {
-                            Value::String(s) if name == "_inherit" => Value::Array(vec![s.into()]),
-                            v => v,
-                        };
-                        attrs.insert(name, value);
+                    for (left, right) in assignments(statement) {
+                        self.class_attribute(left, right, &mut members, &mut attrs);
                     }
                 }
                 "function_definition" | "decorated_definition" => {
@@ -558,6 +559,32 @@ impl<'t> Reader<'t> {
             model: symbol(MODEL, model, at, attrs),
             members,
         });
+    }
+
+    /// A field, a constraint or a model attr from `left = right` in a model class.
+    fn class_attribute(
+        &self,
+        left: Node<'t>,
+        right: Node<'t>,
+        members: &mut BTreeMap<(&'static str, String), Member>,
+        attrs: &mut BTreeMap<String, Value>,
+    ) {
+        let name = self.text(left).into_owned();
+        if let Some(field) = self.field(&name, left, right) {
+            members.insert((FIELD, name), field);
+        } else if let Some(constraint) = self.table_object(&name, left, right) {
+            members.insert((CONSTRAINT, constraint.name.clone()), constraint.into());
+        } else if let Some(constraints) = self.sql_constraints(&name, right) {
+            for c in constraints {
+                members.insert((CONSTRAINT, c.name.clone()), c.into());
+            }
+        } else if name.starts_with('_') && !name.starts_with("__") {
+            let value = match value(right, self.src) {
+                Value::String(s) if name == "_inherit" => Value::Array(vec![s.into()]),
+                v => v,
+            };
+            attrs.insert(name, value);
+        }
     }
 
     /// A def and its decorators, from a statement that is one.
@@ -668,8 +695,8 @@ impl<'t> Reader<'t> {
         Some(out)
     }
 
-    /// The class and the methods of a class that declares no model. `test*` methods are left
-    /// out: unittest runs them and no code calls them.
+    /// The class and the methods of a class that declares no model. `test*` methods without a
+    /// route are left out: unittest runs them and no code calls them.
     fn plain_class(
         &mut self,
         class: String,
@@ -689,7 +716,8 @@ impl<'t> Reader<'t> {
             };
             let at = def.child_by_field_name("name").expect("a def has a name");
             let method = self.text(at).into_owned();
-            if method.starts_with("test") {
+            let route = self.route(&decorators);
+            if method.starts_with("test") && route.is_none() {
                 continue;
             }
             let qualified = format!("{class}.{method}");
@@ -699,7 +727,7 @@ impl<'t> Reader<'t> {
                 at,
                 self.def_attrs(def, &decorators),
             )];
-            symbols.extend(self.route(&decorators).map(|attrs| symbol(ROUTE, qualified, at, attrs)));
+            symbols.extend(route.map(|attrs| symbol(ROUTE, qualified, at, attrs)));
             methods.insert(method, symbols);
         }
         let mut symbols = vec![symbol(CLASS, class.clone(), name, attrs)];

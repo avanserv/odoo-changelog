@@ -3,10 +3,10 @@
     {
       "kind": "class",
       "qualname": "odoo.addons.demo.controllers.main.Helper",
-      "line": 35,
+      "line": 39,
       "span": {
-        "start": 859,
-        "end": 865
+        "start": 972,
+        "end": 978
       },
       "attrs": {
         "bases": [
@@ -163,11 +163,37 @@
     },
     {
       "kind": "function",
-      "qualname": "odoo.addons.demo.controllers.main.post_init_hook",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.test_suite",
       "line": 30,
       "span": {
-        "start": 774,
-        "end": 788
+        "start": 819,
+        "end": 829
+      },
+      "attrs": {
+        "body": "d90ea62520d5b3f1e27588415a9e4c90",
+        "decorators": [
+          {
+            "args": [
+              "/my/tests"
+            ],
+            "kwargs": {
+              "auth": "user"
+            },
+            "name": "http.route"
+          }
+        ],
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.controllers.main.post_init_hook",
+      "line": 34,
+      "span": {
+        "start": 887,
+        "end": 901
       },
       "attrs": {
         "body": "b2fd3c46ad9cf1958cf0f6daeeddb26a",
@@ -242,6 +268,23 @@
         },
         "urls": [
           "/my/orders"
+        ]
+      }
+    },
+    {
+      "kind": "route",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.test_suite",
+      "line": 30,
+      "span": {
+        "start": 819,
+        "end": 829
+      },
+      "attrs": {
+        "args": {
+          "auth": "user"
+        },
+        "urls": [
+          "/my/tests"
         ]
       }
     }

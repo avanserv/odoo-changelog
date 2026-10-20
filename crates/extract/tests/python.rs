@@ -3,22 +3,11 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use common::{check, render};
-use odoo_changelog_extract::{Extractor, Python, Symbol, SymbolId, SymbolTable, delta};
+use common::{check, find, fixtures, render};
+use odoo_changelog_extract::{Extractor, Python, SymbolId, SymbolTable, delta};
 use serde_json::{Value, json};
-
-fn fixtures() -> Vec<PathBuf> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/python");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "py"))
-        .collect();
-    files.sort();
-    files
-}
 
 /// Where a fixture is qualified: a controller module, or a model file of the `demo` module.
 fn fixture_path(file: &Path) -> String {
@@ -30,23 +19,19 @@ fn fixture_path(file: &Path) -> String {
 
 #[test]
 fn fixtures_match_expected_output() {
-    let files = fixtures();
+    let files = fixtures("python", "py");
     assert!(files.len() >= 9, "fixtures missing: {files:?}");
     for file in files {
         let blob = std::fs::read(&file).unwrap();
-        check(&file.with_extension("json"), &render(&fixture_path(&file), &blob));
+        check(
+            &file.with_extension("json"),
+            &render(&Python, &fixture_path(&file), &blob),
+        );
     }
 }
 
 fn extract(src: &str) -> SymbolTable {
     Python.extract(src.as_bytes()).unwrap()
-}
-
-fn find<'a>(table: &'a SymbolTable, kind: &str, name: &str) -> &'a Symbol {
-    table
-        .iter()
-        .find(|s| s.kind == kind && s.name == name)
-        .unwrap_or_else(|| panic!("no {kind} {name} in {table:?}"))
 }
 
 /// The `body` hash of `demo.m#<method>` in `class M` around `def`.
@@ -61,7 +46,7 @@ const INHERITED: &str = "class SaleOrder(models.Model):\n    _inherit = 'sale.or
 fn inherited_field_belongs_to_the_inherited_model_and_module() {
     let table = extract(INHERITED);
     let path = "addons/sale_ext/models/sale_order.py";
-    let fields: Vec<&Symbol> = table.iter().filter(|s| s.kind == "field").collect();
+    let fields: Vec<_> = table.iter().filter(|s| s.kind == "field").collect();
     assert_eq!(fields.len(), 1);
     assert_eq!(Python.qualify(path, fields[0]), "sale.order#foo@sale_ext");
     assert_eq!(fields[0].attrs["type"], "Char");
@@ -102,7 +87,7 @@ fn field_kwargs_are_normalized() {
     );
 }
 
-/// Each is the same method as the first, as far as rename scoring is concerned.
+/// Each hashes like the first, so that moved or renamed code still pairs with it.
 #[test]
 fn body_hash_ignores_layout_comments_docstrings_and_local_names() {
     let base = "    def f(self, vals):\n        total = vals['a'] + 1\n        return self.g(total, key=\"x\")\n";
@@ -128,6 +113,29 @@ fn body_hash_sees_real_changes() {
     for def in changed {
         assert_ne!(body(base, "f"), body(def, "f"), "{def}");
     }
+}
+
+/// A local named like a field, method or keyword never renames the field, method or keyword.
+#[test]
+fn body_hash_keeps_attribute_and_keyword_names() {
+    let attribute = |param: &str| {
+        body(
+            &format!("    def f(self, {param}):\n        return self.{param}\n"),
+            "f",
+        )
+    };
+    assert_ne!(attribute("name"), attribute("other"));
+    let keyword = body("    def f(self, name):\n        return self.name(name=name)\n", "f");
+    let renamed = body("    def f(self, value):\n        return self.name(name=value)\n", "f");
+    assert_eq!(keyword, renamed);
+}
+
+#[test]
+fn body_hash_keeps_the_comma_of_a_single_tuple_through_comments() {
+    let plain = body("    def f(self, y):\n        return (y,)\n", "f");
+    let commented = body("    def f(self, y):\n        return (y,  # c\n        )\n", "f");
+    assert_eq!(plain, commented);
+    assert_ne!(plain, body("    def f(self, y):\n        return (y)\n", "f"));
 }
 
 #[test]
@@ -160,7 +168,7 @@ fn python2_and_syntax_errors_give_a_partial_table_and_a_warning() {
 
 #[test]
 fn every_symbol_spans_its_name() {
-    for file in fixtures() {
+    for file in fixtures("python", "py") {
         let blob = std::fs::read(&file).unwrap();
         for symbol in Python.extract(&blob).unwrap().iter() {
             let name = symbol.name.as_str();
@@ -180,6 +188,18 @@ fn every_symbol_spans_its_name() {
             assert_eq!(symbol.line as usize, line, "{}: {symbol:?}", file.display());
         }
     }
+}
+
+#[test]
+fn spans_count_bytes_in_any_encoding() {
+    let blob = b"# d\xe9j\xe0 \xe2\x82\xac\nclass M(models.Model):\n    _name = 'm'\n    foo = fields.Char()\n";
+    let table = Python.extract(blob).unwrap();
+    assert_eq!(&blob[find(&table, "field", "m#foo").span.range()], b"foo");
+    assert_eq!(&blob[find(&table, "model", "m").span.range()], b"m");
+    assert_eq!(find(&table, "field", "m#foo").line, 4);
+
+    let empty = Python.extract(b"").unwrap();
+    assert_eq!((empty.iter().count(), empty.warnings().len()), (0, 0));
 }
 
 #[test]
@@ -244,7 +264,7 @@ fn claims_importable_python_files_only() {
 
 #[test]
 fn extract_is_a_function_of_the_bytes() {
-    for file in fixtures() {
+    for file in fixtures("python", "py") {
         let blob = std::fs::read(&file).unwrap();
         let first = Python.extract(&blob).unwrap().to_bytes();
         assert_eq!(first, Python.extract(&blob).unwrap().to_bytes(), "{}", file.display());

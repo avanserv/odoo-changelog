@@ -1,22 +1,18 @@
 //! The Python extractor on the real `addons/sale/models/sale_order.py` of 17.0. Read from the
 //! clone and checked against a few facts, since a stored dump would copy Odoo's LGPL texts here.
 
+mod common;
+
 use std::path::Path;
 use std::process::Command;
 
+use common::find;
 use odoo_changelog_core::Config;
-use odoo_changelog_extract::{Extractor, Python, Symbol, SymbolTable};
+use odoo_changelog_extract::{Extractor, Python};
 use serde_json::json;
 
 /// 17.0 head 4b3c29d on 2026-10-20; pinned so that the facts hold as 17.0 moves.
 const BLOB: &str = "1f6a8290846b4fe5668333b0b96fcb2394c1a289";
-
-fn find<'a>(table: &'a SymbolTable, kind: &str, name: &str) -> &'a Symbol {
-    table
-        .iter()
-        .find(|s| s.kind == kind && s.name == name)
-        .unwrap_or_else(|| panic!("no {kind} {name}"))
-}
 
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]

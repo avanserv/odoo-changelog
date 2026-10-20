@@ -76,7 +76,8 @@ impl SymbolTable {
         self.symbols.values()
     }
 
-    /// Records a part of the blob that gave no symbols, such as a syntax error.
+    /// Records what the extractor could not read as written, such as a syntax error, so that
+    /// symbols may be missing.
     pub fn warn(&mut self, warning: impl Into<String>) {
         self.warnings.push(warning.into());
     }
@@ -86,9 +87,9 @@ impl SymbolTable {
         &self.warnings
     }
 
-    /// `{"symbols":[...],"warnings":[...]}` as compact JSON, symbols in `(kind, name)` order, so
-    /// equal tables give equal bytes. The blob cache stores this, warnings included, so that a hit
-    /// warns like a fresh parse. A change that old bytes no longer decode under needs a store
+    /// `{"symbols":[...],"warnings":[...]}` as compact JSON, without `warnings` when there are
+    /// none and with symbols in `(kind, name)` order, so that equal tables give equal bytes. The
+    /// blob cache stores this, warnings included, so that a hit warns like a fresh parse. A change that old bytes no longer decode under needs a store
     /// migration running `DELETE FROM blob_cache; DELETE FROM events; DELETE FROM extracted;
     /// DELETE FROM symbols; DELETE FROM extractors;`.
     pub fn to_bytes(&self) -> Vec<u8> {

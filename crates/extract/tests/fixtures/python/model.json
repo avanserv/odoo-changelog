@@ -2,6 +2,18 @@
   "symbols": [
     {
       "kind": "class",
+      "qualname": "odoo.addons.demo.models.model.Base",
+      "line": 49,
+      "span": {
+        "start": 919,
+        "end": 923
+      },
+      "attrs": {
+        "bases": []
+      }
+    },
+    {
+      "kind": "class",
       "qualname": "odoo.addons.demo.models.model.Helper",
       "line": 45,
       "span": {
@@ -28,6 +40,30 @@
     },
     {
       "kind": "field",
+      "qualname": "demo.chained#label@demo",
+      "line": 59,
+      "span": {
+        "start": 1153,
+        "end": 1158
+      },
+      "attrs": {
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.chained#name@demo",
+      "line": 59,
+      "span": {
+        "start": 1146,
+        "end": 1150
+      },
+      "attrs": {
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "field",
       "qualname": "demo.library#shelf@demo",
       "line": 21,
       "span": {
@@ -48,6 +84,25 @@
       },
       "attrs": {
         "type": "Char"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.chained@demo",
+      "line": 56,
+      "span": {
+        "start": 1095,
+        "end": 1107
+      },
+      "attrs": {
+        "_description": "demo.chained",
+        "_name": "demo.chained",
+        "_order": "name",
+        "_rec_name": "name",
+        "bases": [
+          "models.AbstractModel"
+        ],
+        "class": "Chained"
       }
     },
     {

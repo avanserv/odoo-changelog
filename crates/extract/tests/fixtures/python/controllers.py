@@ -26,6 +26,10 @@ class Portal(http.Controller):
     def test_render(self):
         return self._render(1)
 
+    @http.route('/my/tests', auth='user')
+    def test_suite(self):
+        return request.render('demo.tests')
+
 
 def post_init_hook(env):
     env['demo.order'].search([]).unlink()

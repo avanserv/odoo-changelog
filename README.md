@@ -67,18 +67,22 @@ with tree-sitter and names each symbol after what custom code refers to it by.
 | `class`, `function`, `route` | `<import path>.<name>` | `odoo.addons.sale.controllers.portal.CustomerPortal.portal_my_orders` |
 
 A model's name is its `_name`, else its single `_inherit`. Model-scope symbols carry the module
-that declares them, so a base field and an override in another module have separate histories;
-`[<Class>]` after the model tells apart two classes of one file that declare the same member,
-such as the `res.users` classes in `base`. `class` and `function` cover classes that declare no
-model and module-level functions, with `test*` methods left out; `route` is a `function` with an
-`http.route` decorator. A `constraint` is an `_sql_constraints` entry or, from 19.0, a
-`models.Constraint`, `UniqueIndex` or `Index`.
+that declares them, so a base field and an override in another module have separate histories.
+When several classes of one file declare the same model, such as the `res.users` classes in
+`base`, the `model` symbol of each later class reads `<model>[<Class>]`, and so does a member of
+it whose plain name an earlier class took. `class` covers classes that declare no model;
+`function` covers module-level functions and the methods of such classes, as
+`<Class>.<method>`, with `test*` methods left out unless routed. A method with an `http.route`
+decorator also gives a `route` symbol of the same name. A `constraint` is an `_sql_constraints`
+entry or, from 19.0, a `models.Constraint`, `UniqueIndex` or `Index`.
 
 Attributes are normalized so that formatting is no change: literal values are decoded, other
-expressions are kept as canonical text, and a method's `body` is a hash of its tokens without
+expressions are kept as canonical text, and a def's `body` is a hash of its tokens without
 comments, docstring or local names. Each symbol also records the line and byte span of its name,
-which change detection ignores. A file that does not fully parse, such as Python 2 code, still
-gives the symbols around the error; `extract` counts such files in a warning.
+which change detection ignores. A file that does not fully parse still gives the symbols around
+the error. Such a file, Python 2 syntax, a class whose model name cannot be read and a dropped
+duplicate each leave a warning on the file's table, and `extract` reports how many file sides
+(the old or new version of a changed file) carry one.
 
 On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) takes 282 s with an
 empty cache and 76 s with a warm one (2026-10-20).

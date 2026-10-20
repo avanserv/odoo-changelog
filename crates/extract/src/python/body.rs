@@ -1,5 +1,5 @@
 //! The `body` attr of a def: a hash of its tokens that reformatting, comments, the docstring and
-//! a consistent rename of its locals leave alone, so that rename scoring can pair moved code.
+//! a consistent rename of its locals leave alone, so that moved or renamed code hashes alike.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};

@@ -44,3 +44,16 @@ class Several(models.Model):
 
 class Helper:
     """Neither _name nor _inherit: a plain class."""
+
+
+class Base:
+    _name = None
+    _inherit = None
+
+
+# Bibliothèque, 5 € par mois: multi-byte text before a symbol.
+class Chained(models.AbstractModel):
+    _name = _description = 'demo.chained'
+    _order = _rec_name = 'name'
+
+    name = label = fields.Char()
