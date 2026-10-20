@@ -43,26 +43,9 @@ fn main() -> Result<()> {
 }
 
 fn stats(store: &Store) -> Result<()> {
-    let mut stmt = store.conn.prepare(
-        "SELECT r.name, COALESCE(c.version, '?'), COUNT(*), SUM(c.is_merge)
-           FROM commits c
-           JOIN repos r ON r.id = c.repo_id
-           LEFT JOIN versions v ON v.repo_id = c.repo_id AND v.name = c.version
-          GROUP BY r.name, c.version
-          ORDER BY r.name, COALESCE(v.ord, 1e9)",
-    )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, i64>(2)?,
-            r.get::<_, i64>(3)?,
-        ))
-    })?;
     println!("{:<14} {:<11} {:>8} {:>7}", "repo", "version", "commits", "merges");
-    for row in rows {
-        let (repo, version, n, merges) = row?;
-        println!("{repo:<14} {version:<11} {n:>8} {merges:>7}");
+    for s in store.stats()? {
+        println!("{:<14} {:<11} {:>8} {:>7}", s.repo, s.version, s.commits, s.merges);
     }
     Ok(())
 }

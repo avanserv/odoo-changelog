@@ -14,7 +14,7 @@ const MIGRATIONS: &[&str] = &[
 ];
 
 pub struct Store {
-    pub conn: Connection,
+    conn: Connection,
 }
 
 pub struct VersionRow<'a> {
@@ -24,6 +24,14 @@ pub struct VersionRow<'a> {
     pub fork_sha: &'a str,
     pub fork_fp_idx: i64,
     pub fork_source: &'a str,
+}
+
+pub struct VersionStats {
+    pub repo: String,
+    /// `?` for commits no version claims yet.
+    pub version: String,
+    pub commits: i64,
+    pub merges: i64,
 }
 
 pub struct CommitRow<'a> {
@@ -60,6 +68,14 @@ impl Store {
             tx.commit()?;
         }
         Ok(())
+    }
+
+    /// Runs `f` in one transaction, committed only when `f` succeeds.
+    pub fn in_transaction<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        let tx = self.conn.unchecked_transaction()?;
+        let out = f()?;
+        tx.commit()?;
+        Ok(out)
     }
 
     pub fn upsert_repo(&self, name: &str, shallow: bool) -> Result<i64> {
@@ -158,6 +174,14 @@ impl Store {
         Ok(n == 1)
     }
 
+    /// The branch whose walk recorded `sha`.
+    pub fn commit_branch(&self, repo_id: i64, sha: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT branch FROM commits WHERE repo_id = ?1 AND sha = ?2")?;
+        Ok(stmt.query_row(params![repo_id, sha], |r| r.get(0)).optional()?)
+    }
+
     /// Recomputes the release of every commit from the current fork table: a stable branch
     /// commit belongs to its branch; a master commit to the first version forked after it.
     pub fn assign_versions(&self, repo_id: i64) -> Result<()> {
@@ -183,6 +207,27 @@ impl Store {
             [repo_id],
         )?;
         Ok(())
+    }
+
+    /// Commit counts per repo and version, versions in release order.
+    pub fn stats(&self) -> Result<Vec<VersionStats>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT r.name, COALESCE(c.version, '?'), COUNT(*), SUM(c.is_merge)
+               FROM commits c
+               JOIN repos r ON r.id = c.repo_id
+               LEFT JOIN versions v ON v.repo_id = c.repo_id AND v.name = c.version
+              GROUP BY r.name, c.version
+              ORDER BY r.name, COALESCE(v.ord, 1e9)",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(VersionStats {
+                repo: r.get(0)?,
+                version: r.get(1)?,
+                commits: r.get(2)?,
+                merges: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 }
 

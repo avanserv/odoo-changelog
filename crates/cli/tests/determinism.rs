@@ -54,13 +54,28 @@ fn git(dir: &Path, args: &[&str], clock: u64) {
 }
 
 /// A relative `config` resolves against the target tmpdir, the parent of every fixture directory.
-fn walk_output(config: &Path) -> Output {
+fn odoo_changelog(config: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_odoo-changelog"))
-        .args(["--config", config.to_str().unwrap(), "walk"])
+        .args(["--config", config.to_str().unwrap()])
+        .args(args)
         .current_dir(env!("CARGO_TARGET_TMPDIR"))
         .env("RUST_LOG", "warn")
         .output()
         .unwrap()
+}
+
+fn walk_output(config: &Path) -> Output {
+    odoo_changelog(config, &["walk"])
+}
+
+/// Walks `config`, expecting the walk to fail with `expected` and leave `db` as it was.
+fn walk_fails(config: &Path, db: &Path, expected: &str) {
+    let before = dump(db);
+    let out = walk_output(config);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "walk succeeded, expected: {expected}");
+    assert!(stderr.contains(expected), "unexpected error: {stderr}");
+    assert_eq!(dump(db), before, "the failed walk wrote to the database");
 }
 
 fn walk(config: &Path) {
@@ -217,7 +232,6 @@ fn moved_fork_asks_for_rebuild() {
     let (dir, _, clone) = setup("moved-fork");
     let cfg = config(&dir, "walk", &clone, "");
     walk(&cfg);
-    let before = dump(&dir.join("walk.db"));
 
     // The root sits one step before 16.0's real fork, so pinning it moves master's base back.
     let root = Command::new("git")
@@ -238,15 +252,77 @@ fn moved_fork_asks_for_rebuild() {
             &clone,
             &format!("\n[fork_overrides.odoo]\n{version:?} = {sha:?}\n"),
         );
-        let out = walk_output(&cfg);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(!out.status.success(), "walk resumed over a moved {version} fork");
-        assert!(stderr.contains(expected), "unexpected error: {stderr}");
-        assert_eq!(
-            dump(&dir.join("walk.db")),
-            before,
-            "the failed walk wrote to the database"
-        );
+        walk_fails(&cfg, &dir.join("walk.db"), expected);
+    }
+}
+
+#[test]
+fn override_pins_the_fork() {
+    let (dir, _, clone) = setup("override");
+    let fork_16 = rev_parse(&clone, "origin/16.0~1");
+    let extra = format!("\n[fork_overrides.odoo]\n\"17.0\" = {fork_16:?}\n");
+    walk(&config(&dir, "walk", &clone, &extra));
+
+    let forks = forks(&dir.join("walk.db"));
+    assert_eq!(forks[0], ("16.0".into(), "first-parent".into(), fork_16.clone()));
+    assert_eq!(forks[1], ("17.0".into(), "override".into(), fork_16));
+}
+
+#[test]
+fn unknown_repo_is_rejected() {
+    let (dir, _, clone) = setup("unknown-repo");
+    let out = odoo_changelog(&config(&dir, "walk", &clone, ""), &["walk", "--repo", "foo"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "walk accepted an unknown repo");
+    assert!(
+        stderr.contains("no repo named foo") && stderr.contains("configured: odoo"),
+        "unexpected error: {stderr}"
+    );
+}
+
+#[test]
+fn rewritten_branch_asks_for_rebuild() {
+    let (dir, mut fx, clone) = setup("rewritten");
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+
+    fx.git(&["checkout", "-q", "17.0"]);
+    fx.clock += 60;
+    fx.git(&["commit", "-q", "--amend", "-m", "[FIX] stock: quants, reworded"]);
+    git(&clone, &["fetch", "-q", "origin"], 0);
+    walk_fails(&cfg, &dir.join("walk.db"), "17.0 was rewritten");
+}
+
+/// A branch created from a commit master brought in through a merge reaches that commit,
+/// which a full rebuild credits to the branch and an incremental walk already gave master.
+#[test]
+fn branch_from_merged_commit_asks_for_rebuild() {
+    let (dir, mut fx, clone) = setup("merged-fork");
+    fx.git(&["checkout", "-q", "-b", "side"]);
+    fx.commit("addons/crm/models.py", "[ADD] crm: leads");
+    fx.commit("addons/crm/models.py", "[IMP] crm: teams");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.merge("side", "[MERGE] crm");
+    git(&clone, &["fetch", "-q", "origin"], 0);
+    let incremental = config(&dir, "incremental", &clone, "");
+    walk(&incremental);
+
+    fx.git(&["checkout", "-q", "-b", "saas-17.1", "side"]);
+    fx.commit("addons/crm/views.xml", "[FIX] crm: form view");
+    git(&clone, &["fetch", "-q", "origin"], 0);
+    walk_fails(&incremental, &dir.join("incremental.db"), "credited to master");
+
+    walk(&config(&dir, "full", &clone, ""));
+    let conn = Connection::open(dir.join("full.db")).unwrap();
+    for rev in ["origin/side~1", "origin/side"] {
+        let branch: String = conn
+            .query_row(
+                "SELECT branch FROM commits WHERE sha = ?1",
+                [rev_parse(&clone, rev)],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(branch, "saas-17.1", "{rev}");
     }
 }
 

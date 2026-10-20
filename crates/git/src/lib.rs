@@ -21,7 +21,6 @@ pub struct Repo {
 
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
-    pub sha: ObjectId,
     pub parents: Vec<ObjectId>,
     pub author_name: String,
     pub author_email: String,
@@ -81,7 +80,7 @@ impl Repo {
     }
 
     pub fn merge_base(&self, a: ObjectId, b: ObjectId) -> Result<Option<ObjectId>> {
-        Ok(self.repo.merge_base(a, b).ok().flatten().map(|id| id.detach()))
+        Ok(self.repo.merge_base(a, b)?.map(|id| id.detach()))
     }
 
     pub fn is_ancestor(&self, ancestor: ObjectId, of: ObjectId) -> Result<bool> {
@@ -174,7 +173,6 @@ impl Repo {
         let c = self.repo.find_commit(sha)?;
         let author = c.author()?;
         Ok(CommitInfo {
-            sha,
             parents: c.parent_ids().map(|p| p.detach()).collect(),
             author_name: author.name.to_str_lossy().trim().to_string(),
             author_email: author.email.to_str_lossy().trim().to_string(),
@@ -182,15 +180,6 @@ impl Repo {
             committed_at: c.time()?.seconds,
             message: c.message_raw_sloppy().to_str_lossy().into_owned(),
         })
-    }
-
-    pub fn file_at(&self, commit: ObjectId, path: &str) -> Result<Option<(ObjectId, Vec<u8>)>> {
-        let tree = self.repo.find_commit(commit)?.tree()?;
-        let Some(entry) = tree.lookup_entry_by_path(path)? else {
-            return Ok(None);
-        };
-        let oid = entry.object_id();
-        Ok(Some((oid, self.repo.find_blob(oid)?.take_data())))
     }
 
     pub fn blob_id_at(&self, commit: ObjectId, path: &str) -> Result<Option<ObjectId>> {
