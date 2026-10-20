@@ -3,7 +3,7 @@
 //! version branches forked from master, forward-port merges and a branch forked between runs.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -53,24 +53,59 @@ fn git(dir: &Path, args: &[&str], clock: u64) {
     assert!(status.success(), "git {args:?} failed in {}", dir.display());
 }
 
-fn walk(config: &Path) {
-    let status = Command::new(env!("CARGO_BIN_EXE_odoo-changelog"))
+fn walk_output(config: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_odoo-changelog"))
         .args(["--config", config.to_str().unwrap(), "walk"])
         .env("RUST_LOG", "warn")
-        .status()
-        .unwrap();
-    assert!(status.success(), "walk failed with {}", config.display());
+        .output()
+        .unwrap()
 }
 
-fn config(dir: &Path, name: &str, clone: &Path) -> PathBuf {
+fn walk(config: &Path) {
+    let out = walk_output(config);
+    assert!(
+        out.status.success(),
+        "walk failed with {}: {}",
+        config.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Writes `<name>.toml` pointing at `<name>.db`, with `extra` TOML appended.
+fn config(dir: &Path, name: &str, clone: &Path, extra: &str) -> PathBuf {
     let path = dir.join(format!("{name}.toml"));
     let text = format!(
-        "db = {:?}\nfirst_version = \"16.0\"\n\n[[repos]]\nname = \"odoo\"\npath = {:?}\n",
+        "db = {:?}\nfirst_version = \"16.0\"\n\n[[repos]]\nname = \"odoo\"\npath = {:?}\n{extra}",
         dir.join(format!("{name}.db")),
         clone,
     );
     std::fs::write(&path, text).unwrap();
     path
+}
+
+/// Upstream with 16.0 and 17.0 forked from master and a forward-port merge, cloned to `clone`.
+fn setup(name: &str) -> (PathBuf, Fixture, PathBuf) {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    let upstream = dir.join("upstream");
+    std::fs::create_dir_all(&upstream).unwrap();
+    let mut fx = Fixture { upstream, clock: 0 };
+    fx.git(&["init", "-q"]);
+
+    fx.commit("odoo/release.py", "[ADD] base: version_info = (15, 5)");
+    fx.commit("addons/sale/models.py", "[IMP] sale: order lines");
+    fx.git(&["checkout", "-q", "-b", "16.0"]);
+    fx.commit("addons/sale/models.py", "[FIX] sale: rounding\n\ntask-1001\nopw-2002");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.commit("addons/stock/models.py", "[IMP] stock: moves");
+    fx.git(&["checkout", "-q", "-b", "17.0"]);
+    fx.commit("addons/stock/models.py", "[FIX] stock: quants");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.merge("16.0", "[MERGE] forward port 16.0");
+
+    let clone = dir.join("clone");
+    git(&dir, &["clone", "-q", "upstream", "clone"], 0);
+    (dir, fx, clone)
 }
 
 /// Every row of every table, each table sorted by all of its columns.
@@ -105,27 +140,8 @@ fn dump(db: &Path) -> Vec<String> {
 
 #[test]
 fn incremental_walk_equals_full_rebuild() {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("determinism");
-    let _ = std::fs::remove_dir_all(&dir);
-    let upstream = dir.join("upstream");
-    std::fs::create_dir_all(&upstream).unwrap();
-    let mut fx = Fixture { upstream, clock: 0 };
-    fx.git(&["init", "-q"]);
-
-    fx.commit("odoo/release.py", "[ADD] base: version_info = (15, 5)");
-    fx.commit("addons/sale/models.py", "[IMP] sale: order lines");
-    fx.git(&["checkout", "-q", "-b", "16.0"]);
-    fx.commit("addons/sale/models.py", "[FIX] sale: rounding\n\ntask-1001\nopw-2002");
-    fx.git(&["checkout", "-q", "master"]);
-    fx.commit("addons/stock/models.py", "[IMP] stock: moves");
-    fx.git(&["checkout", "-q", "-b", "17.0"]);
-    fx.commit("addons/stock/models.py", "[FIX] stock: quants");
-    fx.git(&["checkout", "-q", "master"]);
-    fx.merge("16.0", "[MERGE] forward port 16.0");
-
-    let clone = dir.join("clone");
-    git(&dir, &["clone", "-q", "upstream", "clone"], 0);
-    let incremental = config(&dir, "incremental", &clone);
+    let (dir, mut fx, clone) = setup("determinism");
+    let incremental = config(&dir, "incremental", &clone, "");
     walk(&incremental);
 
     fx.git(&["checkout", "-q", "16.0"]);
@@ -142,7 +158,7 @@ fn incremental_walk_equals_full_rebuild() {
     git(&clone, &["fetch", "-q", "origin"], 0);
     walk(&incremental);
 
-    let full = config(&dir, "full", &clone);
+    let full = config(&dir, "full", &clone, "");
     walk(&full);
     let rebuilt = dump(&dir.join("full.db"));
     // Every commit but the root, which master reached before its oldest fork.
@@ -155,4 +171,47 @@ fn incremental_walk_equals_full_rebuild() {
         rebuilt,
         "a re-run on the same refs changed the database"
     );
+}
+
+#[test]
+fn moved_fork_asks_for_rebuild() {
+    let (dir, _, clone) = setup("moved-fork");
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+    let before = dump(&dir.join("walk.db"));
+
+    // The root sits one step before 16.0's real fork, so pinning it moves master's base back.
+    let root = Command::new("git")
+        .args(["rev-list", "--max-parents=0", "origin/master"])
+        .current_dir(&clone)
+        .output()
+        .unwrap();
+    let root = String::from_utf8(root.stdout).unwrap();
+    // 17.0 pinned to 16.0's fork moves that branch's walk range but not master's base.
+    let fork_16 = Command::new("git")
+        .args(["rev-parse", "origin/16.0~1"])
+        .current_dir(&clone)
+        .output()
+        .unwrap();
+    let fork_16 = String::from_utf8(fork_16.stdout).unwrap();
+    for (version, sha, expected) in [
+        ("16.0", root.trim(), "master's oldest fork moved"),
+        ("17.0", fork_16.trim(), "fork of 17.0 moved"),
+    ] {
+        let cfg = config(
+            &dir,
+            "walk",
+            &clone,
+            &format!("\n[fork_overrides.odoo]\n{version:?} = {sha:?}\n"),
+        );
+        let out = walk_output(&cfg);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "walk resumed over a moved {version} fork");
+        assert!(stderr.contains(expected), "unexpected error: {stderr}");
+        assert_eq!(
+            dump(&dir.join("walk.db")),
+            before,
+            "the failed walk wrote to the database"
+        );
+    }
 }

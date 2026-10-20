@@ -19,7 +19,10 @@ cp config/odoo-changelog.example.toml config/odoo-changelog.toml   # then edit t
 ```
 
 `walk` is incremental: it resumes each branch from the last recorded head and fails if a
-branch was rewritten. Two runs on the same refs produce identical databases.
+branch was rewritten, or if a fork moved since the last walk (a new `[fork_overrides]` entry,
+a changed `first_version`, a deepened clone), since either renumbers rows a resume does not
+revisit. Rebuild the database in both cases. Two runs on the same refs produce identical
+databases.
 
 ## How versions are assigned
 

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use odoo_changelog_core::{Config, RepoConfig};
-use odoo_changelog_git::{Repo, resolve_forks};
+use odoo_changelog_git::{Fork, Repo, resolve_forks};
 use odoo_changelog_store::{CommitRow, Store, VersionRow};
 use tracing::{info, warn};
 
@@ -24,10 +24,11 @@ fn walk_repo(cfg: &Config, store: &Store, rc: &RepoConfig) -> Result<()> {
             rc.name
         );
     }
+    let tx = store.conn.unchecked_transaction()?;
     let repo_id = store.upsert_repo(&rc.name, &rc.path.to_string_lossy(), shallow)?;
     let (forks, master_chain) = resolve_forks(&repo, rc, cfg)?;
+    check_forks_unchanged(store, repo_id, &repo.name, &forks, &master_chain)?;
 
-    let tx = store.conn.unchecked_transaction()?;
     let rows: Vec<_> = forks
         .iter()
         .map(|f| {
@@ -64,6 +65,43 @@ fn walk_repo(cfg: &Config, store: &Store, rc: &RepoConfig) -> Result<()> {
     store.assign_versions(repo_id)?;
     tx.commit()?;
     Ok(())
+}
+
+/// Stored master `fp_idx` values count from the oldest fork, and each branch's rows start at
+/// its own fork, so a fork that moved since the last walk renumbers rows a resume never revisits.
+fn check_forks_unchanged(
+    store: &Store,
+    repo_id: i64,
+    name: &str,
+    forks: &[Fork],
+    master_chain: &[gix::ObjectId],
+) -> Result<()> {
+    if let Some((sha, fp)) = store.run_state(repo_id, "master")?
+        && master_chain.get(fp as usize).map(ToString::to_string) != Some(sha)
+    {
+        anyhow::bail!(
+            "{name}: master's oldest fork moved or master was rewritten since the last walk; rebuild the database"
+        );
+    }
+    let stored = store.version_forks(repo_id)?;
+    for f in forks {
+        let version = f.version.branch();
+        let new = f.fork.map(|s| s.to_string()).unwrap_or_default();
+        if let Some(old) = stored.get(&version)
+            && *old != new
+        {
+            anyhow::bail!(
+                "{name}: fork of {version} moved from {} to {} since the last walk; rebuild the database",
+                short(old),
+                short(&new)
+            );
+        }
+    }
+    Ok(())
+}
+
+fn short(sha: &str) -> &str {
+    if sha.is_empty() { "none" } else { &sha[..10] }
 }
 
 /// Records first-parent steps of `branch` after `fork` (its whole history when unrelated),
