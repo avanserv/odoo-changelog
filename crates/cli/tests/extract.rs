@@ -420,8 +420,19 @@ fn renames_are_paired() {
         path: path.into(),
         blob: ObjectId::from_hex(sha(&format!("{rev}:{path}")).as_bytes()).unwrap(),
     };
+    let unpaired = [
+        FileChange {
+            old: Some(side("addons/sale/a.py", "origin/master~3")),
+            new: None,
+        },
+        FileChange {
+            old: None,
+            new: Some(side("addons/sale/b.py", "origin/master~2")),
+        },
+    ];
+    assert_eq!(changes, unpaired);
     assert_eq!(
-        changes,
+        worker.pair_renames(&changes, &|p| p.ends_with(".py")).unwrap(),
         [FileChange {
             old: Some(side("addons/sale/a.py", "origin/master~3")),
             new: Some(side("addons/sale/b.py", "origin/master~2")),
@@ -449,6 +460,76 @@ fn parent_missing(clone: &Path, sha: &str) -> bool {
                 .unwrap()
                 .success()
         })
+}
+
+/// Pairing renames among every pending extractor's files would make one extractor's events
+/// depend on which others run with it: a rename across extensions, or a deletion closer to
+/// another extractor's addition than to its own.
+#[test]
+fn rename_pairing_ignores_other_extractors() {
+    let (dir, mut fx, clone) = setup("extract-pairing");
+    let lines: Vec<String> = (0..10).map(|i| format!("def l{i}: {i}\n")).collect();
+    let near = |changed: usize| {
+        let mut l = lines.clone();
+        l.iter_mut()
+            .take(changed)
+            .for_each(|line| *line = line.replace(": ", ": edited "));
+        l.concat()
+    };
+    fx.commit_files(
+        &[
+            ("addons/sale/x.py", "def f: one\n"),
+            ("addons/sale/a.py", &lines.concat()),
+        ],
+        "[ADD] sale",
+    );
+    fx.mv("addons/sale/x.py", "addons/sale/x.xml", "[MOV] sale: x to xml");
+    fx.git(&["rm", "-q", "addons/sale/a.py"]);
+    fx.commit_files(
+        &[("addons/sale/b.py", &near(3)), ("addons/sale/c.xml", &near(1))],
+        "[REF] sale: a to b and c",
+    );
+    fetch(&clone);
+    let run_all = |name: &str, runs: &[&[(&'static str, u32)]]| {
+        let cfg = config(&dir, name, &clone, "");
+        walk(&cfg);
+        for extractors in runs {
+            let extractors = extractors
+                .iter()
+                .map(|&(ext, version)| defs(ext, version, ext).0)
+                .collect();
+            extract(&cfg, extractors, &options());
+        }
+        dump(&dir.join(format!("{name}.db")))
+    };
+
+    let full = run_all("full", &[&[("py", 1), ("xml", 1)]]);
+    assert_eq!(run_all("later", &[&[("py", 1)], &[("py", 1), ("xml", 1)]]), full);
+    let bumped = run_all("bumped", &[&[("py", 1), ("xml", 1)], &[("py", 1), ("xml", 2)]]);
+    assert_eq!(bumped, run_all("fresh", &[&[("py", 1), ("xml", 2)]]));
+
+    let db = dir.join("full.db");
+    let event = |path: &str, op: &str, name: &str, old: Option<&str>| {
+        (
+            path.to_string(),
+            op.to_string(),
+            format!("addons/sale:{name}"),
+            old.map(String::from),
+        )
+    };
+    assert_eq!(
+        events(&db, &rev_parse(&clone, "origin/master~1")),
+        [
+            event("addons/sale/x.py", "removed", "f", None),
+            event("addons/sale/x.xml", "added", "f", None),
+        ]
+    );
+    let moved = events(&db, &rev_parse(&clone, "origin/master"));
+    let py: Vec<_> = moved.iter().filter(|e| e.0 == "addons/sale/b.py").collect();
+    let ops: Vec<&str> = py.iter().map(|e| e.1.as_str()).collect();
+    assert_eq!(ops, [["changed"; 3].as_slice(), &["moved"; 7]].concat(), "{moved:?}");
+    assert!(py.iter().all(|e| e.3.as_deref() == Some("addons/sale/a.py")));
+    assert!(moved.iter().all(|e| e.0 != "addons/sale/a.py"), "{moved:?}");
 }
 
 #[test]
@@ -531,7 +612,7 @@ fn extract_command_prints_timings_and_checks_its_arguments() {
     let out = odoo_changelog(&cfg, &["extract", "--timings"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    for phase in ["diff", "parse", "cache", "write", "total"] {
+    for phase in ["setup", "diff", "parse", "cache", "write", "total"] {
         assert!(
             stdout.lines().any(|l| l.starts_with(phase)),
             "no {phase} line in {stdout}"
@@ -614,6 +695,7 @@ fn real_odoo_17_to_18() {
         let t = run(&cfg, &store, &Registry::new(vec![Box::new(Lines)]).unwrap(), &opts).unwrap();
         println!("{run_name}");
         for (phase, spent) in [
+            ("setup", t.setup),
             ("diff", t.diff),
             ("parse", t.parse),
             ("cache", t.cache),

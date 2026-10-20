@@ -10,7 +10,7 @@ use gix::diff::Rewrites;
 use gix::diff::tree::recorder::Change as Recorded;
 use gix::diff::tree::visit::Change;
 use gix::objs::TreeRefIter;
-use gix::objs::tree::EntryMode;
+use gix::objs::tree::EntryKind;
 
 use crate::Repo;
 
@@ -75,8 +75,9 @@ impl SharedRepo {
 
 impl Worker {
     /// The blob files `commit` changed against its only parent, sorted by path, restricted to
-    /// those whose old or new path passes `keep`, which sees each path before any blob is read.
-    /// `None` when the parent is missing from a shallow clone. A merge is an error.
+    /// those whose path passes `keep`, which sees each path before any blob is read. A rename is
+    /// a deletion and an addition here; `pair_renames` pairs them. `None` when the parent is
+    /// missing from a shallow clone. A merge is an error.
     pub fn changed_files(&mut self, commit: ObjectId, keep: &dyn Fn(&str) -> bool) -> Result<Option<Vec<FileChange>>> {
         let (old_tree, new_tree) = {
             let c = self.repo.find_commit(commit)?;
@@ -107,92 +108,84 @@ impl Worker {
         }
 
         let mut out = Vec::new();
-        let (mut added, mut deleted) = (Vec::new(), Vec::new());
         for change in recorder.records {
-            match change {
+            let (old, new, path) = match change {
                 Recorded::Modification {
                     previous_entry_mode,
                     previous_oid,
                     entry_mode,
                     oid,
                     path,
-                } => {
-                    let path = path.to_str_lossy().into_owned();
-                    if !keep(&path) {
-                        continue;
-                    }
-                    match (previous_entry_mode.is_blob(), entry_mode.is_blob()) {
-                        (true, true) if previous_oid != oid => out.push(FileChange {
-                            old: Some(side(&path, previous_oid)),
-                            new: Some(side(&path, oid)),
-                        }),
-                        (true, false) => deleted.push((path, previous_entry_mode, previous_oid)),
-                        (false, true) => added.push((path, entry_mode, oid)),
-                        _ => {}
-                    }
-                }
+                } if previous_oid != oid || previous_entry_mode.is_blob() != entry_mode.is_blob() => (
+                    previous_entry_mode.is_blob().then_some(previous_oid),
+                    entry_mode.is_blob().then_some(oid),
+                    path,
+                ),
                 Recorded::Addition {
                     entry_mode, oid, path, ..
-                } if entry_mode.is_blob() => {
-                    let path = path.to_str_lossy().into_owned();
-                    if keep(&path) {
-                        added.push((path, entry_mode, oid));
-                    }
-                }
+                } if entry_mode.is_blob() => (None, Some(oid), path),
                 Recorded::Deletion {
                     entry_mode, oid, path, ..
-                } if entry_mode.is_blob() => {
-                    let path = path.to_str_lossy().into_owned();
-                    if keep(&path) {
-                        deleted.push((path, entry_mode, oid));
-                    }
-                }
-                _ => {}
+                } if entry_mode.is_blob() => (Some(oid), None, path),
+                _ => continue,
+            };
+            let path = lossy(path.as_ref());
+            if (old.is_some() || new.is_some()) && keep(&path) {
+                out.push(FileChange {
+                    old: old.map(|oid| side(&path, oid)),
+                    new: new.map(|oid| side(&path, oid)),
+                });
             }
         }
-
-        if added.is_empty() || deleted.is_empty() {
-            out.extend(added.into_iter().map(|(path, _, oid)| FileChange {
-                old: None,
-                new: Some(side(&path, oid)),
-            }));
-            out.extend(deleted.into_iter().map(|(path, _, oid)| FileChange {
-                old: Some(side(&path, oid)),
-                new: None,
-            }));
-        } else {
-            self.pair_renames(added, deleted, &mut out)?;
-        }
-        out.sort_by(|a, b| {
-            let old_path = |c: &FileChange| c.old.as_ref().map(|s| s.path.clone());
-            (a.path(), old_path(a)).cmp(&(b.path(), old_path(b)))
-        });
+        out.sort_by(by_path);
         Ok(Some(out))
     }
 
-    /// Pairs additions with deletions as git does by default, reading only these blobs.
-    fn pair_renames(
-        &mut self,
-        added: Vec<(String, EntryMode, ObjectId)>,
-        deleted: Vec<(String, EntryMode, ObjectId)>,
-        out: &mut Vec<FileChange>,
-    ) -> Result<()> {
+    /// The `changes` of one commit as an extractor that `claims` paths sees them: its additions
+    /// and deletions paired into renames as git does by default, sorted by path. Pairing only
+    /// among the files one extractor claims keeps its events independent of the others.
+    pub fn pair_renames(&mut self, changes: &[FileChange], claims: &dyn Fn(&str) -> bool) -> Result<Vec<FileChange>> {
+        let mut out = Vec::new();
+        let (mut added, mut deleted) = (Vec::new(), Vec::new());
+        for change in changes {
+            match (&change.old, &change.new) {
+                (Some(_), Some(new)) if claims(&new.path) => out.push(change.clone()),
+                (None, Some(new)) if claims(&new.path) => added.push(new),
+                (Some(old), None) if claims(&old.path) => deleted.push(old),
+                _ => {}
+            }
+        }
+        if added.is_empty() || deleted.is_empty() {
+            out.extend(added.into_iter().map(|new| FileChange {
+                old: None,
+                new: Some(new.clone()),
+            }));
+            out.extend(deleted.into_iter().map(|old| FileChange {
+                old: Some(old.clone()),
+                new: None,
+            }));
+            out.sort_by(by_path);
+            return Ok(out);
+        }
+
+        // Executable or not, blobs pair with each other, so the mode the tracker sees is moot.
+        let entry_mode = EntryKind::Blob.into();
         let mut tracker = gix::diff::rewrites::Tracker::new(REWRITES);
-        for (path, entry_mode, oid) in added {
+        for new in added {
             let change = Change::Addition {
                 entry_mode,
-                oid,
+                oid: new.blob,
                 relation: None,
             };
-            tracker.try_push_change(change, path.as_bytes().as_bstr());
+            tracker.try_push_change(change, new.path.as_bytes().as_bstr());
         }
-        for (path, entry_mode, oid) in deleted {
+        for old in deleted {
             let change = Change::Deletion {
                 entry_mode,
-                oid,
+                oid: old.blob,
                 relation: None,
             };
-            tracker.try_push_change(change, path.as_bytes().as_bstr());
+            tracker.try_push_change(change, old.path.as_bytes().as_bstr());
         }
         let cache = match &mut self.similarity {
             Some(cache) => cache,
@@ -224,7 +217,8 @@ impl Worker {
             )
             .map_err(|e| anyhow!("{e}"))?;
         cache.clear_resource_cache_keep_allocation();
-        Ok(())
+        out.sort_by(by_path);
+        Ok(out)
     }
 
     /// Reads a blob from the object database; nothing here writes to the clone.
@@ -248,6 +242,11 @@ fn similarity_cache(repo: &gix::Repository) -> Result<gix::diff::blob::Platform>
     )?;
     cache.options.algorithm = Some(gix::diff::blob::Algorithm::Myers);
     Ok(cache)
+}
+
+fn by_path(a: &FileChange, b: &FileChange) -> std::cmp::Ordering {
+    let old_path = |c: &FileChange| c.old.as_ref().map(|s| s.path.clone());
+    a.path().cmp(b.path()).then_with(|| old_path(a).cmp(&old_path(b)))
 }
 
 fn side(path: &str, blob: ObjectId) -> FileSide {

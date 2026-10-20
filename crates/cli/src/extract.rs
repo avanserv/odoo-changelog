@@ -23,9 +23,11 @@ pub struct Options {
     pub threads: Option<NonZeroUsize>,
 }
 
-/// Wall time per phase; the phases never overlap.
+/// Wall time per phase; the phases never overlap and together cover the run.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Timings {
+    /// Syncing extractor versions, opening repos and loading the commits to extract.
+    pub setup: Duration,
     pub diff: Duration,
     pub parse: Duration,
     pub cache: Duration,
@@ -62,8 +64,9 @@ struct Ctx<'a> {
 }
 
 /// Records the symbol events of every walked, non-merge commit that some extractor has not
-/// processed yet. Each commit is diffed against its only parent, so its events depend on that
-/// commit alone and an incremental run equals a full rebuild.
+/// processed yet. Each commit is diffed against its only parent and renames are paired per
+/// extractor, so an extractor's events depend on the commit and that extractor alone, and an
+/// incremental run equals a full rebuild.
 pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> Result<Timings> {
     let repos = cfg.select_repos(&opts.repos)?;
     let mut timings = Timings::default();
@@ -71,6 +74,7 @@ pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> 
         info!("no extractor is registered; nothing to extract");
         return Ok(timings);
     }
+    let start = Instant::now();
     let extractors: Vec<&dyn Extractor> = registry.iter().collect();
     let current: Vec<(&str, i64)> = extractors.iter().map(|e| (e.name(), e.version().into())).collect();
     let purged = store.in_transaction(|| store.sync_extractors(&current))?;
@@ -81,6 +85,7 @@ pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(opts.threads.map_or(0, NonZeroUsize::get))
         .build()?;
+    timings.setup += start.elapsed();
     for rc in repos {
         let start = Instant::now();
         extract_repo(cfg, store, &pool, &extractors, rc, opts, &mut timings)?;
@@ -98,6 +103,7 @@ fn extract_repo(
     opts: &Options,
     timings: &mut Timings,
 ) -> Result<()> {
+    let start = Instant::now();
     let repo_id = store
         .repo_id(&rc.name)?
         .ok_or_else(|| anyhow!("{}: no commits recorded; run walk first", rc.name))?;
@@ -128,6 +134,7 @@ fn extract_repo(
         repo_id,
         name: &rc.name,
     };
+    timings.setup += start.elapsed();
     let mut counts = Counts::default();
     for batch in commits.chunks(BATCH) {
         store.in_transaction(|| extract_batch(&ctx, batch, &mut counts, timings))?;
@@ -164,12 +171,23 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
     let (ex, shared, name) = (ctx.extractors, ctx.shared, ctx.name);
 
     let start = Instant::now();
-    let diffs: Vec<Result<Option<Vec<FileChange>>>> = ctx.pool.install(|| {
+    // Per commit, the changes each pending extractor sees, in `pending` order.
+    let diffs: Vec<Result<Option<Vec<Vec<FileChange>>>>> = ctx.pool.install(|| {
         batch
             .par_iter()
             .map_init(
                 || shared.worker(),
-                |w, c| w.changed_files(c.oid, &|p| c.pending.iter().any(|&i| ex[i].claims(p))),
+                |w, c| {
+                    let claimed = |p: &str| c.pending.iter().any(|&i| ex[i].claims(p));
+                    let Some(changes) = w.changed_files(c.oid, &claimed)? else {
+                        return Ok(None);
+                    };
+                    c.pending
+                        .iter()
+                        .map(|&i| w.pair_renames(&changes, &|p| ex[i].claims(p)))
+                        .collect::<Result<Vec<_>>>()
+                        .map(Some)
+                },
             )
             .collect()
     });
@@ -183,15 +201,10 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
 
     let start = Instant::now();
     let mut keys = BTreeSet::new();
-    for (c, changes) in batch.iter().zip(&diffs) {
-        for change in changes.iter().flatten() {
-            for side in [&change.old, &change.new].into_iter().flatten() {
-                keys.extend(
-                    c.pending
-                        .iter()
-                        .filter(|&&i| ex[i].claims(&side.path))
-                        .map(|&i| (side.blob, i)),
-                );
+    for (c, per_extractor) in batch.iter().zip(&diffs) {
+        for (&i, changes) in c.pending.iter().zip(per_extractor.iter().flatten()) {
+            for change in changes {
+                keys.extend([&change.old, &change.new].into_iter().flatten().map(|s| (s.blob, i)));
             }
         }
     }
@@ -250,29 +263,25 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
     let start = Instant::now();
     let mut events: Vec<(&str, &str, Option<&str>, &str, Delta)> = Vec::new();
     let mut done = Vec::new();
-    for (c, changes) in batch.iter().zip(&diffs) {
-        let Some(changes) = changes else {
+    for (c, per_extractor) in batch.iter().zip(&diffs) {
+        let Some(per_extractor) = per_extractor else {
             counts.shallow += 1;
             continue;
         };
-        for change in changes {
-            let old_path = change
-                .old
-                .as_ref()
-                .filter(|o| change.new.as_ref().is_some_and(|n| n.path != o.path))
-                .map(|o| o.path.as_str());
-            for &i in &c.pending {
-                let (old, new) = (
-                    claimed(&tables, ex, i, &change.old),
-                    claimed(&tables, ex, i, &change.new),
-                );
-                if old.is_none() && new.is_none() {
-                    continue;
-                }
-                let (Some(old), Some(new)) = (lift(old), lift(new)) else {
+        for (&i, changes) in c.pending.iter().zip(per_extractor) {
+            for change in changes {
+                let (Some(old), Some(new)) = (
+                    parsed_side(&tables, i, &change.old),
+                    parsed_side(&tables, i, &change.new),
+                ) else {
                     counts.failures += 1;
                     continue;
                 };
+                let old_path = change
+                    .old
+                    .as_ref()
+                    .filter(|o| change.new.as_ref().is_some_and(|n| n.path != o.path))
+                    .map(|o| o.path.as_str());
                 for d in delta(ex[i], old, new) {
                     events.push((&c.sha, change.path(), old_path, ex[i].name(), d));
                 }
@@ -307,22 +316,15 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
     Ok(())
 }
 
-fn claimed<'a>(
+/// `None` when the side failed to parse; `Some(None)` when the change has no such side.
+fn parsed_side<'a>(
     tables: &'a HashMap<(ObjectId, usize), Parsed>,
-    ex: &[&dyn Extractor],
     i: usize,
     side: &'a Option<FileSide>,
-) -> Option<(&'a str, &'a Parsed)> {
-    let side = side.as_ref().filter(|s| ex[i].claims(&s.path))?;
-    Some((side.path.as_str(), &tables[&(side.blob, i)]))
-}
-
-/// `None` when the side failed to parse; `Some(None)` when the extractor does not see it.
-fn lift<'a>(side: Option<(&'a str, &'a Parsed)>) -> Option<Option<(&'a str, &'a SymbolTable)>> {
+) -> Option<Option<(&'a str, &'a SymbolTable)>> {
     match side {
         None => Some(None),
-        Some((path, Ok(table))) => Some(Some((path, table))),
-        Some((_, Err(_))) => None,
+        Some(s) => tables[&(s.blob, i)].as_ref().ok().map(|t| Some((s.path.as_str(), t))),
     }
 }
 

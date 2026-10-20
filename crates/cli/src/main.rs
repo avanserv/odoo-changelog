@@ -39,7 +39,7 @@ enum Command {
         /// Worker threads (default: one per core).
         #[arg(long)]
         threads: Option<NonZeroUsize>,
-        /// Print the time spent diffing, parsing, in the cache and writing.
+        /// Print the time spent in setup, diffing, parsing, in the cache and writing.
         #[arg(long)]
         timings: bool,
     },
@@ -85,9 +85,10 @@ fn version(name: &str) -> Result<Version> {
 }
 
 fn print_timings(t: &extract::Timings) {
-    let total = t.diff + t.parse + t.cache + t.write;
+    let total = t.setup + t.diff + t.parse + t.cache + t.write;
     println!("{:<8} {:>9}", "phase", "seconds");
     for (phase, spent) in [
+        ("setup", t.setup),
         ("diff", t.diff),
         ("parse", t.parse),
         ("cache", t.cache),

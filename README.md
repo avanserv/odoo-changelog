@@ -42,12 +42,13 @@ saas-17.2 → 18.0). Commits a merge brought in are recorded with the merge's `f
 
 ## How symbols are recorded
 
-`extract` diffs each walked commit against its parent and turns every changed file into
-symbol events: added, removed, changed (its attributes differ) or moved (a renamed file, same
+`extract` diffs each walked commit against its parent and turns every changed file into symbol
+events: added, removed, changed (its attributes differ) or moved (a renamed file, same
 attributes). Merge commits are skipped, so each event belongs to the commit that made the
-change. Renames are paired as git pairs them by default (50% similarity), whatever the clone's
-config says. A symbol's id is `blake3(kind, 0x00, qualname)`. Each blob is parsed once per
-extractor version: the result is cached under the blob id, the extractor's name and its
+change. Renames are paired with git's default settings (50% similarity), whatever the clone's
+config says, but only among the files one extractor reads: an extractor's events never depend on
+which other extractors run. A symbol's id is `blake3(kind, 0x00, qualname)`. Each blob is parsed
+once per extractor version: the result is cached under the blob id, the extractor's name and its
 version, and bumping the version re-extracts that extractor's commits only. `--from` and `--to`
 bound the `version` of the commits extracted, and a later run picks up the rest.
 
