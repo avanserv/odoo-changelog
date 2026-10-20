@@ -44,8 +44,7 @@ pub(crate) fn kind_of(model: &str) -> &'static str {
     }
 }
 
-/// Spans are exact for valid UTF-8 and approximate for a file in another encoding, which is
-/// transcoded first, or with invalid bytes, which are replaced.
+/// Spans are byte offsets into the blob, mapped back through any transcoding or replaced bytes.
 pub struct Data;
 
 impl Extractor for Data {

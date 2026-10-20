@@ -106,8 +106,9 @@ fn decode(body: &[u8]) -> (Cow<'_, str>, Offsets) {
         let (mut text, mut offsets, mut start) = (String::new(), Vec::new(), 0);
         for i in 0..body.len() {
             let before = text.len();
-            text.reserve(16);
-            let _ = decoder.decode_to_string(&body[i..=i], &mut text, i + 1 == body.len());
+            text.reserve(decoder.max_utf8_buffer_length(1).unwrap_or(16));
+            let (result, _, _) = decoder.decode_to_string(&body[i..=i], &mut text, i + 1 == body.len());
+            debug_assert_eq!(result, encoding_rs::CoderResult::InputEmpty);
             if text.len() > before {
                 offsets.push((before, start));
                 start = i + 1;
