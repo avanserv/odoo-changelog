@@ -25,7 +25,7 @@ fn walk_repo(cfg: &Config, store: &Store, rc: &RepoConfig) -> Result<()> {
         );
     }
     let tx = store.conn.unchecked_transaction()?;
-    let repo_id = store.upsert_repo(&rc.name, &rc.path.to_string_lossy(), shallow)?;
+    let repo_id = store.upsert_repo(&rc.name, shallow)?;
     let (forks, master_chain) = resolve_forks(&repo, rc, cfg)?;
     check_forks_unchanged(store, repo_id, &repo.name, &forks, &master_chain)?;
 
