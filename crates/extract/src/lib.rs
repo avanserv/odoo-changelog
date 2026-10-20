@@ -8,6 +8,7 @@ mod delta;
 mod hash;
 mod js;
 mod manifest;
+mod owl;
 mod path;
 mod python;
 mod symbol;
@@ -24,6 +25,7 @@ pub use data::Data;
 pub use delta::{Delta, Op, delta};
 pub use js::Js;
 pub use manifest::Manifest;
+pub use owl::Owl;
 pub use path::module_of;
 pub use python::Python;
 pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
@@ -64,8 +66,14 @@ impl Registry {
 
     /// The extractors the binary ships with.
     pub fn builtin() -> Self {
-        Registry::new(vec![Box::new(Data), Box::new(Js), Box::new(Manifest), Box::new(Python)])
-            .expect("builtin extractor names are unique")
+        Registry::new(vec![
+            Box::new(Data),
+            Box::new(Js),
+            Box::new(Manifest),
+            Box::new(Owl),
+            Box::new(Python),
+        ])
+        .expect("builtin extractor names are unique")
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &dyn Extractor> {

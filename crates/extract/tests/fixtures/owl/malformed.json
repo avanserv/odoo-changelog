@@ -1,0 +1,55 @@
+{
+  "symbols": [
+    {
+      "kind": "owl_node",
+      "qualname": "demo.First#div[@t-ref='first']@demo",
+      "line": 4,
+      "span": {
+        "start": 99,
+        "end": 104
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Second#div[@name='second']@demo",
+      "line": 7,
+      "span": {
+        "start": 165,
+        "end": 171
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.First@demo",
+      "line": 3,
+      "span": {
+        "start": 66,
+        "end": 76
+      },
+      "attrs": {
+        "arch": "7418d873ed8e200bfdeaed195b48888b"
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.Second@demo",
+      "line": 6,
+      "span": {
+        "start": 132,
+        "end": 143
+      },
+      "attrs": {
+        "arch": "6c54d04bda9f6fa317ffe4d9d92a01af"
+      }
+    }
+  ],
+  "warnings": [
+    "line 10: ill-formed document: expected `</div>`, but `</span>` was found"
+  ]
+}

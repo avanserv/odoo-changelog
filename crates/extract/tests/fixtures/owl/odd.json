@@ -1,0 +1,34 @@
+{
+  "symbols": [
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Twice#span[@name='first']@demo",
+      "line": 4,
+      "span": {
+        "start": 132,
+        "end": 137
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.Twice@demo",
+      "line": 4,
+      "span": {
+        "start": 108,
+        "end": 118
+      },
+      "attrs": {
+        "arch": "7dbc9b77bf5480b69ee985d0ada16e56"
+      }
+    }
+  ],
+  "warnings": [
+    "line 3: <div> without t-name ignored",
+    "line 5: duplicate owl_template demo.Twice dropped",
+    "line 6: t-inherit-mode override is not primary or extension; ignored",
+    "line 7: primary template without t-name ignored"
+  ]
+}

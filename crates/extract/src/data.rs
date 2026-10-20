@@ -52,7 +52,8 @@ impl Extractor for Data {
         "data"
     }
 
-    /// Bump with any change to the output, including a quick-xml upgrade.
+    /// Bump with any change to the output, including a quick-xml upgrade and changes to
+    /// `xml::dom` or `xml::arch`, which `owl` shares.
     fn version(&self) -> u32 {
         1
     }

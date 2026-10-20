@@ -390,7 +390,7 @@ fn builtin_registry_gives_data_files_one_claimant() {
     for path in ["addons/sale/views/x.xml", "addons/sale/security/ir.model.access.csv"] {
         assert_eq!(claimants(path), ["data"], "{path}");
     }
-    assert!(claimants("addons/sale/static/src/x.xml").is_empty());
+    assert_eq!(claimants("addons/sale/static/src/x.xml"), ["owl"]);
 }
 
 /// Blobs of the community clone at the 17.0, master and 12.0 heads on 2026-10-20, pinned so that

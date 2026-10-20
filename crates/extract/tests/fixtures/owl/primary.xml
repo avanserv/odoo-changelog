@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- The thing itself. -->
+    <t t-name="demo.Thing">
+        <div class="o_demo_thing" t-ref="root">
+            <button name="refresh" t-on-click="refresh">Refresh</button>
+            <div id="demo_thing_body">
+                <t t-set-slot="header">Count &gt; 0</t>
+                <t t-set-slot="footer"/>
+                <t t-set-slot="footer"/>
+            </div>
+            <t t-name="demo.Thing.Inner"><span>inner</span></t>
+            <DemoDialog name="x"/>
+        </div>
+    </t>
+
+    <div t-name="demo.Card" class="o_card">
+        <span t-esc="props.title"/>
+    </div>
+
+    <t t-name="demo.ThingList" t-inherit="demo.Thing" t-inherit-mode="primary" owl="1">
+        <xpath expr="//div[@t-ref='root']" position="inside">
+            <ul t-ref="list"><li>item</li></ul>
+        </xpath>
+        <t t-call="demo.Row" position="replace">
+            <t t-call="demo.ListRow"/>
+        </t>
+    </t>
+
+    <t t-name="demo.Plain" t-inherit="demo.Thing">
+        <xpath expr="//button[@name='refresh']" position="attributes">
+            <attribute name="class">btn</attribute>
+        </xpath>
+    </t>
+
+</templates>

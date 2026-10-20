@@ -1,0 +1,131 @@
+{
+  "symbols": [
+    {
+      "kind": "owl_extension",
+      "qualname": "demo.Form@demo",
+      "line": 3,
+      "span": {
+        "start": 69,
+        "end": 78
+      },
+      "attrs": {
+        "arch": "e7da19cbf7711037da3dcf850c7e5f25",
+        "inherit": "demo.Form",
+        "mode": "extension",
+        "specs": [
+          {
+            "expr": "//div[@t-ref='root']",
+            "position": "before"
+          },
+          {
+            "expr": "//div[@t-ref='root']",
+            "position": "after"
+          },
+          {
+            "expr": "//t[@t-set-slot='layout-buttons']",
+            "position": "inside"
+          },
+          {
+            "expr": "//div[@name='title']",
+            "mode": "inner",
+            "position": "replace"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "owl_extension",
+      "qualname": "demo.Form[2]@demo",
+      "line": 18,
+      "span": {
+        "start": 643,
+        "end": 652
+      },
+      "attrs": {
+        "arch": "092a5f0aa0ff781b4aa4ce1214cece04",
+        "inherit": "demo.Form",
+        "mode": "extension",
+        "name": "demo.FormExt",
+        "specs": [
+          {
+            "expr": "//button[@name='save']",
+            "position": "attributes"
+          },
+          {
+            "expr": "//footer",
+            "position": "inside"
+          },
+          {
+            "position": "move",
+            "target": "span[@name='moved']"
+          },
+          {
+            "position": "after",
+            "target": "button[@name='save']"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Form#button[@name='extra']@demo",
+      "line": 11,
+      "span": {
+        "start": 440,
+        "end": 445
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Form#button[@name='save_close']@demo",
+      "line": 26,
+      "span": {
+        "start": 1037,
+        "end": 1047
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Form#div[@t-ref='banner']@demo",
+      "line": 5,
+      "span": {
+        "start": 211,
+        "end": 217
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Form#footer[@name='demo_footer']@demo",
+      "line": 8,
+      "span": {
+        "start": 325,
+        "end": 336
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Form#h1[@id='demo_title']@demo",
+      "line": 14,
+      "span": {
+        "start": 575,
+        "end": 585
+      },
+      "attrs": {
+        "count": 1
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,102 @@
+{
+  "symbols": [
+    {
+      "kind": "owl_extension",
+      "qualname": "DemoOrderline@demo",
+      "line": 3,
+      "span": {
+        "start": 103,
+        "end": 116
+      },
+      "attrs": {
+        "arch": "2c73189f1dcc782fae0ce99f68648928",
+        "declared": "t-extend",
+        "inherit": "DemoOrderline",
+        "mode": "extension",
+        "specs": [
+          {
+            "jquery": ".info-list",
+            "operation": "append"
+          },
+          {
+            "jquery": ".product-name",
+            "operation": "attributes"
+          },
+          {
+            "jquery": ".price"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "DemoBills.buttons#button[@id='demo_upload']@demo",
+      "line": 19,
+      "span": {
+        "start": 724,
+        "end": 735
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "DemoOrderline#li[@name='note']@demo",
+      "line": 5,
+      "span": {
+        "start": 219,
+        "end": 223
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "DemoOrderlineNote#div[@t-ref='note']@demo",
+      "line": 24,
+      "span": {
+        "start": 854,
+        "end": 858
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "DemoBills.buttons@demo",
+      "line": 17,
+      "span": {
+        "start": 544,
+        "end": 561
+      },
+      "attrs": {
+        "arch": "02f9e920eb12f52a461ec3625c9e5ac6",
+        "declared": "t-extend",
+        "inherit": "DemoList.buttons",
+        "mode": "primary",
+        "specs": [
+          {
+            "jquery": "button.o_list_button_add",
+            "operation": "after"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "DemoOrderlineNote@demo",
+      "line": 23,
+      "span": {
+        "start": 791,
+        "end": 808
+      },
+      "attrs": {
+        "arch": "d353d2656d97abc8f20aa8fe2af8618b"
+      }
+    }
+  ],
+  "warnings": []
+}

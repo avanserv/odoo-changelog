@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates>
+    <t t-inherit="demo.Form" t-inherit-mode="extension">
+        <xpath expr="//div[@t-ref='root']" position="before">
+            <div class="o_banner" t-ref="banner"/>
+        </xpath>
+        <xpath expr="//div[@t-ref='root']" position="after">
+            <footer name="demo_footer"/>
+        </xpath>
+        <xpath expr="//t[@t-set-slot='layout-buttons']">
+            <button name="extra">Extra</button>
+        </xpath>
+        <xpath expr="//div[@name='title']" position="replace" mode="inner">
+            <h1 id="demo_title">Title</h1>
+        </xpath>
+    </t>
+
+    <t t-inherit="demo.Form" t-inherit-mode="extension" t-name="demo.FormExt">
+        <xpath expr="//button[@name='save']" position="attributes">
+            <attribute name="class">btn-primary</attribute>
+        </xpath>
+        <xpath expr="//footer" position="inside">
+            <span name="moved" position="move"/>
+        </xpath>
+        <button name="save" position="after">
+            <button name="save_close">Save and close</button>
+        </button>
+    </t>
+</templates>

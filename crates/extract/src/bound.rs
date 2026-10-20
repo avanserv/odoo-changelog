@@ -25,8 +25,9 @@ pub(crate) fn bounded(text: String) -> String {
 }
 
 /// The serialized bytes one file may still give, and once they run out, how many items were
-/// dropped and the offset of the first. A backstop for any path that would make the output grow
-/// faster than the input: past it, every later item is dropped and one warning says so.
+/// dropped and the position of the first, an offset or a line as the extractor orders warnings.
+/// A backstop for any path that would make the output grow faster than the input: past it,
+/// every later item is dropped and one warning says so.
 pub(crate) struct Budget {
     left: usize,
     dropped: Option<(usize, usize)>,
@@ -41,7 +42,7 @@ impl Budget {
         }
     }
 
-    /// Spends `size` bytes, or counts the item at offset `at` dropped once the budget ran out,
+    /// Spends `size` bytes, or counts the item at position `at` dropped once the budget ran out,
     /// after which every later item is dropped too.
     pub(crate) fn afford(&mut self, size: usize, at: usize) -> bool {
         if let Some((count, _)) = &mut self.dropped {
@@ -66,7 +67,7 @@ impl Budget {
         self.afford(size, symbol.span.start as usize)
     }
 
-    /// `output budget exceeded; <n> <items> dropped`, at the first dropped item's offset.
+    /// `output budget exceeded; <n> <items> dropped`, at the first dropped item's position.
     pub(crate) fn warning(&self, items: &str) -> Option<(usize, String)> {
         self.dropped
             .map(|(count, at)| (at, format!("output budget exceeded; {count} {items} dropped")))

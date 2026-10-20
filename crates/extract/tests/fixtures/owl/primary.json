@@ -1,0 +1,176 @@
+{
+  "symbols": [
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Thing#DemoDialog[@name='x']@demo",
+      "line": 14,
+      "span": {
+        "start": 543,
+        "end": 544
+      },
+      "attrs": {
+        "count": 1,
+        "path": "div[@t-ref='root']"
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Thing#button[@name='refresh']@demo",
+      "line": 7,
+      "span": {
+        "start": 206,
+        "end": 213
+      },
+      "attrs": {
+        "count": 1,
+        "path": "div[@t-ref='root']"
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Thing#div[@id='demo_thing_body']@demo",
+      "line": 8,
+      "span": {
+        "start": 274,
+        "end": 289
+      },
+      "attrs": {
+        "count": 1,
+        "path": "div[@t-ref='root']"
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Thing#div[@t-ref='root']@demo",
+      "line": 6,
+      "span": {
+        "start": 173,
+        "end": 177
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Thing#t[@t-name='demo.Thing.Inner']@demo",
+      "line": 13,
+      "span": {
+        "start": 472,
+        "end": 488
+      },
+      "attrs": {
+        "count": 1,
+        "path": "div[@t-ref='root']"
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Thing#t[@t-set-slot='footer']@demo",
+      "line": 10,
+      "span": {
+        "start": 379,
+        "end": 385
+      },
+      "attrs": {
+        "count": 2,
+        "path": "div[@t-ref='root']/div[@id='demo_thing_body']"
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Thing#t[@t-set-slot='header']@demo",
+      "line": 9,
+      "span": {
+        "start": 323,
+        "end": 329
+      },
+      "attrs": {
+        "count": 1,
+        "path": "div[@t-ref='root']/div[@id='demo_thing_body']"
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.ThingList#ul[@t-ref='list']@demo",
+      "line": 24,
+      "span": {
+        "start": 838,
+        "end": 842
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.Card@demo",
+      "line": 18,
+      "span": {
+        "start": 590,
+        "end": 599
+      },
+      "attrs": {
+        "arch": "9072dc3cc44f5923ed01d0380b6c8ac5"
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.Plain@demo",
+      "line": 31,
+      "span": {
+        "start": 1006,
+        "end": 1016
+      },
+      "attrs": {
+        "arch": "9ba1facf20530e2e0a6fb1618171f71a",
+        "inherit": "demo.Thing",
+        "mode": "primary",
+        "specs": [
+          {
+            "expr": "//button[@name='refresh']",
+            "position": "attributes"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.Thing@demo",
+      "line": 5,
+      "span": {
+        "start": 119,
+        "end": 129
+      },
+      "attrs": {
+        "arch": "4ba6876fde6965db9e730c2fb3140ba0"
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.ThingList@demo",
+      "line": 22,
+      "span": {
+        "start": 680,
+        "end": 694
+      },
+      "attrs": {
+        "arch": "14280db8a3fe905b36361641cc037189",
+        "inherit": "demo.Thing",
+        "mode": "primary",
+        "owl": "1",
+        "specs": [
+          {
+            "expr": "//div[@t-ref='root']",
+            "position": "inside"
+          },
+          {
+            "position": "replace",
+            "target": "t[@t-call='demo.Row']"
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -12,6 +12,9 @@ use crate::hash::digest;
 
 /// The attributes that name an element of a data view's arch, in key order.
 pub(crate) const VIEW_KEYS: &[&str] = &["name", "id", "t-name"];
+/// Of a client template: component code also reads `t-ref` (`useRef`), and xpaths target
+/// `t-set-slot` like names.
+pub(crate) const TEMPLATE_KEYS: &[&str] = &["name", "id", "t-name", "t-ref", "t-set-slot"];
 
 /// One distinct `tag[@attr='value']` of an arch.
 pub(crate) struct NamedNode {
@@ -191,6 +194,13 @@ pub(crate) fn hash(arch: &[Node]) -> String {
     digest(&hasher)
 }
 
+/// `hash` of the arch made of `element` alone, without its attributes named in `skip`.
+pub(crate) fn hash_element(element: &Element, skip: &[&str]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    feed_element(&mut hasher, element, skip);
+    digest(&hasher)
+}
+
 /// Writes `nodes` as a stream that reindenting, reflowing, comments, attribute order and the
 /// escaped form of a character leave alone. An element is `0x01 tag 0x00`, each attribute sorted
 /// by name as `name 0x02 value 0x00`, `0x03`, its children and `0x04`; text that is not all
@@ -199,7 +209,7 @@ pub(crate) fn hash(arch: &[Node]) -> String {
 pub(crate) fn feed(hasher: &mut blake3::Hasher, nodes: &[Node]) {
     for node in nodes {
         match node {
-            Node::Element(element) => feed_element(hasher, element),
+            Node::Element(element) => feed_element(hasher, element, &[]),
             Node::Text(text) => {
                 let text = collapse(text);
                 if !text.is_empty() {
@@ -212,11 +222,15 @@ pub(crate) fn feed(hasher: &mut blake3::Hasher, nodes: &[Node]) {
     }
 }
 
-fn feed_element(hasher: &mut blake3::Hasher, element: &Element) {
+fn feed_element(hasher: &mut blake3::Hasher, element: &Element, skip: &[&str]) {
     hasher.update(&[0x01]);
     hasher.update(element.tag.as_bytes());
     hasher.update(&[0x00]);
-    let mut attrs: Vec<_> = element.attrs.iter().collect();
+    let mut attrs: Vec<_> = element
+        .attrs
+        .iter()
+        .filter(|a| !skip.contains(&a.name.as_str()))
+        .collect();
     attrs.sort_by(|a, b| a.name.cmp(&b.name));
     for attr in attrs {
         hasher.update(attr.name.as_bytes());
@@ -361,6 +375,31 @@ mod tests {
                 ("field[@name='f']", "", 1),
             ]
         );
+    }
+
+    #[test]
+    fn template_keys_also_name_refs_and_slots() {
+        let src = r#"<t><div t-ref="root"><t t-set-slot="body"><span name="x"/></t></div></t>"#;
+        let nodes = named_nodes(&arch(src), TEMPLATE_KEYS);
+        assert_eq!(
+            keys(&nodes),
+            [
+                ("div[@t-ref='root']", "", 1),
+                ("t[@t-set-slot='body']", "div[@t-ref='root']", 1),
+                ("span[@name='x']", "div[@t-ref='root']/t[@t-set-slot='body']", 1),
+            ]
+        );
+        assert_eq!(keys(&named_nodes(&arch(src), VIEW_KEYS)), [("span[@name='x']", "", 1)]);
+    }
+
+    #[test]
+    fn hash_element_hashes_the_element_as_an_arch() {
+        let root = parse(br#"<div t-name="x" class="a"><span/></div>"#, |_| true)
+            .root
+            .unwrap();
+        let unnamed = parse(br#"<div class="a"><span/></div>"#, |_| true).root.unwrap();
+        assert_eq!(hash_element(&root, &["t-name"]), hash(&[Node::Element(unnamed)]));
+        assert_eq!(hash_element(&root, &[]), hash(&[Node::Element(root)]));
     }
 
     #[test]
