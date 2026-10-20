@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_demo_root" name="Demo" web_icon="demo,static/description/icon.png" active="False" sequence="5">
+        <menuitem id="menu_demo_orders" name="Orders" sequence="10">
+            <menuitem id="menu_demo_order_list" name="Orders" action="action_demo_orders" groups="group_demo_user,-base.group_portal"/>
+            <menuitem id="menu_demo_quotes" name="Quotations" parent="ignored_parent" action="demo_base.action_quotes"/>
+        </menuitem>
+    </menuitem>
+
+    <menuitem id="menu_demo_config" name="Configuration" parent="menu_demo_root" sequence="90" groups="base.group_system"/>
+    <menuitem id="menu_demo_settings" name="Settings" parent="menu_demo_config" action="base.action_settings"/>
+
+    <record id="menu_demo_reports" model="ir.ui.menu">
+        <field name="name">Reports</field>
+        <field name="parent_id" ref="menu_demo_root"/>
+        <field name="sequence">50</field>
+    </record>
+
+    <menuitem id="menu_demo_settings" sequence="99"/>
+</odoo>

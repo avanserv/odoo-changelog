@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<openerp>
+    <data noupdate="1">
+        <record id="action_demo_orders" model="ir.actions.act_window">
+            <field name="name">Orders</field>
+            <field name="res_model">demo.order</field>
+            <field name="view_mode">tree,form</field>
+            <field name="context">{'search_default_draft': 1}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">Create an order</p>
+            </field>
+        </record>
+
+        <record id="action_demo_confirm" model="ir.actions.server">
+            <field name="name">Confirm orders</field>
+            <field name="model_id" ref="model_demo_order"/>
+            <field name="state">code</field>
+            <field name="code">
+for order in records:
+    if order.state == 'draft':
+        order.action_confirm()
+</field>
+        </record>
+
+        <record id="action_report_demo_order" model="ir.actions.report">
+            <field name="name">Order</field>
+            <field name="model">demo.order</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">demo.report_order</field>
+        </record>
+
+        <record id="group_demo_user" model="res.groups">
+            <field name="name">User</field>
+            <field name="category_id" ref="base.module_category_demo"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
+        <record id="demo_order_company_rule" model="ir.rule">
+            <field name="name">Orders: multi-company</field>
+            <field name="model_id" ref="model_demo_order"/>
+            <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="access_demo_order_manager" model="ir.model.access">
+            <field name="name">demo.order.manager</field>
+            <field name="model_id" ref="model_demo_order"/>
+            <field name="group_id" ref="base.group_system"/>
+            <field name="perm_read" eval="True"/>
+        </record>
+    </data>
+
+    <data>
+        <record id="mail_template_demo" model="mail.template" forcecreate="False">
+            <field name="name">Order: send</field>
+            <field name="model_id" ref="model_demo_order"/>
+            <field name="partner_to" search="[('is_company', '=', True)]"/>
+            <field name="body_html" type="html"><div>Dear <t t-out="object.customer_id.name"/>,</div></field>
+        </record>
+
+        <record id="mail_template_demo" model="sms.template">
+            <field name="name">clash</field>
+        </record>
+
+        <record model="demo.order">
+            <field name="name">Anonymous</field>
+        </record>
+
+        <record id="base.main_company" model="res.company">
+            <field name="name">Demo company</field>
+        </record>
+
+        <function model="demo.order" name="_init_sequences"/>
+        <function model="demo.order" name="_init_sequences" eval="[ref('demo_order_1')]"/>
+        <function model="res.partner" name="write">
+            <value eval="[ref('base.partner_admin')]"/>
+            <value eval="{'customer_rank': 1}"/>
+        </function>
+
+        <delete model="ir.ui.menu" id="base.menu_old"/>
+        <delete model="demo.order" search="[('name', '=', 'old')]"/>
+        <delete model="demo.order" search="[('name', '=', 'older')]"/>
+
+        <report id="report_demo_legacy" string="Legacy order" model="demo.order" report_type="qweb-pdf" name="demo.report_legacy" file="demo.report_legacy"/>
+        <act_window id="act_demo_lines" name="Lines" res_model="demo.order.line" view_mode="tree" groups="group_demo_user"/>
+
+        <asset id="demo_backend_assets" name="Demo backend">
+            <bundle>web.assets_backend</bundle>
+            <path>demo/static/src/**/*</path>
+        </asset>
+
+        <assert model="demo.order" search="[]" count="1"/>
+        <record id="demo.too.many.dots" model="demo.order"/>
+    </data>
+</openerp>

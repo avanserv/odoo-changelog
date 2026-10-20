@@ -95,6 +95,44 @@ dict keys are sorted; anything JSON cannot hold as a literal, a set among them, 
 `{"expr": "<source>"}`. A repeated key keeps its last value, as in Python. A manifest with a
 syntax error keeps the keys that parse and leaves a warning.
 
+### Data files
+
+The `data` extractor reads every `.xml` file of a module outside `static/`, wherever it sits,
+since Odoo loads any file a manifest lists, and the `ir.model.access.csv` and `ir.access.csv`
+files. A file whose root is not `<odoo>`, `<openerp>` or `<data>`, such as an e-invoice sample,
+gives no symbol. Symbols are named by xmlid, and an id written without a module gets the file's
+module, as Odoo's `make_xml_id` does: in qualnames, and in the references `inherit_id`, `parent`,
+`action`, `groups`, `model_id` and `group_id`.
+
+| Kind | Declared by | Example |
+| --- | --- | --- |
+| `view` | an `ir.ui.view` record, a `<template>` | `sale.view_order_form@sale` |
+| `view_node` | a named node of a view's arch | `sale.view_order_form#field[@name='partner_id']@sale` |
+| `menu` | a `<menuitem>`, an `ir.ui.menu` record | `sale.menu_sale_quotations@sale` |
+| `action` | an `ir.actions.*` record, `<report>`, `<act_window>` | `sale.action_orders@sale` |
+| `group`, `rule`, `access` | `res.groups`, `ir.rule`, an access record or CSV row | `sale.access_sale_order@sale` |
+| `record` | any other record, `<asset>` | `sale.mail_template_sale_confirmation@sale` |
+| `data_function` | `<function>`, `[2]` from its second call in the file | `res.partner#write[2]@sale` |
+| `delete` | `<delete>`, by id or by search | `account.tax#search@l10n_fr` |
+
+The `@<module>` suffix is the module whose file declares the symbol, so an override of another
+module's record has a history of its own. Declarations of one id in a file merge, the later
+fields winning, as Odoo updates the record. `declared` says which tag declared the symbol, so a
+`<report>` that became an `ir.actions.report` record is one `changed` event.
+
+A view records its `model`, `type`, `inherit_id`, `priority`, `mode` and an `arch` hash. Every
+node of its arch with a `name`, `id` or `t-name` attribute is a `view_node`, keyed like
+`button[@id='action_confirm']`, with a `count` (above 1, a shorthand spec matches the first) and
+the `path` of its named ancestors. An inheriting view lists its `specs` in the order Odoo applies
+them: an `xpath` gives its `expr`, any other spec a `target` keyed like a node, so that
+`field[@name='partner_id']` joins the node it changes; the nodes its specs add are its own.
+Other records keep `name`, `model`, `res_model` and a `model_id` reference in clear, and hash
+everything else into `values`. Arch and markup hashes ignore indentation, comments, attribute
+order and how a character is escaped; plain field text is hashed as written, since Odoo stores
+it verbatim. Menuitems and access rows keep every attribute or cell in clear.
+
+A file with a syntax error keeps the declarations closed before it, and leaves a warning.
+
 On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) with both extractors
 takes 123 s with an empty cache and 31 s with a warm one (2026-10-20).
 

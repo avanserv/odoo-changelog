@@ -13,7 +13,12 @@ publish = false
 anyhow = "1"
 blake3 = "1"
 clap = { version = "4", features = ["derive"] }
+csv = "1"
+encoding_rs = "0.8"
 gix = { version = "0.89", default-features = false, features = ["sha1", "revision", "max-performance-safe", "blob-diff", "index", "parallel"] }
+# Pinned: its parse, error texts included, is extractor output, so a bump goes with a
+# `Data::version()` bump.
+quick-xml = "=0.42.0"
 rayon = "1"
 regex = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }

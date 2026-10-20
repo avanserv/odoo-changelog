@@ -1,0 +1,276 @@
+{
+  "symbols": [
+    {
+      "kind": "access",
+      "qualname": "demo.access_demo_order_manager@demo",
+      "line": 44,
+      "span": {
+        "start": 1782,
+        "end": 1807
+      },
+      "attrs": {
+        "declared": "record",
+        "model_id": "demo.model_demo_order",
+        "name": "demo.order.manager",
+        "noupdate": true,
+        "record_model": "ir.model.access",
+        "values": "61c8021b12fbf46dc94521ddbfd8d70c"
+      }
+    },
+    {
+      "kind": "action",
+      "qualname": "demo.act_demo_lines@demo",
+      "line": 84,
+      "span": {
+        "start": 3575,
+        "end": 3589
+      },
+      "attrs": {
+        "declared": "act_window",
+        "name": "Lines",
+        "res_model": "demo.order.line",
+        "values": "bcf292c6e59afe147334ae306da644f0"
+      }
+    },
+    {
+      "kind": "action",
+      "qualname": "demo.action_demo_confirm@demo",
+      "line": 14,
+      "span": {
+        "start": 550,
+        "end": 569
+      },
+      "attrs": {
+        "declared": "record",
+        "model_id": "demo.model_demo_order",
+        "name": "Confirm orders",
+        "noupdate": true,
+        "record_model": "ir.actions.server",
+        "values": "e2a5e69a37a7b3081f3ff31d464079f5"
+      }
+    },
+    {
+      "kind": "action",
+      "qualname": "demo.action_demo_orders@demo",
+      "line": 4,
+      "span": {
+        "start": 93,
+        "end": 111
+      },
+      "attrs": {
+        "declared": "record",
+        "name": "Orders",
+        "noupdate": true,
+        "record_model": "ir.actions.act_window",
+        "res_model": "demo.order",
+        "values": "86896191d0c64aca4f758263ccdccc4c"
+      }
+    },
+    {
+      "kind": "action",
+      "qualname": "demo.action_report_demo_order@demo",
+      "line": 25,
+      "span": {
+        "start": 921,
+        "end": 945
+      },
+      "attrs": {
+        "declared": "record",
+        "model": "demo.order",
+        "name": "Order",
+        "noupdate": true,
+        "record_model": "ir.actions.report",
+        "values": "614ac4a33bbeedf7265fc7f4b5615395"
+      }
+    },
+    {
+      "kind": "action",
+      "qualname": "demo.report_demo_legacy@demo",
+      "line": 83,
+      "span": {
+        "start": 3413,
+        "end": 3431
+      },
+      "attrs": {
+        "declared": "report",
+        "model": "demo.order",
+        "name": "Legacy order",
+        "values": "42e4017b9dc2cbc1634a431f2ec90352"
+      }
+    },
+    {
+      "kind": "data_function",
+      "qualname": "demo.order#_init_sequences@demo",
+      "line": 72,
+      "span": {
+        "start": 2908,
+        "end": 2923
+      },
+      "attrs": {
+        "model": "demo.order",
+        "name": "_init_sequences"
+      }
+    },
+    {
+      "kind": "data_function",
+      "qualname": "demo.order#_init_sequences[2]@demo",
+      "line": 73,
+      "span": {
+        "start": 2970,
+        "end": 2985
+      },
+      "attrs": {
+        "model": "demo.order",
+        "name": "_init_sequences",
+        "values": "329a4257da3747f2a8a40dc5e4548c94"
+      }
+    },
+    {
+      "kind": "data_function",
+      "qualname": "res.partner#write@demo",
+      "line": 74,
+      "span": {
+        "start": 3062,
+        "end": 3067
+      },
+      "attrs": {
+        "model": "res.partner",
+        "name": "write",
+        "values": "64706de68834d6892e78c33fc808823b"
+      }
+    },
+    {
+      "kind": "delete",
+      "qualname": "base.menu_old@demo",
+      "line": 79,
+      "span": {
+        "start": 3235,
+        "end": 3248
+      },
+      "attrs": {
+        "model": "ir.ui.menu"
+      }
+    },
+    {
+      "kind": "delete",
+      "qualname": "demo.order#search@demo",
+      "line": 80,
+      "span": {
+        "start": 3275,
+        "end": 3285
+      },
+      "attrs": {
+        "model": "demo.order",
+        "search": "[('name', '=', 'old')]"
+      }
+    },
+    {
+      "kind": "delete",
+      "qualname": "demo.order#search[2]@demo",
+      "line": 81,
+      "span": {
+        "start": 3344,
+        "end": 3354
+      },
+      "attrs": {
+        "model": "demo.order",
+        "search": "[('name', '=', 'older')]"
+      }
+    },
+    {
+      "kind": "group",
+      "qualname": "demo.group_demo_user@demo",
+      "line": 32,
+      "span": {
+        "start": 1228,
+        "end": 1243
+      },
+      "attrs": {
+        "declared": "record",
+        "name": "User",
+        "noupdate": true,
+        "record_model": "res.groups",
+        "values": "20b6efb6d9e63254f1b4608d81fde064"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "base.main_company@demo",
+      "line": 68,
+      "span": {
+        "start": 2754,
+        "end": 2771
+      },
+      "attrs": {
+        "declared": "record",
+        "name": "Demo company",
+        "record_model": "res.company",
+        "values": "db1b8f2d60c65693875b3a1fb0f15148"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.demo_backend_assets@demo",
+      "line": 86,
+      "span": {
+        "start": 3696,
+        "end": 3715
+      },
+      "attrs": {
+        "declared": "asset",
+        "name": "Demo backend",
+        "values": "363374226c3cc49f62fd6d472f5e3137"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.mail_template_demo@demo",
+      "line": 53,
+      "span": {
+        "start": 2125,
+        "end": 2143
+      },
+      "attrs": {
+        "declared": "record",
+        "model_id": "demo.model_demo_order",
+        "name": "Order: send",
+        "record_model": "mail.template",
+        "values": "a57755ea118357dc33f366dca605c346"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.too.many.dots@demo",
+      "line": 92,
+      "span": {
+        "start": 3929,
+        "end": 3947
+      },
+      "attrs": {
+        "declared": "record",
+        "record_model": "demo.order"
+      }
+    },
+    {
+      "kind": "rule",
+      "qualname": "demo.demo_order_company_rule@demo",
+      "line": 38,
+      "span": {
+        "start": 1497,
+        "end": 1520
+      },
+      "attrs": {
+        "declared": "record",
+        "model_id": "demo.model_demo_order",
+        "name": "Orders: multi-company",
+        "noupdate": true,
+        "record_model": "ir.rule",
+        "values": "4a1fd8ec214c951b9fda8fb2052df64e"
+      }
+    }
+  ],
+  "warnings": [
+    "line 60: id mail_template_demo is already a mail.template record; ignored",
+    "line 92: id demo.too.many.dots has more than one dot"
+  ]
+}

@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_demo_order_user,demo.order.user,model_demo_order,group_demo_user,1,1,1,0
+access_demo_order_all,"demo.order, everyone",model_demo_order,,1,0,0,0
+access_demo_line_user,demo.order.line.user,demo_base.model_demo_order_line,base.group_user,1,1,1,1

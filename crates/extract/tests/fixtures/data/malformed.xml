@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="demo_first" model="demo.tag">
+        <field name="name">First</field>
+    </record>
+    <menuitem id="menu_demo_kept" name="Kept">
+        <record id="demo_second" model="demo.tag">
+            <field name="name">Second</field>
+        </record>
+    </menuitem>
+    <record id="demo_broken" model="demo.tag">
+        <field name="name">Broken</fieldd>
+    </record>
+    <record id="demo_after" model="demo.tag"/>
+</odoo>

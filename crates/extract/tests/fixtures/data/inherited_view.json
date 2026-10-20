@@ -1,0 +1,314 @@
+{
+  "symbols": [
+    {
+      "kind": "view",
+      "qualname": "demo.demo_order_form_inherit@demo",
+      "line": 3,
+      "span": {
+        "start": 62,
+        "end": 85
+      },
+      "attrs": {
+        "arch": "e298e53d066b9c6562b3da3da3e17079",
+        "declared": "record",
+        "inherit_id": "demo_base.demo_order_form",
+        "mode": "extension",
+        "model": "demo.order",
+        "name": "demo.order.form.inherit",
+        "record_model": "ir.ui.view",
+        "specs": [
+          {
+            "expr": "//button[@name='action_confirm']",
+            "position": "before"
+          },
+          {
+            "expr": "//group[@name='partner_details']",
+            "position": "after"
+          },
+          {
+            "expr": "//page[@name='lines']",
+            "position": "inside"
+          },
+          {
+            "position": "move",
+            "target": "field[@name='note']"
+          },
+          {
+            "expr": "//field[@name='quantity']",
+            "mode": "inner",
+            "position": "replace"
+          },
+          {
+            "expr": "//field[@name='customer_id']",
+            "position": "attributes"
+          },
+          {
+            "position": "after",
+            "target": "field[@name='order_date']"
+          },
+          {
+            "position": "replace",
+            "target": "div[@id='hint']"
+          },
+          {
+            "position": "inside",
+            "target": "sheet"
+          },
+          {
+            "position": "before",
+            "target": "field[@name='ref']"
+          }
+        ],
+        "values": "a74619d3e760efe4f369ce1c3063242a"
+      }
+    },
+    {
+      "kind": "view",
+      "qualname": "demo.demo_order_form_local@demo",
+      "line": 37,
+      "span": {
+        "start": 1725,
+        "end": 1746
+      },
+      "attrs": {
+        "arch": "649e78d84367f16f8e345180417db392",
+        "declared": "record",
+        "inherit_id": "demo.demo_order_form_inherit",
+        "mode": "extension",
+        "model": "demo.order",
+        "record_model": "ir.ui.view",
+        "specs": [
+          {
+            "position": "after",
+            "target": "field[@name='carrier_id']"
+          }
+        ],
+        "values": "f560b8c7989f8e90207f62372ff2b2b1"
+      }
+    },
+    {
+      "kind": "view",
+      "qualname": "demo.portal_breadcrumbs@demo",
+      "line": 57,
+      "span": {
+        "start": 2523,
+        "end": 2541
+      },
+      "attrs": {
+        "arch": "773c4bc304db9abcad608d1a01fabccd",
+        "declared": "template",
+        "mode": "primary",
+        "name": "Breadcrumbs",
+        "type": "qweb",
+        "values": "9da93d57fabea41da90b9043c9e9f373"
+      }
+    },
+    {
+      "kind": "view",
+      "qualname": "demo.portal_layout@demo",
+      "line": 45,
+      "span": {
+        "start": 2054,
+        "end": 2067
+      },
+      "attrs": {
+        "arch": "5c39c8888588e70b59903104712aa50f",
+        "declared": "template",
+        "inherit_id": "portal.portal_layout",
+        "mode": "extension",
+        "name": "Demo layout",
+        "priority": "40",
+        "specs": [
+          {
+            "expr": "//div[@id='wrap']",
+            "position": "inside"
+          }
+        ],
+        "type": "qweb"
+      }
+    },
+    {
+      "kind": "view",
+      "qualname": "demo.portal_layout_primary@demo",
+      "line": 51,
+      "span": {
+        "start": 2298,
+        "end": 2319
+      },
+      "attrs": {
+        "arch": "e06d2542cbd42f20a59fd68fee434d75",
+        "declared": "template",
+        "inherit_id": "portal.portal_layout",
+        "mode": "primary",
+        "specs": [
+          {
+            "expr": ".",
+            "position": "attributes"
+          }
+        ],
+        "type": "qweb"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#button[@name='action_check']@demo",
+      "line": 10,
+      "span": {
+        "start": 454,
+        "end": 466
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#div[@name='totals']@demo",
+      "line": 17,
+      "span": {
+        "start": 867,
+        "end": 873
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#field[@name='amount_total']@demo",
+      "line": 17,
+      "span": {
+        "start": 888,
+        "end": 900
+      },
+      "attrs": {
+        "count": 1,
+        "path": "div[@name='totals']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#field[@name='carrier_id']@demo",
+      "line": 13,
+      "span": {
+        "start": 661,
+        "end": 671
+      },
+      "attrs": {
+        "count": 1,
+        "path": "group[@name='delivery']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#field[@name='extra_id']@demo",
+      "line": 31,
+      "span": {
+        "start": 1620,
+        "end": 1628
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#field[@name='origin']@demo",
+      "line": 28,
+      "span": {
+        "start": 1503,
+        "end": 1509
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#field[@name='validity_date']@demo",
+      "line": 24,
+      "span": {
+        "start": 1317,
+        "end": 1330
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#group[@name='delivery']@demo",
+      "line": 13,
+      "span": {
+        "start": 638,
+        "end": 646
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_local#field[@name='weight']@demo",
+      "line": 41,
+      "span": {
+        "start": 1986,
+        "end": 1992
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.portal_breadcrumbs#a[@name='home']@demo",
+      "line": 59,
+      "span": {
+        "start": 2740,
+        "end": 2744
+      },
+      "attrs": {
+        "count": 1,
+        "path": "li[@t-name='crumb']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.portal_breadcrumbs#li[@t-name='crumb']@demo",
+      "line": 59,
+      "span": {
+        "start": 2700,
+        "end": 2705
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.portal_breadcrumbs#span[@id='last']@demo",
+      "line": 60,
+      "span": {
+        "start": 2810,
+        "end": 2814
+      },
+      "attrs": {
+        "count": 1,
+        "path": "t[@t-name='tail']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.portal_breadcrumbs#t[@t-name='tail']@demo",
+      "line": 60,
+      "span": {
+        "start": 2794,
+        "end": 2798
+      },
+      "attrs": {
+        "count": 1
+      }
+    }
+  ],
+  "warnings": []
+}

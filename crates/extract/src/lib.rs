@@ -1,11 +1,15 @@
 //! Turns one blob into symbols, and two symbol tables into symbol-level changes. Never sees git
 //! or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
 
+mod access_csv;
+mod data;
 mod delta;
+mod hash;
 mod manifest;
 mod path;
 mod python;
 mod symbol;
+mod xml;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -13,6 +17,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use serde_json::Value;
 
+pub use data::Data;
 pub use delta::{Delta, Op, delta};
 pub use manifest::Manifest;
 pub use path::module_of;
@@ -55,7 +60,8 @@ impl Registry {
 
     /// The extractors the binary ships with.
     pub fn builtin() -> Self {
-        Registry::new(vec![Box::new(Manifest), Box::new(Python)]).expect("builtin extractor names are unique")
+        Registry::new(vec![Box::new(Data), Box::new(Manifest), Box::new(Python)])
+            .expect("builtin extractor names are unique")
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &dyn Extractor> {
