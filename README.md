@@ -186,14 +186,16 @@ every qualname ends with `@<addon>`, the addon that declares or extends the symb
 
 A template records its parent as written in `inherit`, its `mode` (`primary` when unwritten, as
 Odoo defaults), `declared: "t-extend"` for the legacy forms, its `owl` attribute, an `arch` hash
-and its `specs`, like a view's. Nodes are named by `name`, `id`, `t-name`, `t-ref` or
-`t-set-slot`, and an extension's nodes by its parent, so `web.FormView#` lists every addon's
-nodes of that template. A variable keeps its rendered `value`, `default` and `global` flags,
-the control-flow headers it sits in as `within` (a theme's `@if` assigns globals), and later
-assignments in the file as `reassigned`. Mixins and functions keep their `params` and a `body`
-hash. Values and bodies ignore layout, comments and trailing commas. A template file with a
-syntax error keeps the templates closed before it, a broken stylesheet the statements around
-the error, and either leaves a warning.
+and its `specs`: a `t-inherit`'s like a view's, a `t-extend`'s as `jquery` and `operation`. A node
+is any element with a `name`, `id`, `t-name`, `t-ref` or `t-set-slot`, a template's own element
+included, and an extension's nodes go under its parent, so `web.FormView#` lists every addon's
+nodes of that template. Extensions of one parent from several files of an addon share their
+symbols, as patches do: deleting one of the files reads as a removal. A variable keeps its
+rendered `value`, `default` and `global` flags, the control-flow headers it sits in as `within`
+(a theme's `@if` assigns globals), and later assignments in the file as `reassigned`. Mixins and
+functions keep their `params` and a `body` hash. Values and bodies ignore layout, comments and
+trailing commas. A template file with a syntax error keeps the templates closed before it, a
+broken stylesheet the statements around the error, and either leaves a warning.
 
 On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) with every builtin
 extractor takes 207 s with an empty cache and 45 s with a warm one (2026-10-21).

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::bound::{Budget, bounded};
+use crate::bound::{Budget, ENVELOPE, bounded, warn_capped};
 use crate::path::{static_addon, static_file};
 use crate::xml::arch::{self, NamedNode, TEMPLATE_KEYS};
 use crate::xml::dom::{self, Attr, Element};
@@ -21,17 +21,14 @@ const NODE: &str = "owl_node";
 /// Roots whose element children are the templates; any other root is one template itself.
 const ROOTS: [&str; 3] = ["templates", "template", "odoo"];
 
-/// The attributes of a template element its own attrs hold, which its `arch` leaves out: a
-/// mode written as the default it already was is no change.
+/// Attributes of a template element that other attrs already hold, left out of its `arch`, so
+/// that writing the default mode explicitly is no change.
 const OWN_ATTRS: [&str; 5] = ["t-name", "t-inherit", "t-inherit-mode", "t-extend", "owl"];
 
 /// The serialized symbols one file may give, per byte of it plus a constant, past which the
-/// reader drops the symbols it has yet to give and warns once.
+/// reader stops collecting symbols and warns once.
 const OUTPUT_PER_BYTE: usize = 24;
 const OUTPUT_SLACK: usize = 1 << 20;
-
-/// Warnings past this many are summed up in one.
-const MAX_WARNINGS: usize = 10;
 
 pub struct Owl;
 
@@ -70,6 +67,7 @@ impl Extractor for Owl {
 fn read(blob: &[u8]) -> SymbolTable {
     let doc = dom::parse(blob, |_| true);
     let mut reader = Reader {
+        budget: Budget::new(blob, OUTPUT_PER_BYTE, OUTPUT_SLACK),
         decls: Vec::new(),
         names: BTreeSet::new(),
         extensions: BTreeMap::new(),
@@ -97,7 +95,7 @@ fn read(blob: &[u8]) -> SymbolTable {
         None if empty => {}
         None => reader.warn(1, "no root element"),
     }
-    reader.finish(blob)
+    reader.finish()
 }
 
 /// The parent a template inherits from, and whether it says so with the legacy `t-extend`.
@@ -124,6 +122,8 @@ struct MergedNode {
 }
 
 struct Reader {
+    /// Spent as symbols are collected, in document order, so that memory stays bounded too.
+    budget: Budget,
     /// Templates and extensions, in document order.
     decls: Vec<Symbol>,
     /// The templates read so far, for duplicates.
@@ -143,8 +143,9 @@ impl Reader {
     /// Classifies one template element as Odoo does, `t-inherit` before `t-extend`, with
     /// `primary` as the default mode on every branch.
     fn template(&mut self, el: &Element) {
-        let name = el.attr_node("t-name").filter(|a| !a.value.is_empty());
-        let form = if let Some(parent) = el.attr_node("t-inherit") {
+        let given = |attr: &str| el.attr_node(attr).filter(|a| !a.value.is_empty());
+        let name = given("t-name");
+        let form = if let Some(parent) = given("t-inherit") {
             let inherit = Inherit { parent, legacy: false };
             match (el.attr("t-inherit-mode").unwrap_or("primary"), name) {
                 ("extension", _) => Form::Extension(inherit, name),
@@ -155,7 +156,7 @@ impl Reader {
                     return self.warn(el.line, warning);
                 }
             }
-        } else if let Some(parent) = el.attr_node("t-extend").filter(|a| !a.value.is_empty()) {
+        } else if let Some(parent) = given("t-extend") {
             let inherit = Inherit { parent, legacy: true };
             match name {
                 Some(name) => Form::Template(name, Some(inherit)),
@@ -174,7 +175,11 @@ impl Reader {
                     let warning = format!("duplicate {TEMPLATE} {} dropped", name.value);
                     return self.warn(name.line, warning);
                 }
-                let nodes = content(el, inherit.as_ref().map(|i| (i, "primary")), &mut attrs);
+                let nodes = match &inherit {
+                    // Its own element is rendered, so its keys but `t-name` name nodes too.
+                    None => arch::named_nodes_of(el, TEMPLATE_KEYS, &["t-name"]),
+                    Some(inherit) => content(el, inherit, "primary", &mut attrs),
+                };
                 (TEMPLATE, name, name.value.clone(), &name.value, nodes)
             }
             Form::Extension(inherit, name) => {
@@ -189,7 +194,7 @@ impl Reader {
                 } else {
                     format!("{parent}[{n}]")
                 };
-                let nodes = content(el, Some((&inherit, "extension")), &mut attrs);
+                let nodes = content(el, &inherit, "extension", &mut attrs);
                 // An extension's nodes live in its parent, so they are named under it.
                 (EXTENSION, inherit.parent, symbol_name, parent, nodes)
             }
@@ -200,30 +205,37 @@ impl Reader {
         attrs.insert("arch".into(), arch::hash_element(el, &OWN_ATTRS).into());
 
         let owner = bounded(owner.clone());
-        for node in nodes {
-            self.nodes
-                .entry(format!("{owner}#{}", node.key))
-                .and_modify(|merged| merged.count += node.count)
-                .or_insert(MergedNode {
-                    count: node.count,
-                    path: node.path,
-                    line: node.line,
-                    span: node.span,
-                });
-        }
-        self.decls.push(Symbol {
+        let symbol = Symbol {
             kind: kind.into(),
             name: symbol_name,
             line: at.line,
             span: at.span,
             attrs,
-        });
+        };
+        if self.budget.symbol_at(&symbol, symbol.line as usize) {
+            self.decls.push(symbol);
+        }
+        for node in nodes {
+            let name = format!("{owner}#{}", node.key);
+            if let Some(merged) = self.nodes.get_mut(&name) {
+                merged.count += node.count;
+            } else if self
+                .budget
+                .afford(name.len() + node.path.len() + ENVELOPE, node.line as usize)
+            {
+                let merged = MergedNode {
+                    count: node.count,
+                    path: node.path,
+                    line: node.line,
+                    span: node.span,
+                };
+                self.nodes.insert(name, merged);
+            }
+        }
     }
 
-    /// Templates and extensions in document order, then nodes in name order, within the budget.
-    fn finish(self, blob: &[u8]) -> SymbolTable {
+    fn finish(self) -> SymbolTable {
         let mut table = SymbolTable::default();
-        let mut budget = Budget::new(blob, OUTPUT_PER_BYTE, OUTPUT_SLACK);
         let nodes = self.nodes.into_iter().map(|(name, node)| {
             let mut attrs = BTreeMap::from([("count".to_string(), Value::from(node.count))]);
             if !node.path.is_empty() {
@@ -238,33 +250,17 @@ impl Reader {
             }
         });
         for symbol in self.decls.into_iter().chain(nodes) {
-            let size = serde_json::to_vec(&symbol).map_or(usize::MAX, |b| b.len());
-            if budget.afford(size, symbol.line as usize) {
-                table.insert(symbol);
-            }
+            table.insert(symbol);
         }
-        let mut warnings = self.warnings;
-        if let Some((line, warning)) = budget.warning("symbols") {
-            warnings.push((line as u32, warning));
-        }
-        warnings.sort_by_key(|(line, _)| *line);
-        let more = warnings.len().saturating_sub(MAX_WARNINGS);
-        for (_, warning) in warnings.into_iter().take(MAX_WARNINGS) {
-            table.warn(warning);
-        }
-        if more > 0 {
-            table.warn(format!("{more} more warnings"));
-        }
+        let warnings = self.warnings.into_iter().map(|(line, w)| (line as usize, w)).collect();
+        warn_capped(&mut table, warnings, &self.budget, "symbols");
         table
     }
 }
 
-/// The inheritance attrs and specs of `el`, given its parent and mode, and the named nodes it
-/// gives: those of its content, or those its specs add.
-fn content(el: &Element, inherit: Option<(&Inherit, &str)>, attrs: &mut BTreeMap<String, Value>) -> Vec<NamedNode> {
-    let Some((inherit, mode)) = inherit else {
-        return arch::named_nodes(&el.children, TEMPLATE_KEYS);
-    };
+/// The inheritance attrs and specs of `el`, given its parent and mode, and the named nodes its
+/// specs add.
+fn content(el: &Element, inherit: &Inherit, mode: &str, attrs: &mut BTreeMap<String, Value>) -> Vec<NamedNode> {
     attrs.insert("inherit".into(), inherit.parent.value.as_str().into());
     attrs.insert("mode".into(), mode.into());
     if !inherit.legacy {

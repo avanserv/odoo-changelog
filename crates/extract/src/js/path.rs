@@ -6,32 +6,23 @@ use std::borrow::Cow;
 use std::ops::Range;
 
 /// The addon and the segments after `static/src` of `path`, when its first `static` segment is
-/// followed by `src` and has a segment before it. Odoo would name a file under a second
-/// `static/src` after the last one, but such a file sits under another directory of `static`.
+/// followed by `src`. Odoo would name a file under a second `static/src` after the last one, but
+/// such a file sits under another directory of `static`.
 fn static_src(path: &str) -> Option<(&str, Vec<&str>)> {
-    let segments: Vec<&str> = path.split('/').collect();
-    let at = segments.iter().position(|s| *s == "static")?;
-    if segments.get(at + 1) != Some(&"src") {
-        return None;
-    }
-    let addon = *segments.get(at.checked_sub(1)?)?;
-    Some((addon, segments[at + 2..].to_vec()))
+    let (addon, rest) = crate::path::static_file(path)?;
+    (rest.first() == Some(&"src")).then(|| (addon, rest[1..].to_vec()))
 }
 
 /// Web client sources Odoo serves from `static/src`; tests and third-party libraries under
 /// `static/tests` and `static/lib` are not claimed, nor test directories inside `static/src`.
 pub(super) fn claims(path: &str) -> bool {
-    let Some((addon, rest)) = static_src(path) else {
+    let Some((_, rest)) = static_src(path) else {
         return false;
     };
     let Some((file, dirs)) = rest.split_last() else {
         return false;
     };
-    file.ends_with(".js")
-        && !file.ends_with(".test.js")
-        && !addon.is_empty()
-        && addon.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        && !dirs.iter().any(|d| matches!(*d, "tests" | "test"))
+    file.ends_with(".js") && !file.ends_with(".test.js") && !dirs.iter().any(|d| matches!(*d, "tests" | "test"))
 }
 
 /// The addon whose `static/src` holds the file.

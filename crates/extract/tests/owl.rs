@@ -6,7 +6,7 @@ mod common;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use common::{batch, check, clones, find, fixtures, git, odoo_blob, render};
+use common::{batch, check, clones, edit, find, fixtures, git, odoo_blob, render};
 use odoo_changelog_extract::{Extractor, Op, Owl, Registry, Symbol, SymbolTable, delta};
 use serde_json::{Value, json};
 
@@ -153,24 +153,28 @@ fn t_extend_forms_read_as_template_and_extension() {
 #[test]
 fn reformatting_templates_gives_no_event() {
     let src = String::from_utf8(fixture("primary")).unwrap();
-    let reformatted = src
-        .replace("    ", "  ")
-        .replace("<!-- The thing itself. -->", "")
-        .replace("<li>item</li>", "<!-- one --><li>\n item\n </li>")
-        .replace(
-            r#"class="o_demo_thing" t-ref="root""#,
-            r#"t-ref="root"   class="o_demo_thing""#,
-        )
-        .replace(
-            r#"t-name="demo.Plain" t-inherit="demo.Thing""#,
-            r#"t-inherit="demo.Thing" t-inherit-mode="primary" t-name="demo.Plain""#,
-        )
-        .replace("Count &gt; 0", "Count > 0");
+    let reformatted = edit(
+        &src,
+        &[
+            ("    ", "  "),
+            ("<!-- The thing itself. -->", ""),
+            ("<li>item</li>", "<!-- one --><li>\n item\n </li>"),
+            (
+                r#"class="o_demo_thing" t-ref="root""#,
+                r#"t-ref="root"   class="o_demo_thing""#,
+            ),
+            (
+                r#"t-name="demo.Plain" t-inherit="demo.Thing""#,
+                r#"t-inherit="demo.Thing" t-inherit-mode="primary" t-name="demo.Plain""#,
+            ),
+            ("Count &gt; 0", "Count > 0"),
+        ],
+    );
     let (old, new) = (extract(&src), extract(&reformatted));
     assert!(new.warnings().is_empty(), "{:?}", new.warnings());
     assert_eq!(delta(&Owl, Some((PATH, &old)), Some((PATH, &new))), []);
 
-    let removed = extract(&src.replace(r#"<ul t-ref="list"><li>item</li></ul>"#, ""));
+    let removed = extract(&edit(&src, &[(r#"<ul t-ref="list"><li>item</li></ul>"#, "")]));
     let changes: Vec<(String, String, Op)> = delta(&Owl, Some((PATH, &old)), Some((PATH, &removed)))
         .into_iter()
         .map(|d| (d.kind, d.qualname, d.op))
@@ -238,6 +242,25 @@ fn broken_templates_give_a_partial_table_and_a_warning() {
 }
 
 #[test]
+fn a_templates_own_element_names_nodes_and_an_empty_parent_is_none() {
+    let table = extract(
+        r#"<templates><div t-name="demo.Root" t-ref="root" class="o"><b name="c"/></div><t t-inherit="" t-inherit-mode="extension"/><t t-name="demo.Empty" t-inherit=""/></templates>"#,
+    );
+    assert_eq!(
+        attrs(find(&table, "owl_node", "demo.Root#div[@t-ref='root']")),
+        json!({"count": 1})
+    );
+    assert_eq!(
+        attrs(find(&table, "owl_node", "demo.Root#b[@name='c']")),
+        json!({"count": 1, "path": "div[@t-ref='root']"})
+    );
+    assert!(!table.iter().any(|s| s.name.contains("t-name='demo.Root'")));
+    assert!(!table.iter().any(|s| s.kind == "owl_extension"));
+    assert!(!find(&table, "owl_template", "demo.Empty").attrs.contains_key("inherit"));
+    assert_eq!(table.warnings(), ["line 1: <t> without t-name ignored"]);
+}
+
+#[test]
 fn many_warnings_are_summed_up() {
     let src = format!("<templates>{}</templates>", "<t t-name=\"a\"/>\n".repeat(50));
     let table = extract(&src);
@@ -246,88 +269,141 @@ fn many_warnings_are_summed_up() {
     assert_eq!(table.warnings()[10], "39 more warnings");
 }
 
-/// Every walk stays within a rayon worker's 2 MiB stack, past the DOM's depth limit included.
+/// Every walk stays within a rayon worker's 2 MiB stack: complete documents just under the
+/// DOM's depth limit go through every walk, and deeper ones stop with a warning.
 #[test]
 fn deep_nesting_reads_within_a_worker_stack() {
+    let nest = |n: usize, open: &dyn Fn(usize) -> String, close: &str| {
+        format!("{}{}", (0..n).map(open).collect::<String>(), close.repeat(n))
+    };
+    let complete = [
+        (
+            format!(
+                "<templates><t t-name=\"a\">{}</t></templates>",
+                nest(254, &|i| format!("<div t-ref=\"r{i}\">"), "</div>")
+            ),
+            "a#div[@t-ref='r253']",
+        ),
+        (
+            format!(
+                "<templates><t t-inherit=\"a\" t-inherit-mode=\"extension\"><xpath expr=\"//b\">{}</xpath></t></templates>",
+                nest(253, &|i| format!("<div name=\"d{i}\">"), "</div>")
+            ),
+            "a#div[@name='d252']",
+        ),
+        (
+            format!(
+                "<templates><t t-extend=\"a\"><t t-jquery=\"b\" t-operation=\"append\">{}</t></t></templates>",
+                nest(253, &|i| format!("<li id=\"i{i}\">"), "</li>")
+            ),
+            "a#li[@id='i252']",
+        ),
+        (
+            format!(
+                "<t t-name=\"a\">{}</t>",
+                nest(255, &|i| format!("<div t-ref=\"r{i}\">"), "</div>")
+            ),
+            "a#div[@t-ref='r254']",
+        ),
+    ];
     let n = 20_000;
     let deep = |open: &str, close: &str| format!("{}{}", open.repeat(n), close.repeat(n));
-    let docs = [
+    let too_deep = [
         format!(
             "<templates><t t-name=\"a\">{}</t></templates>",
             deep("<div t-ref=\"r\">", "</div>")
         ),
-        format!(
-            "<templates><t t-inherit=\"a\" t-inherit-mode=\"extension\"><xpath expr=\"//b\">{}</xpath></t></templates>",
-            deep("<div name=\"d\">", "</div>")
-        ),
-        format!(
-            "<templates><t t-extend=\"a\"><t t-jquery=\"b\" t-operation=\"append\">{}</t></t></templates>",
-            deep("<li id=\"i\">", "</li>")
-        ),
         format!("<t t-name=\"a\">{}</t>", deep("<data>", "</data>")),
         deep("<templates>", "</templates>"),
     ];
-    let warnings = std::thread::Builder::new()
+    let (complete, too_deep) = std::thread::Builder::new()
         .stack_size(2 << 20)
-        .spawn(move || docs.map(|doc| Owl.extract(doc.as_bytes()).map(|t| t.warnings().to_vec())))
+        .spawn(move || {
+            let read = |doc: &String| Owl.extract(doc.as_bytes()).unwrap();
+            let complete: Vec<_> = complete.iter().map(|(doc, deepest)| (read(doc), *deepest)).collect();
+            (complete, too_deep.map(|doc| read(&doc).warnings().to_vec()))
+        })
         .unwrap()
         .join()
         .unwrap();
-    for warnings in warnings {
-        assert_eq!(warnings.unwrap(), ["line 1: nesting deeper than 256"]);
+    for (table, deepest) in complete {
+        assert!(table.warnings().is_empty(), "{:?}", table.warnings());
+        find(&table, "owl_node", deepest);
+    }
+    for warnings in too_deep {
+        assert_eq!(warnings, ["line 1: nesting deeper than 256"]);
     }
 }
 
-/// Inputs that repeat a long text in every symbol they give, each over 1 MiB so that the output
-/// budget's constant does not hide a faster growth.
+/// Inputs that repeat a long text in every symbol they give, each over 1 MiB. Bounding keeps
+/// most well under the budget's 24 bytes per input byte, so they give no warning; only the one
+/// that grows faster by design reaches the budget, which caps it.
 #[test]
 fn long_names_stay_linear() {
     let long = "L".repeat(5000);
     let k = 300;
     let lines = |f: &dyn Fn(usize) -> String| (0..k).map(f).collect::<String>();
     let shapes = [
-        format!(
-            "<templates>{}</templates>",
-            lines(&|i| format!(
-                "<t t-inherit=\"{long}\" t-inherit-mode=\"extension\"><xpath expr=\"//a\"><b name=\"n{i}\"/><b id=\"n{i}\"/></xpath></t>\n"
-            ))
+        (
+            format!(
+                "<templates>{}</templates>",
+                lines(&|i| format!(
+                    "<t t-inherit=\"{long}\" t-inherit-mode=\"extension\"><xpath expr=\"//a\"><b name=\"n{i}\"/><b id=\"n{i}\"/></xpath></t>\n"
+                ))
+            ),
+            false,
         ),
-        format!(
-            "<templates><t t-name=\"{long}\">{}</t></templates>",
-            (0..80_000).map(|i| format!("<a id=\"{i}\"/>")).collect::<String>()
+        (
+            format!(
+                "<templates><t t-name=\"{long}\">{}</t></templates>",
+                (0..80_000).map(|i| format!("<a id=\"{i}\"/>")).collect::<String>()
+            ),
+            false,
         ),
-        format!(
-            "<templates><t t-name=\"a\">{}{}{}</t></templates>",
-            (0..250).map(|i| format!("<g name=\"{long}{i}\">")).collect::<String>(),
-            (0..80_000).map(|i| format!("<a id=\"{i}\"/>")).collect::<String>(),
-            "</g>".repeat(250)
+        (
+            format!(
+                "<templates><t t-name=\"a\">{}{}{}</t></templates>",
+                (0..250).map(|i| format!("<g name=\"{long}{i}\">")).collect::<String>(),
+                (0..80_000).map(|i| format!("<a id=\"{i}\"/>")).collect::<String>(),
+                "</g>".repeat(250)
+            ),
+            false,
         ),
-        format!(
-            "<templates><t t-name=\"{}\"><g name=\"{}\">{}</g></t></templates>",
-            "T".repeat(250),
-            "G".repeat(240),
-            (0..16_000)
-                .map(|i| format!("<a name=\"{i}\" id=\"{i}\" t-ref=\"{i}\" t-name=\"{i}\" t-set-slot=\"{i}\"/>"))
-                .collect::<String>()
+        (
+            format!(
+                "<templates><t t-name=\"{}\"><g name=\"{}\">{}</g></t></templates>",
+                "T".repeat(250),
+                "G".repeat(240),
+                (0..16_000)
+                    .map(|i| format!("<a name=\"{i}\" id=\"{i}\" t-ref=\"{i}\" t-name=\"{i}\" t-set-slot=\"{i}\"/>"))
+                    .collect::<String>()
+            ),
+            true,
         ),
-        format!(
-            "<templates>{}</templates>",
-            lines(&|i| format!(
-                "<t t-extend=\"{long}\"><t t-jquery=\"a\" t-operation=\"append\"><b name=\"n{i}\"/></t></t>\n"
-            ))
+        (
+            format!(
+                "<templates>{}</templates>",
+                lines(&|i| format!(
+                    "<t t-extend=\"{long}\"><t t-jquery=\"a\" t-operation=\"append\"><b name=\"n{i}\"/></t></t>\n"
+                ))
+            ),
+            false,
         ),
     ];
-    for src in shapes {
+    for (src, budgeted) in shapes {
         let table = extract(&src);
         let size = table.to_bytes().len();
         let head = &src[..80];
         assert!(src.len() > 1 << 20, "{} bytes for {head}", src.len());
         assert!(size < 30 * src.len(), "{size} bytes from {} for {head}", src.len());
-        assert!(
-            table.warnings().iter().all(|w| w.contains("output budget exceeded")),
-            "{:?} for {head}",
-            table.warnings()
-        );
+        let warnings = table.warnings();
+        match budgeted {
+            false => assert!(warnings.is_empty(), "{warnings:?} for {head}"),
+            true => assert!(
+                warnings.len() == 1 && warnings[0].contains("output budget exceeded"),
+                "{warnings:?} for {head}"
+            ),
+        }
     }
 }
 

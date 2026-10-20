@@ -19,8 +19,8 @@ pub(crate) const TEMPLATE_KEYS: &[&str] = &["name", "id", "t-name", "t-ref", "t-
 /// One distinct `tag[@attr='value']` of an arch.
 pub(crate) struct NamedNode {
     pub key: String,
-    /// The first key of each named ancestor of the first occurrence, joined with `/`; past
-    /// `MAX_TEXT` bytes, as `bounded` keeps it at each step, since every descendant repeats it.
+    /// The first key of each named ancestor of the first occurrence, joined with `/`. Each level
+    /// goes through `bounded`, since every descendant repeats it.
     pub path: String,
     /// Above 1, Odoo's shorthand and `//tag[@name=...]` match the first.
     pub count: u32,
@@ -56,8 +56,16 @@ fn predicate(attr: &str, value: &str) -> String {
 pub(crate) fn named_nodes(arch: &[Node], keys: &[&str]) -> Vec<NamedNode> {
     let mut nodes = Nodes::new(keys);
     for element in elements(arch) {
-        nodes.walk(element, &mut Vec::new());
+        nodes.walk(element, &mut Vec::new(), &[]);
     }
+    nodes.out
+}
+
+/// `named_nodes` of the arch made of `element`, its own attributes in `skip` aside, such as the
+/// `t-name` that makes it a template rather than a node.
+pub(crate) fn named_nodes_of(element: &Element, keys: &[&str], skip: &[&str]) -> Vec<NamedNode> {
+    let mut nodes = Nodes::new(keys);
+    nodes.walk(element, &mut Vec::new(), skip);
     nodes.out
 }
 
@@ -81,7 +89,7 @@ pub(crate) fn specs(arch: &[Node], keys: &[&str]) -> (Vec<Spec>, Vec<NamedNode>)
         for child in element.elements() {
             match child.attr("position") {
                 Some("move") => specs.push(spec(child)),
-                _ => nodes.walk(child, &mut Vec::new()),
+                _ => nodes.walk(child, &mut Vec::new(), &[]),
             }
         }
     }
@@ -148,11 +156,13 @@ impl<'k> Nodes<'k> {
         }
     }
 
-    /// `path` holds the node path of each named ancestor, so a node copies its parent's.
-    fn walk(&mut self, element: &Element, path: &mut Vec<String>) {
+    /// `path` holds the node path of each named ancestor, so a node copies its parent's. `skip`
+    /// applies to `element` only.
+    fn walk(&mut self, element: &Element, path: &mut Vec<String>, skip: &[&str]) {
         let keys: Vec<_> = self
             .keys
             .iter()
+            .filter(|key| !skip.contains(key))
             .filter_map(|name| element.attr_node(name))
             .map(|a| (node_key(&element.tag, &a.name, &a.value), a))
             .collect();
@@ -179,7 +189,7 @@ impl<'k> Nodes<'k> {
             path.push(bounded(joined));
         }
         for child in element.elements() {
-            self.walk(child, path);
+            self.walk(child, path, &[]);
         }
         if !keys.is_empty() {
             path.pop();
