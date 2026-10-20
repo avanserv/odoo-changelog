@@ -20,7 +20,7 @@ use crate::syntax::{self, Visit, Visitor, named, statements, text, visit};
 use crate::{Extractor, Span, Symbol, SymbolTable};
 use hash::fn_hash;
 use path::{Header, qualify_ref};
-use scope::{Binding, Resolved, Scope, Shadowed, method_call, require};
+use scope::{Binding, Resolved, Scope, Shadowed, bounded, method_call, require};
 use value::{canonical, is_empty_object, key_text, method_key, object, single, string_value, tagless, value};
 
 const MODULE: &str = "js_module";
@@ -255,11 +255,11 @@ impl<'t> Reader<'t> {
         }
     }
 
-    /// The reference `node` resolves to, or its canonical text.
+    /// The reference `node` resolves to, or its canonical text, bounded.
     fn target(&self, node: Node, scope: &Scope) -> String {
         match scope.resolve(node, self.src) {
             Some(Resolved::Ref(r) | Resolved::Expr(r)) => r,
-            None => canonical(node, self.src),
+            None => bounded(canonical(node, self.src)),
         }
     }
 
@@ -414,13 +414,13 @@ impl<'t> Reader<'t> {
                 let Some(value) = value else {
                     return;
                 };
+                // `chain` bounds the global's text, so each name holds a short copy of it.
+                let global = (alias.is_none() && scope.is_global(value, src)).then(|| canonical(value, src));
                 for (key, local) in self.destructured(target) {
-                    let binding = match &alias {
-                        Some(base) => scope::member_of(base, &key),
-                        None if scope.is_global(value, src) => {
-                            Some(Binding::Global(format!("{}.{key}", canonical(value, src))))
-                        }
-                        None => None,
+                    let binding = match (&alias, &global) {
+                        (Some(base), _) => scope::member_of(base, &key),
+                        (None, Some(global)) => Some(Binding::Global(format!("{global}.{key}"))),
+                        (None, None) => None,
                     };
                     scope.bind(local, binding.unwrap_or(Binding::Local));
                 }
@@ -463,9 +463,9 @@ impl<'t> Reader<'t> {
         out
     }
 
-    /// A category name: the decoded string, or `[<canonical>]`.
+    /// A category name or a key: the decoded string, or `[<canonical>]`, bounded.
     fn label(&self, node: Node) -> String {
-        string_value(node, self.src).unwrap_or_else(|| format!("[{}]", canonical(node, self.src)))
+        bounded(string_value(node, self.src).unwrap_or_else(|| format!("[{}]", canonical(node, self.src))))
     }
 
     /// Reads what the code of a scope that runs at load declares: defines (`program` only),
@@ -648,7 +648,7 @@ impl<'t> Reader<'t> {
         let is_patch = match scope.resolve(callee, self.src) {
             Some(Resolved::Ref(r)) => r.ends_with("#patch"),
             Some(Resolved::Expr(_)) => false,
-            None => callee.kind() == "identifier" && self.text(callee) == "patch",
+            None => callee.kind() == "identifier" && self.text(callee) == "patch" && scope.get("patch").is_none(),
         };
         let args = call.child_by_field_name("arguments").map(named).unwrap_or_default();
         let (target, object) = match (is_patch, &args[..]) {

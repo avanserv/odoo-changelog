@@ -6,7 +6,24 @@ use std::collections::BTreeMap;
 use tree_sitter::Node;
 
 use super::value::string_value;
+use crate::hash::digest;
 use crate::syntax::{named, text};
+
+/// The most `.member` segments, and bytes of text, a reference or a category path is read
+/// through. Names hold such text once per symbol and bindings once per name, so a longer one
+/// reads as an expression instead: one file can never make the output grow faster than itself.
+pub(super) const MAX_SEGMENTS: usize = 64;
+pub(super) const MAX_TEXT: usize = 256;
+
+/// `text`, or past `MAX_TEXT` bytes `~<hash>` of it, for name text a symbol may repeat.
+pub(super) fn bounded(text: String) -> String {
+    if text.len() <= MAX_TEXT {
+        return text;
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(text.as_bytes());
+    format!("~{}", digest(&hasher))
+}
 
 /// A reference's target, `<module>#<member path>` or `<module>`, or the canonical text of a
 /// global's member, which no module names.
@@ -130,7 +147,10 @@ impl Scope {
                 b => b.clone(),
             },
         };
-        path.iter().try_fold(base, |b, key| member_of(&b, key))
+        if path.is_empty() {
+            return Some(base);
+        }
+        member_of(&base, &path.join("."))
     }
 
     /// Whether `node` is a name or a `.member` chain on a name this scope does not bind.
@@ -145,6 +165,9 @@ impl Scope {
         let mut names = Vec::new();
         let mut n = node;
         while let Some((object, arg)) = method_call(n, "category", src).filter(|(_, args)| args.len() == 1) {
+            if names.len() == MAX_SEGMENTS {
+                return None;
+            }
             names.push(label(arg[0]));
             n = object;
         }
@@ -159,7 +182,7 @@ impl Scope {
             _ => return None,
         };
         let full = [base, names].concat();
-        (!full.is_empty()).then_some(full)
+        (!full.is_empty() && full.len() <= MAX_SEGMENTS).then_some(full)
     }
 }
 
@@ -184,9 +207,11 @@ enum Root {
     Require(String),
 }
 
-/// The root of a `.member` chain and the member names after it, outermost last.
+/// The root of a `.member` chain and the member names after it, outermost last, within
+/// `MAX_SEGMENTS` and `MAX_TEXT`.
 fn chain(node: Node, src: &[u8]) -> Option<(Root, Vec<String>)> {
     let mut path = Vec::new();
+    let mut size = 0;
     let mut n = node;
     loop {
         match n.kind() {
@@ -195,16 +220,24 @@ fn chain(node: Node, src: &[u8]) -> Option<(Root, Vec<String>)> {
                 if property.kind() != "property_identifier" || n.child_by_field_name("optional_chain").is_some() {
                     return None;
                 }
+                size += property.byte_range().len() + 1;
+                if path.len() == MAX_SEGMENTS || size > MAX_TEXT {
+                    return None;
+                }
                 path.push(text(property, src).into_owned());
                 n = n.child_by_field_name("object")?;
             }
             "identifier" | "shorthand_property_identifier" => {
+                if size + n.byte_range().len() > MAX_TEXT {
+                    return None;
+                }
                 path.reverse();
                 return Some((Root::Name(text(n, src).into_owned()), path));
             }
             "call_expression" => {
                 path.reverse();
-                return require(n, src).map(|m| (Root::Require(m), path));
+                let module = require(n, src).filter(|m| size + m.len() <= MAX_TEXT)?;
+                return Some((Root::Require(module), path));
             }
             "parenthesized_expression" if named(n).len() == 1 => n = named(n)[0],
             _ => return None,

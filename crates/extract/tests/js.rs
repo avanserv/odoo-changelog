@@ -322,6 +322,44 @@ fn exporting_one_declaration_again_points_at_its_first_export() {
     );
 }
 
+/// Long member chains and names read as expressions past a bound, so no binding or name repeats
+/// a long text: time and output stay linear in the input.
+#[test]
+fn long_chains_stay_linear() {
+    let k = 20_000;
+    let keys: Vec<String> = (0..k).map(|i| format!("a{i}")).collect();
+    let chain = format!("x{}", ".b".repeat(k));
+    let destructured = format!("const {{ {} }} = {chain};\nexport {{ a0, a1 }};\n", keys.join(", "));
+    let adds: String = (0..k).map(|i| format!(".add('k{i}', 1)")).collect();
+    let sources = [
+        destructured.clone(),
+        format!("import {{ x }} from 'y';\n{destructured}"),
+        format!("import {{ x }} from 'y';\nexport const a = {chain};\n"),
+        format!("import core from 'web.core';\ncore{}.registry{adds};\n", ".b".repeat(k)),
+        format!("registry{}{adds};\n", ".category('c')".repeat(k)),
+        format!("patch({chain}, {{ a() {{}} }});\n"),
+    ];
+    for src in sources {
+        let start = std::time::Instant::now();
+        let table = extract(&src);
+        let (elapsed, size) = (start.elapsed(), table.to_bytes().len());
+        assert!(elapsed.as_secs() < 5, "{elapsed:?} for {}", &src[..60]);
+        assert!(size < 30 * src.len(), "{size} bytes from {}", src.len());
+        assert!(table.iter().all(|s| s.name.len() <= 512), "{}", &src[..60]);
+    }
+}
+
+#[test]
+fn a_block_local_patch_is_not_odoos() {
+    let table = extract("if (x) {\n    const patch = make();\n    patch(A, { a() {} });\n}\npatch(B, { b() {} });\n");
+    let patches: Vec<&str> = table
+        .iter()
+        .filter(|s| s.kind == "js_patch")
+        .map(|s| s.name.as_str())
+        .collect();
+    assert_eq!(patches, ["B"]);
+}
+
 #[test]
 fn legacy_default_imports_read_as_requires() {
     let src = "import FormController from 'web.FormController';\nimport core from 'web.core';\nimport { x } from 'web.x';\nFormController.include({ a() {} });\ncore.action_registry.add('k', 1);\n";
