@@ -7,6 +7,19 @@ use odoo_changelog_store::{CommitRow, Store, VersionRow};
 use tracing::{info, warn};
 
 pub fn run(cfg: &Config, store: &Store, only: &[String]) -> Result<()> {
+    let unknown: Vec<&str> = only
+        .iter()
+        .filter(|n| !cfg.repos.iter().any(|r| &r.name == *n))
+        .map(String::as_str)
+        .collect();
+    if !unknown.is_empty() {
+        let known: Vec<&str> = cfg.repos.iter().map(|r| r.name.as_str()).collect();
+        anyhow::bail!(
+            "no repo named {} in the config; configured: {}",
+            unknown.join(", "),
+            known.join(", ")
+        );
+    }
     for rc in cfg.repos.iter().filter(|r| only.is_empty() || only.contains(&r.name)) {
         let start = Instant::now();
         walk_repo(cfg, store, rc)?;
@@ -24,47 +37,46 @@ fn walk_repo(cfg: &Config, store: &Store, rc: &RepoConfig) -> Result<()> {
             rc.name
         );
     }
-    let tx = store.conn.unchecked_transaction()?;
-    let repo_id = store.upsert_repo(&rc.name, shallow)?;
-    let (forks, master_chain) = resolve_forks(&repo, rc, cfg)?;
-    check_forks_unchanged(store, repo_id, &repo.name, &forks, &master_chain)?;
+    store.in_transaction(|| {
+        let repo_id = store.upsert_repo(&rc.name, shallow)?;
+        let (forks, master_chain) = resolve_forks(&repo, rc, cfg)?;
+        check_forks_unchanged(store, repo_id, &repo.name, &forks, &master_chain)?;
 
-    let rows: Vec<_> = forks
-        .iter()
-        .map(|f| {
-            (
-                f.version.branch(),
-                f.head.to_string(),
-                f.fork.map(|s| s.to_string()).unwrap_or_default(),
-                f,
-            )
-        })
-        .collect();
-    store.replace_versions(
-        repo_id,
-        &rows
+        let rows: Vec<_> = forks
             .iter()
-            .enumerate()
-            .map(|(i, (name, head, fork, f))| VersionRow {
-                name,
-                ord: i as i64,
-                head_sha: head,
-                fork_sha: fork,
-                fork_fp_idx: f.fp_index.map_or(-1, |i| i as i64),
-                fork_source: f.source.as_str(),
+            .map(|f| {
+                (
+                    f.version.branch(),
+                    f.head.to_string(),
+                    f.fork.map(|s| s.to_string()).unwrap_or_default(),
+                    f,
+                )
             })
-            .collect::<Vec<_>>(),
-    )?;
+            .collect();
+        store.replace_versions(
+            repo_id,
+            &rows
+                .iter()
+                .enumerate()
+                .map(|(i, (name, head, fork, f))| VersionRow {
+                    name,
+                    ord: i as i64,
+                    head_sha: head,
+                    fork_sha: fork,
+                    fork_fp_idx: f.fp_index.map_or(-1, |i| i as i64),
+                    fork_source: f.source.as_str(),
+                })
+                .collect::<Vec<_>>(),
+        )?;
 
-    // Older branches first, so a fix merged forward is attributed to the branch it landed on.
-    for f in &forks {
-        walk_branch(&repo, store, repo_id, &f.version.branch(), f.head, f.fork)?;
-    }
-    let base = master_chain[0];
-    walk_branch(&repo, store, repo_id, "master", repo.master_head()?, Some(base))?;
-    store.assign_versions(repo_id)?;
-    tx.commit()?;
-    Ok(())
+        // Older branches first, so a fix merged forward is attributed to the branch it landed on.
+        for f in &forks {
+            walk_branch(&repo, store, repo_id, &f.version.branch(), f.head, f.fork)?;
+        }
+        let base = master_chain[0];
+        walk_branch(&repo, store, repo_id, "master", repo.master_head()?, Some(base))?;
+        store.assign_versions(repo_id)
+    })
 }
 
 /// Stored master `fp_idx` values count from the oldest fork, and each branch's rows start at
@@ -161,11 +173,12 @@ fn insert(
     sub: i64,
 ) -> Result<bool> {
     let c = repo.commit_info(sha)?;
+    let sha = sha.to_string();
     let parents: Vec<String> = c.parents.iter().map(ToString::to_string).collect();
-    store.insert_commit(
+    let new = store.insert_commit(
         repo_id,
         &CommitRow {
-            sha: &sha.to_string(),
+            sha: &sha,
             branch,
             fp_idx: fp,
             sub_idx: sub,
@@ -176,5 +189,13 @@ fn insert(
             committed_at: c.committed_at,
             message: &c.message,
         },
-    )
+    )?;
+    // A full rebuild walks master after every branch, so this branch would claim the commit.
+    if !new && branch != "master" && store.commit_branch(repo_id, &sha)?.as_deref() == Some("master") {
+        anyhow::bail!(
+            "{}: {branch} reaches {sha}, which an earlier walk credited to master; rebuild the database",
+            repo.name
+        );
+    }
+    Ok(new)
 }
