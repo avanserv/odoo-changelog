@@ -1,0 +1,128 @@
+{
+  "symbols": [
+    {
+      "kind": "constraint",
+      "qualname": "demo.label#code_idx@demo",
+      "line": 19,
+      "span": {
+        "start": 440,
+        "end": 448
+      },
+      "attrs": {
+        "declared": "models.UniqueIndex",
+        "definition": "(code) WHERE active",
+        "message": "Codes must be unique."
+      }
+    },
+    {
+      "kind": "constraint",
+      "qualname": "demo.label#date_idx@demo",
+      "line": 20,
+      "span": {
+        "start": 531,
+        "end": 539
+      },
+      "attrs": {
+        "declared": "models.Index",
+        "definition": "(date DESC)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "qualname": "demo.label#name_uniq@demo",
+      "line": 18,
+      "span": {
+        "start": 357,
+        "end": 366
+      },
+      "attrs": {
+        "declared": "models.Constraint",
+        "definition": "unique (name)",
+        "message": "Label names must be unique."
+      }
+    },
+    {
+      "kind": "constraint",
+      "qualname": "demo.tag#color_check@demo",
+      "line": 10,
+      "span": {
+        "start": 204,
+        "end": 215
+      },
+      "attrs": {
+        "declared": "_sql_constraints",
+        "definition": "CHECK(color >= 0)",
+        "message": "Colors are positive."
+      }
+    },
+    {
+      "kind": "constraint",
+      "qualname": "demo.tag#name_uniq@demo",
+      "line": 9,
+      "span": {
+        "start": 135,
+        "end": 144
+      },
+      "attrs": {
+        "declared": "_sql_constraints",
+        "definition": "unique (name)",
+        "message": "Tag names must be unique."
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.badge@demo",
+      "line": 24,
+      "span": {
+        "start": 612,
+        "end": 622
+      },
+      "attrs": {
+        "_description": "Badge",
+        "_name": "demo.badge",
+        "_sql_constraints": {
+          "expr": "BASE_CONSTRAINTS+[('extra', 'CHECK(true)', 'x')]"
+        },
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Badge"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.label@demo",
+      "line": 15,
+      "span": {
+        "start": 312,
+        "end": 322
+      },
+      "attrs": {
+        "_description": "Label",
+        "_name": "demo.label",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Label"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.tag@demo",
+      "line": 5,
+      "span": {
+        "start": 64,
+        "end": 72
+      },
+      "attrs": {
+        "_description": "Tag",
+        "_name": "demo.tag",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Tag"
+      }
+    }
+  ],
+  "warnings": []
+}

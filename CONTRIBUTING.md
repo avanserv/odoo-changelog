@@ -41,6 +41,11 @@ Two runs on the same refs must produce identical databases, and an incremental w
 full rebuild. `crates/cli/tests/determinism.rs` builds a small Odoo-shaped repository with the git
 CLI and checks both. Extend its fixture when a change adds a history shape it does not cover.
 
+An extractor's expected outputs live beside its hand-written fixtures, such as
+`crates/extract/tests/fixtures/python/model.json` for `model.py`. After changing what it returns,
+regenerate them with `ODOO_CHANGELOG_BLESS=1 cargo test -p odoo-changelog-extract`, review the
+diff, and bump the extractor's `version()`.
+
 Tests never read the real Odoo clones. A test that needs them is `#[ignore]` and says so. Nothing
 from the private `odoo/upgrade` repository is copied into a fixture: write fixtures by hand.
 

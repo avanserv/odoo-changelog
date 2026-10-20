@@ -1,0 +1,93 @@
+{
+  "symbols": [
+    {
+      "kind": "field",
+      "qualname": "demo.after#after@demo",
+      "line": 23,
+      "span": {
+        "start": 313,
+        "end": 318
+      },
+      "attrs": {
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.broken#before@demo",
+      "line": 7,
+      "span": {
+        "start": 93,
+        "end": 99
+      },
+      "attrs": {
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.broken#first@demo",
+      "line": 9,
+      "span": {
+        "start": 125,
+        "end": 130
+      },
+      "attrs": {
+        "body": "477638e69a264c6f9c7ef1613aa4e0d8",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.broken#middle@demo",
+      "line": 12,
+      "span": {
+        "start": 164,
+        "end": 170
+      },
+      "attrs": {
+        "body": "c21231b97a6ca698c48f4679f410c8a1",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.after@demo",
+      "line": 21,
+      "span": {
+        "start": 296,
+        "end": 306
+      },
+      "attrs": {
+        "_name": "demo.after",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "After"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.broken@demo",
+      "line": 5,
+      "span": {
+        "start": 75,
+        "end": 86
+      },
+      "attrs": {
+        "_name": "demo.broken",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Broken"
+      }
+    }
+  ],
+  "warnings": [
+    "line 13: syntax error"
+  ]
+}

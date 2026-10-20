@@ -52,7 +52,36 @@ once per extractor version: the result is cached under the blob id, the extracto
 version, and bumping the version re-extracts that extractor's commits only. `--from` and `--to`
 bound the `version` of the commits extracted, and a later run picks up the rest.
 
-`extract` records nothing until an extractor is registered in `Registry::builtin()`.
+### Python symbols
+
+The `python` extractor reads every `.py` file whose path segments are all Python identifiers,
+manifests aside: migration scripts and other files Python cannot import hold no model. It parses
+with tree-sitter and names each symbol after what custom code refers to it by.
+
+| Kind | Qualname | Example |
+| --- | --- | --- |
+| `model` | `<model>@<module>` | `sale.order@sale` |
+| `field`, `method` | `<model>#<name>@<module>` | `sale.order#partner_id@sale` |
+| `selection` | `<model>#<field>:<value>@<module>` | `sale.order#state:draft@sale` |
+| `constraint` | `<model>#<name>@<module>` | `sale.order#date_order_conditional_required@sale` |
+| `class`, `function`, `route` | `<import path>.<name>` | `odoo.addons.sale.controllers.portal.CustomerPortal.portal_my_orders` |
+
+A model's name is its `_name`, else its single `_inherit`. Model-scope symbols carry the module
+that declares them, so a base field and an override in another module have separate histories;
+`[<Class>]` after the model tells apart two classes of one file that declare the same member,
+such as the `res.users` classes in `base`. `class` and `function` cover classes that declare no
+model and module-level functions, with `test*` methods left out; `route` is a `function` with an
+`http.route` decorator. A `constraint` is an `_sql_constraints` entry or, from 19.0, a
+`models.Constraint`, `UniqueIndex` or `Index`.
+
+Attributes are normalized so that formatting is no change: literal values are decoded, other
+expressions are kept as canonical text, and a method's `body` is a hash of its tokens without
+comments, docstring or local names. Each symbol also records the line and byte span of its name,
+which change detection ignores. A file that does not fully parse, such as Python 2 code, still
+gives the symbols around the error; `extract` counts such files in a warning.
+
+On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) takes 282 s with an
+empty cache and 76 s with a warm one (2026-10-20).
 
 ## Contributing
 

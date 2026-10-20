@@ -1,0 +1,156 @@
+{
+  "symbols": [
+    {
+      "kind": "class",
+      "qualname": "odoo.addons.demo.models.model.Helper",
+      "line": 45,
+      "span": {
+        "start": 850,
+        "end": 856
+      },
+      "attrs": {
+        "bases": []
+      }
+    },
+    {
+      "kind": "class",
+      "qualname": "odoo.addons.demo.models.model.Several",
+      "line": 39,
+      "span": {
+        "start": 745,
+        "end": 752
+      },
+      "attrs": {
+        "bases": [
+          "models.Model"
+        ]
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.library#shelf@demo",
+      "line": 21,
+      "span": {
+        "start": 445,
+        "end": 450
+      },
+      "attrs": {
+        "type": "Integer"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.library#title@demo",
+      "line": 15,
+      "span": {
+        "start": 348,
+        "end": 353
+      },
+      "attrs": {
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.library@demo",
+      "line": 5,
+      "span": {
+        "start": 76,
+        "end": 88
+      },
+      "attrs": {
+        "_description": "Library",
+        "_inherit": [
+          "mail.thread",
+          "mail.activity.mixin"
+        ],
+        "_inherits": {
+          "res.partner": "partner_id"
+        },
+        "_name": "demo.library",
+        "_order": "sequence, name desc",
+        "_rec_name": "title",
+        "_table": "demo_library_table",
+        "_x": 42,
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Library"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.library[LibraryExtension]@demo",
+      "line": 19,
+      "span": {
+        "start": 426,
+        "end": 438
+      },
+      "attrs": {
+        "_inherit": [
+          "demo.library"
+        ],
+        "bases": [
+          "models.Model"
+        ],
+        "class": "LibraryExtension"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.mixin@demo",
+      "line": 35,
+      "span": {
+        "start": 698,
+        "end": 708
+      },
+      "attrs": {
+        "_description": "Mixin",
+        "_name": "demo.mixin",
+        "bases": [
+          "models.AbstractModel"
+        ],
+        "class": "Mixin"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.shelf@demo",
+      "line": 25,
+      "span": {
+        "start": 515,
+        "end": 525
+      },
+      "attrs": {
+        "_inherit": [
+          "demo.shelf"
+        ],
+        "_name": "demo.shelf",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "SameName"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.wizard@demo",
+      "line": 30,
+      "span": {
+        "start": 607,
+        "end": 618
+      },
+      "attrs": {
+        "_description": "Wizard",
+        "_name": "demo.wizard",
+        "bases": [
+          "models.TransientModel"
+        ],
+        "class": "Wizard"
+      }
+    }
+  ],
+  "warnings": [
+    "line 39: class Several names no model (several _inherit and no _name); read as a plain class"
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "symbols": [
+    {
+      "kind": "field",
+      "qualname": "res.users#nickname@demo",
+      "line": 7,
+      "span": {
+        "start": 101,
+        "end": 109
+      },
+      "attrs": {
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "res.users[Users]#nickname@demo",
+      "line": 17,
+      "span": {
+        "start": 290,
+        "end": 298
+      },
+      "attrs": {
+        "args": {
+          "required": true
+        },
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "res.users#create@demo",
+      "line": 10,
+      "span": {
+        "start": 163,
+        "end": 169
+      },
+      "attrs": {
+        "body": "e4c3fb42d02f751c4b928caa03274a02",
+        "decorators": [
+          {
+            "name": "api.model_create_multi"
+          }
+        ],
+        "signature": [
+          "self",
+          "vals_list"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "res.users[Users]#create@demo",
+      "line": 20,
+      "span": {
+        "start": 365,
+        "end": 371
+      },
+      "attrs": {
+        "body": "e4c3fb42d02f751c4b928caa03274a02",
+        "decorators": [
+          {
+            "name": "api.model_create_multi"
+          }
+        ],
+        "signature": [
+          "self",
+          "vals_list"
+        ]
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "res.users@demo",
+      "line": 5,
+      "span": {
+        "start": 85,
+        "end": 94
+      },
+      "attrs": {
+        "_inherit": [
+          "res.users"
+        ],
+        "bases": [
+          "models.Model"
+        ],
+        "class": "ResUsers"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "res.users[Users]@demo",
+      "line": 15,
+      "span": {
+        "start": 274,
+        "end": 283
+      },
+      "attrs": {
+        "_inherit": [
+          "res.users"
+        ],
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Users"
+      }
+    }
+  ],
+  "warnings": [
+    "line 25: duplicate model res.users[Users] dropped",
+    "line 27: duplicate method res.users[Users]#create dropped"
+  ]
+}

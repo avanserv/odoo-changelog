@@ -1,0 +1,69 @@
+{
+  "symbols": [
+    {
+      "kind": "field",
+      "qualname": "demo.legacy#name@demo",
+      "line": 7,
+      "span": {
+        "start": 96,
+        "end": 100
+      },
+      "attrs": {
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.legacy#after@demo",
+      "line": 18,
+      "span": {
+        "start": 303,
+        "end": 308
+      },
+      "attrs": {
+        "body": "e8c9fec1eb98ed47d3899c1c216122dd",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.legacy#run@demo",
+      "line": 9,
+      "span": {
+        "start": 126,
+        "end": 129
+      },
+      "attrs": {
+        "body": "30d56c474af81a9f4076f710dd27f04f",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.legacy@demo",
+      "line": 5,
+      "span": {
+        "start": 78,
+        "end": 89
+      },
+      "attrs": {
+        "_name": "demo.legacy",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Legacy"
+      }
+    }
+  ],
+  "warnings": [
+    "line 10: Python 2 syntax",
+    "line 13: Python 2 syntax",
+    "line 14: Python 2 syntax",
+    "line 14: Python 2 syntax",
+    "line 15: Python 2 syntax"
+  ]
+}

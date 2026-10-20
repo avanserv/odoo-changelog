@@ -1,0 +1,250 @@
+{
+  "symbols": [
+    {
+      "kind": "class",
+      "qualname": "odoo.addons.demo.controllers.main.Helper",
+      "line": 35,
+      "span": {
+        "start": 859,
+        "end": 865
+      },
+      "attrs": {
+        "bases": [
+          "Base",
+          "metaclass=Meta"
+        ],
+        "decorators": [
+          {
+            "args": [
+              1
+            ],
+            "name": "decorator"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "class",
+      "qualname": "odoo.addons.demo.controllers.main.Portal",
+      "line": 5,
+      "span": {
+        "start": 67,
+        "end": 73
+      },
+      "attrs": {
+        "bases": [
+          "http.Controller"
+        ]
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.controllers.main.Portal._render",
+      "line": 23,
+      "span": {
+        "start": 622,
+        "end": 629
+      },
+      "attrs": {
+        "body": "197084a81e21f56e6cf818dff40688b2",
+        "signature": [
+          "self",
+          "order_id"
+        ]
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.home",
+      "line": 20,
+      "span": {
+        "start": 567,
+        "end": 571
+      },
+      "attrs": {
+        "body": "ee174a853a3efdfd40b73825220c3984",
+        "decorators": [
+          {
+            "kwargs": {
+              "csrf": false,
+              "methods": [
+                "GET"
+              ],
+              "route": "/my/home"
+            },
+            "name": "http.route"
+          }
+        ],
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.inherited",
+      "line": 16,
+      "span": {
+        "start": 433,
+        "end": 442
+      },
+      "attrs": {
+        "body": "830d327ac40393ddbce732edf4c7b775",
+        "decorators": [
+          {
+            "name": "route"
+          }
+        ],
+        "signature": [
+          "self",
+          "**kw"
+        ]
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.order",
+      "line": 12,
+      "span": {
+        "start": 344,
+        "end": 349
+      },
+      "attrs": {
+        "body": "cef228d98119379e2bc032d3ddb46077",
+        "decorators": [
+          {
+            "args": [
+              [
+                "/my/order/<int:order_id>",
+                "/my/order/<int:order_id>/print"
+              ]
+            ],
+            "kwargs": {
+              "auth": "public"
+            },
+            "name": "http.route"
+          }
+        ],
+        "signature": [
+          "self",
+          "order_id",
+          "**kw"
+        ]
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.orders",
+      "line": 8,
+      "span": {
+        "start": 171,
+        "end": 177
+      },
+      "attrs": {
+        "body": "ae49cf5749889a704a041d7f7066a28d",
+        "decorators": [
+          {
+            "args": [
+              "/my/orders"
+            ],
+            "kwargs": {
+              "auth": "user",
+              "type": "http",
+              "website": true
+            },
+            "name": "http.route"
+          }
+        ],
+        "signature": [
+          "self",
+          "**kw"
+        ]
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.controllers.main.post_init_hook",
+      "line": 30,
+      "span": {
+        "start": 774,
+        "end": 788
+      },
+      "attrs": {
+        "body": "b2fd3c46ad9cf1958cf0f6daeeddb26a",
+        "signature": [
+          "env"
+        ]
+      }
+    },
+    {
+      "kind": "route",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.home",
+      "line": 20,
+      "span": {
+        "start": 567,
+        "end": 571
+      },
+      "attrs": {
+        "args": {
+          "csrf": false,
+          "methods": [
+            "GET"
+          ]
+        },
+        "urls": [
+          "/my/home"
+        ]
+      }
+    },
+    {
+      "kind": "route",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.inherited",
+      "line": 16,
+      "span": {
+        "start": 433,
+        "end": 442
+      },
+      "attrs": {
+        "urls": []
+      }
+    },
+    {
+      "kind": "route",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.order",
+      "line": 12,
+      "span": {
+        "start": 344,
+        "end": 349
+      },
+      "attrs": {
+        "args": {
+          "auth": "public"
+        },
+        "urls": [
+          "/my/order/<int:order_id>",
+          "/my/order/<int:order_id>/print"
+        ]
+      }
+    },
+    {
+      "kind": "route",
+      "qualname": "odoo.addons.demo.controllers.main.Portal.orders",
+      "line": 8,
+      "span": {
+        "start": 171,
+        "end": 177
+      },
+      "attrs": {
+        "args": {
+          "auth": "user",
+          "type": "http",
+          "website": true
+        },
+        "urls": [
+          "/my/orders"
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}
