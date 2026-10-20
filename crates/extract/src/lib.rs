@@ -7,7 +7,11 @@ mod path;
 mod python;
 mod symbol;
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+
 use anyhow::Result;
+use serde_json::Value;
 
 pub use delta::{Delta, Op, delta};
 pub use manifest::Manifest;
@@ -18,7 +22,7 @@ pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
 pub trait Extractor: Send + Sync {
     /// Stored in the database; never rename.
     fn name(&self) -> &'static str;
-    /// Bump on any change to what `extract` or `qualify` returns for some input.
+    /// Bump on any change to what `extract`, `qualify` or `qualify_attrs` returns for some input.
     fn version(&self) -> u32;
     /// Decides from the path alone, before any blob is read.
     fn claims(&self, path: &str) -> bool;
@@ -27,6 +31,11 @@ pub trait Extractor: Send + Sync {
     /// Qualname of a symbol found in the file at `path`; uncached, so path-derived names live here.
     fn qualify(&self, _path: &str, symbol: &Symbol) -> String {
         symbol.name.clone()
+    }
+    /// Attrs of a symbol found in the file at `path`; uncached like `qualify`, for references whose
+    /// meaning depends on the path, such as an xmlid written without its module.
+    fn qualify_attrs<'a>(&self, _path: &str, symbol: &'a Symbol) -> Cow<'a, BTreeMap<String, Value>> {
+        Cow::Borrowed(&symbol.attrs)
     }
 }
 

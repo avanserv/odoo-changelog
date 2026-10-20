@@ -3,6 +3,7 @@
 // Each test binary compiles this module and uses only some of it.
 #![allow(dead_code)]
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,7 +19,7 @@ struct Row<'a> {
     qualname: String,
     line: u32,
     span: Span,
-    attrs: &'a BTreeMap<String, Value>,
+    attrs: Cow<'a, BTreeMap<String, Value>>,
 }
 
 #[derive(Serialize)]
@@ -27,8 +28,8 @@ struct Rendered<'a> {
     warnings: &'a [String],
 }
 
-/// The symbols `ex` finds in `blob`, qualified at `path`, in `(kind, qualname)` order, and its
-/// warnings, as pretty JSON with a final newline.
+/// The symbols `ex` finds in `blob`, qualified at `path` with their attrs, in `(kind, qualname)`
+/// order, and its warnings, as pretty JSON with a final newline.
 pub fn render(ex: &dyn Extractor, path: &str, blob: &[u8]) -> String {
     let table = ex.extract(blob).unwrap();
     let mut symbols: Vec<Row> = table
@@ -38,7 +39,7 @@ pub fn render(ex: &dyn Extractor, path: &str, blob: &[u8]) -> String {
             qualname: ex.qualify(path, s),
             line: s.line,
             span: s.span,
-            attrs: &s.attrs,
+            attrs: ex.qualify_attrs(path, s),
         })
         .collect();
     symbols.sort_by(|a, b| (a.kind, &a.qualname).cmp(&(b.kind, &b.qualname)));
