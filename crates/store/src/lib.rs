@@ -1,5 +1,6 @@
 //! SQLite persistence. Writers take plain data so the store does not depend on git types.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -87,6 +88,15 @@ impl Store {
             ])?;
         }
         Ok(())
+    }
+
+    /// Version name → fork sha recorded by the last walk (empty when unrelated).
+    pub fn version_forks(&self, repo_id: i64) -> Result<HashMap<String, String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name, fork_sha FROM versions WHERE repo_id = ?1")?;
+        let rows = stmt.query_map([repo_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn run_state(&self, repo_id: i64, branch: &str) -> Result<Option<(String, i64)>> {
