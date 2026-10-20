@@ -6,9 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use tree_sitter::Node;
 
+use super::closes_single_tuple;
 use super::value::{delimiters, prefix};
-use super::{Tokens, Visit, Visitor, named, text, visit};
 use crate::hash::digest;
+use crate::syntax::{Tokens, Visit, Visitor, named, text, visit};
 
 /// The first 16 bytes of blake3 over the body's tokens, each followed by a 0x00 byte, as hex.
 /// The whole def is one scope: a name bound anywhere in it, nested defs and lambdas included,
@@ -68,7 +69,7 @@ impl<'t, F: FnMut(&str)> Visitor<'t> for Walk<'_, 't, F> {
                 self.tokens.push(&text(n, self.src));
                 return false;
             }
-            "," if v.closes_single_tuple() => {
+            "," if closes_single_tuple(v) => {
                 self.tokens.mark(",");
                 return false;
             }

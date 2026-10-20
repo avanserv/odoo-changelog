@@ -8,7 +8,8 @@ use serde_json::Value;
 use tree_sitter::Node;
 
 use crate::python::value::{canonical, value};
-use crate::python::{named_with_errors, parse, syntax_warnings};
+use crate::python::{parse, python2};
+use crate::syntax::{named_with_errors, syntax_warnings};
 use crate::{Extractor, Span, Symbol, SymbolTable};
 
 const MODULE: &str = "module";
@@ -20,8 +21,8 @@ impl Extractor for Manifest {
         "manifest"
     }
 
-    /// Bump with any change to the output, including changes to `python::value` or the shared
-    /// syntax warnings, and a tree-sitter or tree-sitter-python upgrade.
+    /// Bump with any change to the output, including changes to `python::value` or `syntax`, and a
+    /// tree-sitter or tree-sitter-python upgrade.
     fn version(&self) -> u32 {
         1
     }
@@ -41,7 +42,7 @@ impl Extractor for Manifest {
     fn extract(&self, blob: &[u8]) -> Result<SymbolTable> {
         let tree = parse(blob)?;
         let root = tree.root_node();
-        let mut warnings = syntax_warnings(root, blob);
+        let mut warnings = syntax_warnings(root, |n| python2(n, blob));
         let (dict, ignored) = top_level(root);
         let mut table = SymbolTable::default();
         match dict {

@@ -9,6 +9,7 @@ mod manifest;
 mod path;
 mod python;
 mod symbol;
+mod syntax;
 mod xml;
 
 use std::borrow::Cow;

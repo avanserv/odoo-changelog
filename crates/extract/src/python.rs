@@ -8,11 +8,12 @@ pub(crate) mod value;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use serde_json::{Map, Value};
-use tree_sitter::{Node, Parser, Tree};
+use tree_sitter::{Node, Tree};
 
 use crate::path::module_of;
+use crate::syntax::{self, Visit, named, named_with_errors, statements, text};
 use crate::{Extractor, Span, Symbol, SymbolTable};
 use body::body_hash;
 use value::{canonical, expr, plain_string, value};
@@ -26,9 +27,6 @@ const CLASS: &str = "class";
 const FUNCTION: &str = "function";
 const ROUTE: &str = "route";
 
-/// Syntax and Python 2 warnings past this many are summed up in one.
-const MAX_SYNTAX_WARNINGS: usize = 10;
-
 const ROUTE_DECORATORS: [&str; 3] = ["http.route", "route", "odoo.http.route"];
 
 pub struct Python;
@@ -38,7 +36,8 @@ impl Extractor for Python {
         "python"
     }
 
-    /// Bump with any change to the output, including a tree-sitter or tree-sitter-python upgrade.
+    /// Bump with any change to the output, including a tree-sitter or tree-sitter-python upgrade
+    /// and changes to `syntax`.
     fn version(&self) -> u32 {
         1
     }
@@ -61,7 +60,7 @@ impl Extractor for Python {
             constants: BTreeMap::new(),
             models: Vec::new(),
             bindings: BTreeMap::new(),
-            warnings: syntax_warnings(root, blob),
+            warnings: syntax::syntax_warnings(root, |n| python2(n, blob)),
         };
         reader.module(root);
         Ok(reader.finish())
@@ -76,13 +75,28 @@ impl Extractor for Python {
     }
 }
 
-/// A tree whenever tree-sitter gives one, with ERROR and MISSING nodes where the source is broken.
 pub(crate) fn parse(blob: &[u8]) -> Result<Tree> {
-    let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
-    parser
-        .parse(blob, None)
-        .ok_or_else(|| anyhow!("tree-sitter returned no tree"))
+    syntax::parse(blob, &tree_sitter_python::LANGUAGE.into())
+}
+
+/// Python 2 syntax tree-sitter accepts: `print x`, `exec x`, `except E, e`, backticks and `<>`.
+/// Each is an import error under Python 3, which loses the whole file.
+pub(crate) fn python2(n: Node, src: &[u8]) -> Option<String> {
+    let python2 = match n.kind() {
+        "print_statement" | "exec_statement" | "<>" => true,
+        "except_clause" => {
+            n.child_by_field_name("alias").is_none() && n.children_by_field_name("value", &mut n.walk()).count() == 2
+        }
+        "string_start" => src.get(n.start_byte()) == Some(&b'`'),
+        _ => false,
+    };
+    python2.then(|| "Python 2 syntax".to_string())
+}
+
+/// Whether `v` is the comma of `(a,)`, which makes the tuple, unlike a trailing one.
+fn closes_single_tuple(v: &Visit) -> bool {
+    v.parent
+        .is_some_and(|p| matches!(p.kind(), "tuple" | "tuple_pattern") && named(p).len() == 1)
 }
 
 fn is_identifier(s: &str) -> bool {
@@ -103,129 +117,6 @@ fn import_path(path: &str) -> String {
     } else {
         format!("odoo.addons.{dotted}")
     }
-}
-
-/// One step of `visit`: the node, its parent and the field it fills there.
-struct Visit<'t> {
-    node: Node<'t>,
-    parent: Option<Node<'t>>,
-    field: Option<&'t str>,
-}
-
-impl Visit<'_> {
-    /// Whether this is the comma of `(a,)`, which makes the tuple, unlike a trailing one.
-    fn closes_single_tuple(&self) -> bool {
-        self.parent
-            .is_some_and(|p| matches!(p.kind(), "tuple" | "tuple_pattern") && named(p).len() == 1)
-    }
-}
-
-trait Visitor<'t> {
-    /// Returns whether to walk the node's children.
-    fn enter(&mut self, v: &Visit<'t>) -> bool;
-    fn leave(&mut self, _: &Visit<'t>) {}
-}
-
-impl<'t, F: FnMut(&Visit<'t>) -> bool> Visitor<'t> for F {
-    fn enter(&mut self, v: &Visit<'t>) -> bool {
-        self(v)
-    }
-}
-
-/// Walks `root`'s subtree in source order without recursion, which long operator chains would
-/// overflow.
-fn visit<'t>(root: Node<'t>, visitor: &mut impl Visitor<'t>) {
-    let mut cursor = root.walk();
-    let mut ancestors: Vec<Visit<'t>> = Vec::new();
-    loop {
-        let here = Visit {
-            node: cursor.node(),
-            parent: ancestors.last().map(|a| a.node),
-            field: cursor.field_name(),
-        };
-        if visitor.enter(&here) && cursor.goto_first_child() {
-            ancestors.push(here);
-            continue;
-        }
-        visitor.leave(&here);
-        while !cursor.goto_next_sibling() {
-            if !cursor.goto_parent() {
-                return;
-            }
-            visitor.leave(&ancestors.pop().expect("the cursor's parent was entered"));
-        }
-    }
-}
-
-/// Feeds tokens on, holding each comma back until the next token shows whether it is a trailing
-/// one, which is dropped. Comments never reach it, so a comma before one is still trailing.
-struct Tokens<F: FnMut(&str)> {
-    emit: F,
-    comma: bool,
-}
-
-impl<F: FnMut(&str)> Tokens<F> {
-    fn new(emit: F) -> Self {
-        Tokens { emit, comma: false }
-    }
-
-    fn push(&mut self, token: &str) {
-        if std::mem::take(&mut self.comma) && !matches!(token, ")" | "]" | "}") {
-            (self.emit)(",");
-        }
-        if token == "," {
-            self.comma = true;
-        } else {
-            (self.emit)(token);
-        }
-    }
-
-    /// A token that no comma before it can be trailing for.
-    fn mark(&mut self, token: &str) {
-        self.finish();
-        (self.emit)(token);
-    }
-
-    fn finish(&mut self) {
-        if std::mem::take(&mut self.comma) {
-            (self.emit)(",");
-        }
-    }
-}
-
-fn text<'s>(node: Node, src: &'s [u8]) -> Cow<'s, str> {
-    String::from_utf8_lossy(&src[node.byte_range()])
-}
-
-/// Named children without comments.
-fn named(node: Node) -> Vec<Node> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).filter(|n| !n.is_extra()).collect()
-}
-
-/// Named children without comments, keeping the ERROR nodes tree-sitter marks extra, as it does
-/// most ERROR nodes at module and class level.
-pub(crate) fn named_with_errors(node: Node) -> Vec<Node> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .filter(|n| !n.is_extra() || n.is_error())
-        .collect()
-}
-
-/// The statements of a module or block in order, those inside ERROR nodes included, so that the
-/// definitions around a syntax error survive it.
-fn statements(block: Node) -> Vec<Node> {
-    let mut out = Vec::new();
-    let mut todo = named_with_errors(block);
-    todo.reverse();
-    while let Some(n) = todo.pop() {
-        if n.is_error() {
-            todo.extend(named_with_errors(n).into_iter().rev());
-        } else {
-            out.push(n);
-        }
-    }
-    out
 }
 
 /// `(name, value)` per name a statement assigns, in order: `a = b = v` assigns `v` to both.
@@ -354,46 +245,6 @@ fn symbol(kind: &str, name: String, at: Node, attrs: BTreeMap<String, Value>) ->
         span,
         attrs,
     }
-}
-
-/// `line N: ...` for ERROR and MISSING nodes and Python 2 syntax, the outermost ERROR only,
-/// keyed by byte offset. tree-sitter accepts `print x`, `exec x`, `except E, e`, backticks and
-/// `<>`, but each is an import error under Python 3, which loses the whole file.
-/// The manifest extractor shares it: a change to its output bumps both extractors' `version()`.
-pub(crate) fn syntax_warnings(root: Node, src: &[u8]) -> Vec<(usize, String)> {
-    let mut found = Vec::new();
-    visit(root, &mut |v: &Visit| {
-        let n = v.node;
-        let line = n.start_position().row + 1;
-        let (warning, descend) = if n.is_error() {
-            (Some(format!("line {line}: syntax error")), false)
-        } else if n.is_missing() {
-            (Some(format!("line {line}: missing {}", n.kind())), false)
-        } else {
-            let python2 = match n.kind() {
-                "print_statement" | "exec_statement" | "<>" => true,
-                "except_clause" => {
-                    n.child_by_field_name("alias").is_none()
-                        && n.children_by_field_name("value", &mut n.walk()).count() == 2
-                }
-                "string_start" => src.get(n.start_byte()) == Some(&b'`'),
-                _ => false,
-            };
-            (python2.then(|| format!("line {line}: Python 2 syntax")), true)
-        };
-        // A line holding several Python 2 forms warns once.
-        if let Some(w) = warning.filter(|w| found.last().is_none_or(|(_, last)| last != w)) {
-            found.push((n.start_byte(), w));
-        }
-        descend
-    });
-    if found.len() > MAX_SYNTAX_WARNINGS {
-        let more = found.len() - MAX_SYNTAX_WARNINGS;
-        let at = found[MAX_SYNTAX_WARNINGS].0;
-        found.truncate(MAX_SYNTAX_WARNINGS);
-        found.push((at, format!("{more} more syntax warnings")));
-    }
-    found
 }
 
 struct Reader<'t> {
