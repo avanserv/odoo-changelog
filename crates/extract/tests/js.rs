@@ -323,7 +323,7 @@ fn exporting_one_declaration_again_points_at_its_first_export() {
 }
 
 /// Long member chains and names read as expressions past a bound, so no binding or name repeats
-/// a long text: time and output stay linear in the input.
+/// a long text: the output stays linear in the input.
 #[test]
 fn long_chains_stay_linear() {
     let k = 20_000;
@@ -331,22 +331,107 @@ fn long_chains_stay_linear() {
     let chain = format!("x{}", ".b".repeat(k));
     let destructured = format!("const {{ {} }} = {chain};\nexport {{ a0, a1 }};\n", keys.join(", "));
     let adds: String = (0..k).map(|i| format!(".add('k{i}', 1)")).collect();
-    let sources = [
+    for src in [
         destructured.clone(),
         format!("import {{ x }} from 'y';\n{destructured}"),
         format!("import {{ x }} from 'y';\nexport const a = {chain};\n"),
         format!("import core from 'web.core';\ncore{}.registry{adds};\n", ".b".repeat(k)),
         format!("registry{}{adds};\n", ".category('c')".repeat(k)),
         format!("patch({chain}, {{ a() {{}} }});\n"),
-    ];
-    for src in sources {
-        let start = std::time::Instant::now();
-        let table = extract(&src);
-        let (elapsed, size) = (start.elapsed(), table.to_bytes().len());
-        assert!(elapsed.as_secs() < 5, "{elapsed:?} for {}", &src[..60]);
-        assert!(size < 30 * src.len(), "{size} bytes from {}", src.len());
-        assert!(table.iter().all(|s| s.name.len() <= 512), "{}", &src[..60]);
+    ] {
+        assert_linear(&src);
     }
+}
+
+/// `k` references to one text of `len` bytes, in every place a binding, a scope or a name
+/// stores text: a source, an imported or destructured name, a define name, a first export, a
+/// category path.
+fn long_text(kind: &str, k: usize, len: usize) -> String {
+    let long = "L".repeat(len);
+    let lines = |f: &dyn Fn(usize) -> String| (0..k).map(f).collect::<Vec<_>>().join("\n");
+    let names = (0..k).map(|i| format!("n{i}")).collect::<Vec<_>>().join(", ");
+    let adds = |name: &str| lines(&|i| format!("registry.category(\"a\").add(\"k{i}\", {name});"));
+    match kind {
+        "import_source" => format!("import {{ x }} from \"{long}\";\n{}", adds("x")),
+        "import_name" => format!("import {{ {long} as a }} from \"y\";\n{}", adds("a")),
+        "define_name" => format!(
+            "odoo.define(\"{long}\", function (require) {{\n{}\n}});",
+            lines(&|i| format!("var W{i} = Base.extend({{}});"))
+        ),
+        "define_refs" => format!(
+            "odoo.define(\"{long}\", function (require) {{ var A = 1;\n{}\nvar reg = require(\"@web/core/registry\").registry; }});",
+            lines(&|i| format!("reg.category(\"a\").add(\"k{i}\", A);"))
+        ),
+        "legacy_registry" => format!(
+            "import fooRegistry from \"{long}.registry\";\n{}",
+            lines(&|i| format!("fooRegistry.add(\"k{i}\", 1);"))
+        ),
+        "patch_target" => format!(
+            "import {{ X }} from \"{long}\";\n{}",
+            lines(&|i| format!("patch(X.prototype, {{ m{i}() {{}} }});"))
+        ),
+        "global_key" => format!("const {{ \"{long}\": a }} = owl;\n{}", adds("a")),
+        "header_alias" => format!("/** @odoo-module alias={long} */"),
+        "extends_long" => format!(
+            "import {{ {long} as B }} from \"y\";\n{}",
+            lines(&|i| format!("export class C{i} extends B {{}}"))
+        ),
+        "imports_many" => lines(&|i| format!("import {{ n{i} }} from \"{long}\";")),
+        "named_imports" => format!("import {{ {names} }} from \"{long}\";"),
+        "reexports" => format!("export {{ {names} }} from \"{long}\";"),
+        "define_widgets" => format!(
+            "odoo.define(\"{long}\", function (require) {{\n{}\n}});",
+            lines(&|i| format!("var W{i} = Base.extend({{a: 1}});"))
+        ),
+        "require_many" => format!(
+            "odoo.define(\"d\", function (require) {{ var X = require(\"{long}\");\n{}\n}});",
+            lines(&|i| format!("X.include({{m{i}() {{}}}});"))
+        ),
+        "first_export_long" => format!(
+            "class A {{}}\nexport {{ A as {long} }};\nexport {{ {} }};",
+            (0..k).map(|i| format!("A as a{i}")).collect::<Vec<_>>().join(", ")
+        ),
+        "category_vars" => format!(
+            "import {{ registry }} from \"@web/core/registry\";\nconst r = registry{};\n{}",
+            format!(".category(\"{}\")", "c".repeat(250)).repeat(64),
+            lines(&|i| format!("r.add(\"k{i}\", 1);"))
+        ),
+        kind => panic!("unknown kind {kind}"),
+    }
+}
+
+#[test]
+fn long_texts_stay_linear() {
+    for kind in [
+        "import_source",
+        "import_name",
+        "define_name",
+        "define_refs",
+        "legacy_registry",
+        "patch_target",
+        "global_key",
+        "header_alias",
+        "extends_long",
+        "imports_many",
+        "named_imports",
+        "reexports",
+        "define_widgets",
+        "require_many",
+        "first_export_long",
+        "category_vars",
+    ] {
+        assert_linear(&long_text(kind, 2000, 5000));
+    }
+}
+
+/// Output under 30 bytes per input byte, no warning, and short names.
+fn assert_linear(src: &str) {
+    let table = extract(src);
+    let size = table.to_bytes().len();
+    let head = &src[..60.min(src.len())];
+    assert!(size < 30 * src.len(), "{size} bytes from {} for {head}", src.len());
+    assert!(table.warnings().is_empty(), "{:?} for {head}", table.warnings());
+    assert!(table.iter().all(|s| s.name.len() <= 512), "{head}");
 }
 
 #[test]

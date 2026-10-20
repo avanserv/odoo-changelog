@@ -9,9 +9,10 @@ use super::value::string_value;
 use crate::hash::digest;
 use crate::syntax::{named, text};
 
-/// The most `.member` segments, and bytes of text, a reference or a category path is read
-/// through. Names hold such text once per symbol and bindings once per name, so a longer one
-/// reads as an expression instead: one file can never make the output grow faster than itself.
+/// The most `.member` segments a reference or a category path is read through, and the most
+/// bytes of text a binding, a scope or a reference holds: a reference is read through a longer
+/// chain as an expression, and a longer text is stored as `bounded` makes it. A symbol repeats
+/// such text, so the bound keeps one file's output linear in its size.
 pub(super) const MAX_SEGMENTS: usize = 64;
 pub(super) const MAX_TEXT: usize = 256;
 
@@ -59,6 +60,7 @@ pub(super) struct Scope {
 }
 
 impl Scope {
+    /// `prefix` is at most `MAX_TEXT` bytes, as every text the scope stores.
     pub fn new(prefix: String) -> Self {
         Scope {
             prefix,
@@ -82,6 +84,13 @@ impl Scope {
     /// The target of an identifier, a `require("m")` call or a chain of `.member` accesses on
     /// one, or `None` when its root is unbound or the chain holds anything else.
     pub fn resolve(&self, node: Node, src: &[u8]) -> Option<Resolved> {
+        self.resolve_unbounded(node, src).map(|r| match r {
+            Resolved::Ref(r) => Resolved::Ref(bounded(r)),
+            Resolved::Expr(e) => Resolved::Expr(bounded(e)),
+        })
+    }
+
+    fn resolve_unbounded(&self, node: Node, src: &[u8]) -> Option<Resolved> {
         let (root, path) = chain(node, src)?;
         let joined = |base: &str| {
             let rest = path.join(".");
@@ -191,13 +200,13 @@ pub(super) fn member_of(base: &Binding, key: &str) -> Option<Binding> {
     Some(match base {
         Binding::Module { module, .. } => Binding::Member {
             module: module.clone(),
-            path: key.into(),
+            path: bounded(key.into()),
         },
         Binding::Member { module, path } => Binding::Member {
             module: module.clone(),
-            path: format!("{path}.{key}"),
+            path: bounded(format!("{path}.{key}")),
         },
-        Binding::Global(expr) => Binding::Global(format!("{expr}.{key}")),
+        Binding::Global(expr) => Binding::Global(bounded(format!("{expr}.{key}"))),
         Binding::Local | Binding::Category(_) | Binding::Block => return None,
     })
 }

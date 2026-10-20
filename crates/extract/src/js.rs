@@ -30,6 +30,12 @@ const WIDGET: &str = "js_widget";
 const REGISTRY: &str = "js_registry";
 const PATCH: &str = "js_patch";
 
+/// The serialized symbols one file may give, per byte of it plus a constant: a backstop for
+/// any path that would make the output grow faster than the input, past which the reader drops
+/// the symbols it has yet to give and warns once.
+const OUTPUT_PER_BYTE: usize = 32;
+const OUTPUT_SLACK: usize = 1 << 20;
+
 /// Roots whose `extend` or `include` merges plain objects, never a widget class.
 const NOT_CLASSES: [&str; 5] = ["$", "_", "jQuery", "Object", "window"];
 
@@ -56,15 +62,8 @@ impl Extractor for Js {
     fn extract(&self, blob: &[u8]) -> Result<SymbolTable> {
         let tree = syntax::parse(blob, &tree_sitter_javascript::LANGUAGE.into())?;
         let root = tree.root_node();
-        let mut reader = Reader {
-            src: blob,
-            table: SymbolTable::default(),
-            registry: BTreeMap::new(),
-            patches: BTreeMap::new(),
-            exports: BTreeMap::new(),
-            services: BTreeSet::new(),
-            warnings: syntax::syntax_warnings(root, |_| None),
-        };
+        let budget = OUTPUT_PER_BYTE * blob.len() + OUTPUT_SLACK;
+        let mut reader = Reader::new(blob, budget, syntax::syntax_warnings(root, |_| None));
         reader.program(root);
         Ok(reader.finish())
     }
@@ -231,6 +230,10 @@ struct Reader<'t> {
     exports: BTreeMap<String, String>,
     /// The scope declarations already read as a service, by reference, for the same reason.
     services: BTreeSet<String>,
+    /// Bytes of serialized symbols the file may still give, and once they run out, how many
+    /// symbols were dropped and the offset of the first, in the order the reader gives them.
+    budget: usize,
+    dropped: Option<(usize, usize)>,
     /// How often each target was patched so far.
     patches: BTreeMap<String, usize>,
     /// By byte offset, so that they end up in document order.
@@ -238,6 +241,40 @@ struct Reader<'t> {
 }
 
 impl<'t> Reader<'t> {
+    fn new(src: &'t [u8], budget: usize, warnings: Vec<(usize, String)>) -> Self {
+        Reader {
+            src,
+            table: SymbolTable::default(),
+            registry: BTreeMap::new(),
+            patches: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            services: BTreeSet::new(),
+            budget,
+            dropped: None,
+            warnings,
+        }
+    }
+
+    /// Spends `symbol`'s serialized size from the budget, or counts it dropped once the budget
+    /// ran out, after which every later symbol is dropped too.
+    fn afford(&mut self, symbol: &Symbol) -> bool {
+        if let Some((count, _)) = &mut self.dropped {
+            *count += 1;
+            return false;
+        }
+        let size = serde_json::to_vec(symbol).map_or(usize::MAX, |b| b.len());
+        match self.budget.checked_sub(size) {
+            Some(left) => {
+                self.budget = left;
+                true
+            }
+            None => {
+                self.dropped = Some((1, symbol.span.start as usize));
+                false
+            }
+        }
+    }
+
     fn text(&self, node: Node) -> Cow<'t, str> {
         text(node, self.src)
     }
@@ -271,7 +308,7 @@ impl<'t> Reader<'t> {
                 symbol.line, symbol.kind, symbol.name
             );
             self.warnings.push((symbol.span.start as usize, warning));
-        } else {
+        } else if self.afford(&symbol) {
             self.table.insert(symbol);
         }
     }
@@ -338,7 +375,7 @@ impl<'t> Reader<'t> {
                             continue;
                         };
                         let local = specifier.child_by_field_name("alias").unwrap_or(name);
-                        scope.bind(self.text(local), member(&key_text(name, self.src)));
+                        scope.bind(self.text(local), member(&bounded(key_text(name, self.src))));
                     }
                 }
                 _ => {}
@@ -349,7 +386,7 @@ impl<'t> Reader<'t> {
     /// The module an import or export reads from, `/index` dropped as Odoo does.
     fn source(&self, statement: Node) -> Option<String> {
         let source = string_value(statement.child_by_field_name("source")?, self.src)?;
-        Some(path::remove_index(&source).to_string())
+        Some(bounded(path::remove_index(&source).to_string()))
     }
 
     fn declare(&self, scope: &mut Scope, decls: &mut Decls<'t>, node: Node<'t>) {
@@ -419,7 +456,7 @@ impl<'t> Reader<'t> {
                 for (key, local) in self.destructured(target) {
                     let binding = match (&alias, &global) {
                         (Some(base), _) => scope::member_of(base, &key),
-                        (None, Some(global)) => Some(Binding::Global(format!("{global}.{key}"))),
+                        (None, Some(global)) => Some(Binding::Global(bounded(format!("{global}.{key}")))),
                         (None, None) => None,
                     };
                     scope.bind(local, binding.unwrap_or(Binding::Local));
@@ -436,12 +473,12 @@ impl<'t> Reader<'t> {
             match entry.kind() {
                 "shorthand_property_identifier_pattern" => {
                     let name = self.text(entry).into_owned();
-                    out.push((name.clone(), name));
+                    out.push((bounded(name.clone()), name));
                 }
                 "object_assignment_pattern" => {
                     if let Some(left) = entry.child_by_field_name("left") {
                         let name = self.text(left).into_owned();
-                        out.push((name.clone(), name));
+                        out.push((bounded(name.clone()), name));
                     }
                 }
                 "pair_pattern" => {
@@ -454,7 +491,7 @@ impl<'t> Reader<'t> {
                         local = local.child_by_field_name("left").unwrap_or(local);
                     }
                     if local.kind() == "identifier" {
-                        out.push((key_text(key, self.src), self.text(local).into_owned()));
+                        out.push((bounded(key_text(key, self.src)), self.text(local).into_owned()));
                     }
                 }
                 _ => {}
@@ -513,6 +550,8 @@ impl<'t> Reader<'t> {
         });
         let mut attrs = BTreeMap::from([("declared".to_string(), Value::from("define"))]);
         attrs.insert("requires".into(), Value::from_iter(requires));
+        // Every local of the define repeats its name.
+        let name = bounded(name);
         self.insert(symbol(MODULE, name.clone(), args[0], attrs));
 
         let statements = statements(body);
@@ -559,7 +598,7 @@ impl<'t> Reader<'t> {
     fn category(&self, receiver: Node, scope: &Scope) -> Option<(String, bool)> {
         if let Some(path) = scope.category(receiver, self.src, |arg| self.label(arg)) {
             let services = path == ["services"];
-            return Some((path.join(">"), services));
+            return Some((bounded(path.join(">")), services));
         }
         let Some(Resolved::Ref(legacy)) = scope.resolve(receiver, self.src) else {
             return None;
@@ -568,7 +607,7 @@ impl<'t> Reader<'t> {
         // The root ES registry takes entries through its categories only.
         let root = receiver.kind() == "identifier" && legacy.ends_with("#registry");
         let named = last.to_ascii_lowercase().contains("registry") && !root;
-        named.then(|| (legacy.clone(), last == "serviceRegistry"))
+        named.then(|| (bounded(legacy.clone()), last == "serviceRegistry"))
     }
 
     fn registry_entry(&mut self, category: &str, services: bool, args: &[Node<'t>], scope: &Scope, decls: &Decls<'t>) {
@@ -606,7 +645,10 @@ impl<'t> Reader<'t> {
             None => {}
         }
         let name = format!("{category}:{}", self.label(key));
-        self.registry.insert(name.clone(), symbol(REGISTRY, name, key, attrs));
+        let entry = symbol(REGISTRY, name.clone(), key, attrs);
+        if self.afford(&entry) {
+            self.registry.insert(name, entry);
+        }
     }
 
     /// The `dependencies` and `async` of a service: an inline object, a scope `const` object or
@@ -981,7 +1023,7 @@ impl<'t> Reader<'t> {
                 ("of".to_string(), single("ref", scope.local(first))),
             ]),
             None => {
-                self.exports.insert(declaration, exported.to_string());
+                self.exports.insert(declaration, bounded(exported.to_string()));
                 self.exported(&name, local, scope, decls, components)
             }
         };
@@ -1034,14 +1076,14 @@ impl<'t> Reader<'t> {
                                     continue;
                                 };
                                 let at = specifier.child_by_field_name("alias").unwrap_or(name);
-                                let of = format!("{source}#{}", key_text(name, self.src));
-                                self.reexport(&key_text(at, self.src), at, single("ref", of), scope);
+                                let of = format!("{source}#{}", bounded(key_text(name, self.src)));
+                                self.reexport(&bounded(key_text(at, self.src)), at, single("ref", of), scope);
                             }
                         }
                         "namespace_export" => {
                             if let Some(&at) = named(part).first() {
                                 let of = single("ref", format!("{source}#*"));
-                                self.reexport(&key_text(at, self.src), at, of, scope);
+                                self.reexport(&bounded(key_text(at, self.src)), at, of, scope);
                             }
                         }
                         _ => {}
@@ -1060,7 +1102,7 @@ impl<'t> Reader<'t> {
                             continue;
                         };
                         let at = specifier.child_by_field_name("alias").unwrap_or(name);
-                        self.export(&key_text(at, self.src), name, at, scope, decls, components);
+                        self.export(&bounded(key_text(at, self.src)), name, at, scope, decls, components);
                     }
                 }
             }
@@ -1145,7 +1187,7 @@ impl<'t> Reader<'t> {
                             }
                             "named_imports" => {
                                 for name in named(part).into_iter().filter_map(|s| s.child_by_field_name("name")) {
-                                    imports.insert(format!("{source}#{}", key_text(name, self.src)));
+                                    imports.insert(format!("{source}#{}", bounded(key_text(name, self.src))));
                                 }
                             }
                             _ => {}
@@ -1194,7 +1236,7 @@ impl<'t> Reader<'t> {
         ]);
         self.insert(Symbol {
             kind: MODULE.into(),
-            name: String::from_utf8_lossy(&self.src[at.clone()]).into_owned(),
+            name: bounded(String::from_utf8_lossy(&self.src[at.clone()]).into_owned()),
             line: line_at(self.src, at.start),
             span: Span {
                 start: at.start as u32,
@@ -1206,7 +1248,11 @@ impl<'t> Reader<'t> {
 
     fn finish(mut self) -> SymbolTable {
         for symbol in std::mem::take(&mut self.registry).into_values() {
-            self.insert(symbol);
+            self.table.insert(symbol);
+        }
+        if let Some((count, at)) = self.dropped {
+            let warning = format!("output budget exceeded; {count} symbols dropped");
+            self.warnings.push((at, warning));
         }
         self.warnings.sort_by_key(|(at, _)| *at);
         for (_, warning) in self.warnings {
@@ -1309,4 +1355,25 @@ fn block_names(node: Node, src: &[u8]) -> Vec<String> {
         }
     }
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn past_the_budget_symbols_are_dropped_with_one_warning() {
+        let src =
+            b"registry.category('a').add('one', 1);\nregistry.category('a').add('two', 2);\nexport const three = 3;\n";
+        let full = Js.extract(src).unwrap();
+        let one = full.iter().find(|s| s.name == "a:one").unwrap();
+        let tree = syntax::parse(src, &tree_sitter_javascript::LANGUAGE.into()).unwrap();
+        let mut reader = Reader::new(src, serde_json::to_vec(one).unwrap().len(), Vec::new());
+        reader.program(tree.root_node());
+        let table = reader.finish();
+        let names: Vec<&str> = table.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["a:one"]);
+        // `a:two`, the export `#three` and the module, in the order the reader gives them.
+        assert_eq!(table.warnings(), ["output budget exceeded; 3 symbols dropped"]);
+    }
 }
