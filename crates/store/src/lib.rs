@@ -1,5 +1,7 @@
 //! SQLite persistence. Writers take plain data so the store does not depend on git types.
 
+mod extract;
+
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -7,10 +9,13 @@ use anyhow::{Context, Result};
 use odoo_changelog_core::CommitMeta;
 use rusqlite::{Connection, OptionalExtension, params};
 
+pub use extract::{CachedBlob, EventRow, PendingCommit};
+
 const MIGRATIONS: &[&str] = &[
     include_str!("schema.sql"),
     // The clone path depends on the machine and on how the config path was spelled.
     "ALTER TABLE repos DROP COLUMN path;",
+    include_str!("extract.sql"),
 ];
 
 pub struct Store {
@@ -269,5 +274,105 @@ mod tests {
             .unwrap();
         assert!(!has_path);
         assert_eq!(store.upsert_repo("odoo", false).unwrap(), 7);
+    }
+
+    #[test]
+    fn migrates_v2_adds_extract_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.execute_batch(MIGRATIONS[1]).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "INSERT INTO repos (id, name, shallow) VALUES (7, 'odoo', 0);
+             INSERT INTO commits (repo_id, sha, branch, fp_idx, sub_idx, parents, is_merge,
+                author_name, author_email, authored_at, committed_at, subject, body, modules,
+                related_prs)
+             VALUES (7, 'abc', 'master', 0, 0, '[]', 0, 'a', 'a@x', 0, 0, 's', '', '[]', '[]');",
+        )
+        .unwrap();
+
+        let store = Store { conn };
+        store.migrate().unwrap();
+
+        let commits: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM commits WHERE repo_id = 7", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(commits, 1);
+        for table in ["extractors", "symbols", "events", "extracted", "blob_cache"] {
+            let n: i64 = store
+                .conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table}");
+        }
+        let candidates = store.extract_candidates(7).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].done.is_empty());
+    }
+
+    fn count(store: &Store, sql: &str) -> i64 {
+        store.conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn sync_extractors_purges_only_stale() {
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        let repo_id = store.upsert_repo("odoo", false).unwrap();
+        store
+            .insert_commit(
+                repo_id,
+                &CommitRow {
+                    sha: "abc",
+                    branch: "master",
+                    fp_idx: 0,
+                    sub_idx: 0,
+                    parents: &[],
+                    author_name: "a",
+                    author_email: "a@x",
+                    authored_at: 0,
+                    committed_at: 0,
+                    message: "s",
+                },
+            )
+            .unwrap();
+        assert!(store.sync_extractors(&[("py", 1), ("xml", 1)]).unwrap().is_empty());
+        for (extractor, id) in [("py", [1u8; 32]), ("xml", [2u8; 32])] {
+            store.insert_cached_blob("b1", extractor, 1, Some(b"[]"), None).unwrap();
+            store
+                .insert_events(
+                    repo_id,
+                    &[EventRow {
+                        sha: "abc",
+                        path: "f",
+                        extractor,
+                        symbol_id: &id,
+                        kind: "def",
+                        qualname: extractor,
+                        op: "added",
+                        old_path: None,
+                        line: 1,
+                        attrs_before: None,
+                        attrs_after: Some("{}"),
+                    }],
+                )
+                .unwrap();
+            store.mark_extracted(repo_id, "abc", &[extractor]).unwrap();
+        }
+
+        assert_eq!(store.sync_extractors(&[("py", 2), ("xml", 1)]).unwrap(), ["py"]);
+        for table in ["events", "extracted", "blob_cache"] {
+            let sql = format!("SELECT COUNT(*) FROM {table} WHERE extractor = 'xml'");
+            assert_eq!(count(&store, &sql), 1, "{table}");
+            let sql = format!("SELECT COUNT(*) FROM {table} WHERE extractor = 'py'");
+            assert_eq!(count(&store, &sql), 0, "{table}");
+        }
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM symbols"), 1);
+        assert_eq!(count(&store, "SELECT version FROM extractors WHERE name = 'py'"), 2);
+        assert_eq!(store.extract_candidates(repo_id).unwrap()[0].done, ["xml"]);
+
+        assert_eq!(store.sync_extractors(&[("py", 2)]).unwrap(), ["xml"]);
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM blob_cache"), 0);
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM symbols"), 0);
     }
 }

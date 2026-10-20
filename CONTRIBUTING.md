@@ -28,6 +28,8 @@ The git hooks add what only makes sense there: secrets (gitleaks), spelling (typ
 - `core` holds the types and rules every other crate shares, and depends on no other crate here.
 - `git` reads the Odoo clones and never touches SQLite; `store` writes SQLite from plain data and
   never sees a git type.
+- `extract` turns one blob into symbols and never sees git or SQLite; an extractor's output
+  depends on the blob's bytes alone, and changing it bumps `version()`.
 - `cli` orchestrates and holds no logic another command would need.
 
 A dependency is declared in the same change as the code that uses it, never ahead of it:

@@ -16,6 +16,7 @@ cp config/odoo-changelog.example.toml config/odoo-changelog.toml   # then edit t
 ./target/release/odoo-changelog walk            # all repos in config/odoo-changelog.toml
 ./target/release/odoo-changelog walk --repo odoo
 ./target/release/odoo-changelog stats
+./target/release/odoo-changelog extract --repo odoo --from 17.0 --to 18.0 --timings
 ```
 
 `walk` is incremental: it resumes each branch from the last recorded head and fails if a
@@ -38,6 +39,19 @@ A commit on a version branch belongs to that version. A master commit belongs to
 version forked after it (`version`) and to the X.0 release that includes it (`major`,
 saas-17.2 → 18.0). Commits a merge brought in are recorded with the merge's `fp_idx` and a
 `sub_idx` from 1, oldest first.
+
+## How symbols are recorded
+
+`extract` diffs each walked commit against its parent and turns every changed file into
+symbol events: added, removed, changed (its attributes differ) or moved (a renamed file, same
+attributes). Merge commits are skipped, so each event belongs to the commit that made the
+change. Renames are paired as git pairs them by default (50% similarity), whatever the clone's
+config says. A symbol's id is `blake3(kind, 0x00, qualname)`. Each blob is parsed once per
+extractor version: the result is cached under the blob id, the extractor's name and its
+version, and bumping the version re-extracts that extractor's commits only. `--from` and `--to`
+bound the `version` of the commits extracted, and a later run picks up the rest.
+
+`extract` records nothing until an extractor is registered in `Registry::builtin()`.
 
 ## Contributing
 
