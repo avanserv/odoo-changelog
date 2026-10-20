@@ -84,8 +84,8 @@ the error. Such a file, Python 2 syntax, a class whose model name cannot be read
 duplicate each leave a warning on the file's table, and `extract` reports how many file sides
 (the old or new version of a changed file) carry one.
 
-On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) takes 282 s with an
-empty cache and 76 s with a warm one (2026-10-20).
+On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) takes 109 s with an
+empty cache and 28 s with a warm one (2026-10-20).
 
 ## Contributing
 
