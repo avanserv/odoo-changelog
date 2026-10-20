@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use super::dom::{Element, Node, elements};
 use crate::Span;
+use crate::bound::bounded;
 use crate::hash::digest;
 
 /// The attributes that name an element of a data view's arch, in key order.
@@ -15,7 +16,8 @@ pub(crate) const VIEW_KEYS: &[&str] = &["name", "id", "t-name"];
 /// One distinct `tag[@attr='value']` of an arch.
 pub(crate) struct NamedNode {
     pub key: String,
-    /// The first key of each named ancestor of the first occurrence, joined with `/`.
+    /// The first key of each named ancestor of the first occurrence, joined with `/`; past
+    /// `MAX_TEXT` bytes, as `bounded` keeps it at each step, since every descendant repeats it.
     pub path: String,
     /// Above 1, Odoo's shorthand and `//tag[@name=...]` match the first.
     pub count: u32,
@@ -143,6 +145,7 @@ impl<'k> Nodes<'k> {
         }
     }
 
+    /// `path` holds the node path of each named ancestor, so a node copies its parent's.
     fn walk(&mut self, element: &Element, path: &mut Vec<String>) {
         let keys: Vec<_> = self
             .keys
@@ -157,7 +160,7 @@ impl<'k> Nodes<'k> {
                     self.index.insert(key.clone(), self.out.len());
                     self.out.push(NamedNode {
                         key: key.clone(),
-                        path: path.join("/"),
+                        path: path.last().cloned().unwrap_or_default(),
                         count: 1,
                         span: attr.span,
                         line: attr.line,
@@ -166,7 +169,11 @@ impl<'k> Nodes<'k> {
             }
         }
         if let Some((first, _)) = keys.first() {
-            path.push(first.clone());
+            let joined = match path.last() {
+                Some(parent) => format!("{parent}/{first}"),
+                None => first.clone(),
+            };
+            path.push(bounded(joined));
         }
         for child in element.elements() {
             self.walk(child, path);
@@ -297,6 +304,26 @@ mod tests {
         let partner = &nodes[4];
         assert_eq!(&src.as_bytes()[partner.span.range()], b"partner_id");
         assert_eq!(partner.line, 4);
+    }
+
+    /// Every descendant repeats a path, so a long one is bounded once, where it is built.
+    #[test]
+    fn long_paths_are_bounded_where_they_are_built() {
+        let long = "a".repeat(300);
+        let leaves: String = (0..1000).map(|i| format!("<f name=\"{i}\"/>")).collect();
+        let src = format!(
+            "<form>{}{leaves}{}</form>",
+            format!("<g name=\"{long}\">").repeat(200),
+            "</g>".repeat(200)
+        );
+        let nodes = named_nodes(&arch(&src), VIEW_KEYS);
+        assert_eq!(nodes.len(), 1001);
+        assert!(nodes.iter().all(|n| n.path.len() <= 256), "{}", nodes[1].path);
+        assert_eq!(nodes[1].path, nodes[1000].path);
+        assert!(nodes[1].path.starts_with('~'), "{}", nodes[1].path);
+
+        let short = arch(r#"<form><g name="a"><g name="b"><f name="c"/></g></g></form>"#);
+        assert_eq!(named_nodes(&short, VIEW_KEYS)[2].path, "g[@name='a']/g[@name='b']");
     }
 
     #[test]
