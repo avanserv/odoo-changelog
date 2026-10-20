@@ -435,6 +435,34 @@ fn assert_linear(src: &str) {
 }
 
 #[test]
+fn duplicate_warnings_are_capped() {
+    let keys = vec!["a: A"; 50].join(", ");
+    let table = extract(&format!(
+        "odoo.define('d', function () {{ var A = 1; return {{ {keys} }}; }});\n"
+    ));
+    let warnings = table.warnings();
+    assert_eq!(warnings.len(), 11, "{warnings:?}");
+    assert_eq!(warnings[0], "line 1: duplicate js_export d#a dropped");
+    assert_eq!(warnings[10], "39 more duplicates");
+}
+
+#[test]
+fn a_long_legacy_source_keeps_its_registry_entries() {
+    let src = format!(
+        "import fooRegistry from \"{}.registry\";\nfooRegistry.add(\"k\", 1);\n",
+        "L".repeat(300)
+    );
+    let table = extract(&src);
+    let entry = table.iter().find(|s| s.kind == "js_registry").unwrap();
+    assert!(
+        entry.name.starts_with('~') && entry.name.ends_with(".registry:k"),
+        "{}",
+        entry.name
+    );
+    assert_eq!(entry.name.len(), "~".len() + 32 + ".registry:k".len());
+}
+
+#[test]
 fn a_block_local_patch_is_not_odoos() {
     let table = extract("if (x) {\n    const patch = make();\n    patch(A, { a() {} });\n}\npatch(B, { b() {} });\n");
     let patches: Vec<&str> = table

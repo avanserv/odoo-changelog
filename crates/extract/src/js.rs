@@ -36,6 +36,9 @@ const PATCH: &str = "js_patch";
 const OUTPUT_PER_BYTE: usize = 32;
 const OUTPUT_SLACK: usize = 1 << 20;
 
+/// Duplicate warnings past this many are summed up in one, like syntax warnings.
+const MAX_DUPLICATE_WARNINGS: usize = 10;
+
 /// Roots whose `extend` or `include` merges plain objects, never a widget class.
 const NOT_CLASSES: [&str; 5] = ["$", "_", "jQuery", "Object", "window"];
 
@@ -223,7 +226,8 @@ struct Reader<'t> {
     src: &'t [u8],
     table: SymbolTable,
     /// The last entry of each registry key: a legacy registry and a forced ES `add` replace an
-    /// earlier one, and an unforced ES `add` of a taken key throws.
+    /// earlier one, and an unforced ES `add` of a taken key throws. Past the output budget, an
+    /// `add` of a key already read keeps the earlier entry.
     registry: BTreeMap<String, Symbol>,
     /// The first export of each declaration, by reference, so that later exports of it point
     /// there instead of repeating it: output stays linear in the input.
@@ -234,6 +238,9 @@ struct Reader<'t> {
     /// symbols were dropped and the offset of the first, in the order the reader gives them.
     budget: usize,
     dropped: Option<(usize, usize)>,
+    /// How many duplicates were dropped, and the offset of the first one past those that warn.
+    duplicates: usize,
+    more_duplicates_at: Option<usize>,
     /// How often each target was patched so far.
     patches: BTreeMap<String, usize>,
     /// By byte offset, so that they end up in document order.
@@ -251,6 +258,8 @@ impl<'t> Reader<'t> {
             services: BTreeSet::new(),
             budget,
             dropped: None,
+            duplicates: 0,
+            more_duplicates_at: None,
             warnings,
         }
     }
@@ -303,11 +312,16 @@ impl<'t> Reader<'t> {
     /// Keeps the first of a `(kind, name)` and warns about a later one.
     fn insert(&mut self, symbol: Symbol) {
         if self.table.contains(&symbol.kind, &symbol.name) {
-            let warning = format!(
-                "line {}: duplicate {} {} dropped",
-                symbol.line, symbol.kind, symbol.name
-            );
-            self.warnings.push((symbol.span.start as usize, warning));
+            self.duplicates += 1;
+            if self.duplicates <= MAX_DUPLICATE_WARNINGS {
+                let warning = format!(
+                    "line {}: duplicate {} {} dropped",
+                    symbol.line, symbol.kind, symbol.name
+                );
+                self.warnings.push((symbol.span.start as usize, warning));
+            } else {
+                self.more_duplicates_at.get_or_insert(symbol.span.start as usize);
+            }
         } else if self.afford(&symbol) {
             self.table.insert(symbol);
         }
@@ -316,11 +330,12 @@ impl<'t> Reader<'t> {
     fn program(&mut self, root: Node<'t>) {
         let statements = statements(root);
         let mut scope = Scope::new(String::new());
+        // First, so that the module symbol is the last one the output budget drops.
+        self.es_module(path::header(self.src), &statements);
         let mut decls = self.bind(&mut scope, &statements);
         self.walk(root, &mut scope, &mut decls, true);
         let components = self.components(&scope, &decls);
         self.es_exports(&scope, &decls, &components, &statements);
-        self.es_module(path::header(self.src), &statements);
     }
 
     /// Binds the imports, requires and declarations of a scope's statements.
@@ -1250,6 +1265,10 @@ impl<'t> Reader<'t> {
         for symbol in std::mem::take(&mut self.registry).into_values() {
             self.table.insert(symbol);
         }
+        if let Some(at) = self.more_duplicates_at {
+            let more = self.duplicates - MAX_DUPLICATE_WARNINGS;
+            self.warnings.push((at, format!("{more} more duplicates")));
+        }
         if let Some((count, at)) = self.dropped {
             let warning = format!("output budget exceeded; {count} symbols dropped");
             self.warnings.push((at, warning));
@@ -1366,14 +1385,18 @@ mod tests {
         let src =
             b"registry.category('a').add('one', 1);\nregistry.category('a').add('two', 2);\nexport const three = 3;\n";
         let full = Js.extract(src).unwrap();
-        let one = full.iter().find(|s| s.name == "a:one").unwrap();
+        let size = |name: &str| {
+            serde_json::to_vec(full.iter().find(|s| s.name == name).unwrap())
+                .unwrap()
+                .len()
+        };
         let tree = syntax::parse(src, &tree_sitter_javascript::LANGUAGE.into()).unwrap();
-        let mut reader = Reader::new(src, serde_json::to_vec(one).unwrap().len(), Vec::new());
+        let mut reader = Reader::new(src, size("") + size("a:one"), Vec::new());
         reader.program(tree.root_node());
         let table = reader.finish();
         let names: Vec<&str> = table.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, ["a:one"]);
-        // `a:two`, the export `#three` and the module, in the order the reader gives them.
-        assert_eq!(table.warnings(), ["output budget exceeded; 3 symbols dropped"]);
+        assert_eq!(names, ["", "a:one"]);
+        // The module comes first, then `a:one`; `a:two` and the export `#three` are dropped.
+        assert_eq!(table.warnings(), ["output budget exceeded; 2 symbols dropped"]);
     }
 }
