@@ -1,5 +1,6 @@
-//! Grammar-agnostic helpers over tree-sitter trees, shared by every tree-sitter extractor; a
-//! change to what they return bumps all their versions.
+//! What every tree-sitter extractor shares: parsing, the walk, syntax warnings, the token feed
+//! and the quoting their canonical texts use. A change to what these return bumps the version of
+//! every extractor built on them.
 
 use std::borrow::Cow;
 
@@ -18,11 +19,18 @@ pub(crate) fn parse(blob: &[u8], language: &Language) -> Result<Tree> {
         .ok_or_else(|| anyhow!("tree-sitter returned no tree"))
 }
 
-/// One step of `visit`: the node, its parent and the field it fills there.
+/// One step of `visit`: the node and its parent.
 pub(crate) struct Visit<'t> {
     pub node: Node<'t>,
     pub parent: Option<Node<'t>>,
-    pub field: Option<&'t str>,
+}
+
+impl Visit<'_> {
+    /// Whether the node fills `field` of its parent. Asked only where it matters: the cursor's
+    /// own field lookup on every node makes long chains slow.
+    pub(crate) fn fills(&self, field: &str) -> bool {
+        self.parent.and_then(|p| p.child_by_field_name(field)) == Some(self.node)
+    }
 }
 
 pub(crate) trait Visitor<'t> {
@@ -46,7 +54,6 @@ pub(crate) fn visit<'t>(root: Node<'t>, visitor: &mut impl Visitor<'t>) {
         let here = Visit {
             node: cursor.node(),
             parent: ancestors.last().map(|a| a.node),
-            field: cursor.field_name(),
         };
         if visitor.enter(&here) && cursor.goto_first_child() {
             ancestors.push(here);
@@ -109,7 +116,7 @@ pub(crate) fn named(node: Node) -> Vec<Node> {
 }
 
 /// Named children without comments, keeping the ERROR nodes tree-sitter marks extra, as it does
-/// most ERROR nodes at module and class level.
+/// most ERROR nodes between statements and class members.
 pub(crate) fn named_with_errors(node: Node) -> Vec<Node> {
     let mut cursor = node.walk();
     node.named_children(&mut cursor)

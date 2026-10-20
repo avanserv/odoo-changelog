@@ -80,7 +80,8 @@ pub(crate) fn parse(blob: &[u8]) -> Result<Tree> {
 }
 
 /// Python 2 syntax tree-sitter accepts: `print x`, `exec x`, `except E, e`, backticks and `<>`.
-/// Each is an import error under Python 3, which loses the whole file.
+/// Each is an import error under Python 3, which loses the whole file. The manifest extractor
+/// flags it too: a change here bumps both extractors' `version()`.
 pub(crate) fn python2(n: Node, src: &[u8]) -> Option<String> {
     let python2 = match n.kind() {
         "print_statement" | "exec_statement" | "<>" => true,

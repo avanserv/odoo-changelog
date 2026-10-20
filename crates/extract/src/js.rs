@@ -518,7 +518,7 @@ impl<'t> Reader<'t> {
     /// or a legacy registry, a required object whose name holds `registry`.
     fn registry_adds(&mut self, v: &Visit<'t>, scope: &Scope, decls: &Decls<'t>) -> bool {
         // The outermost `.add` of a chain reads the whole chain.
-        let chained = v.field == Some("object")
+        let chained = v.fills("object")
             && v.parent
                 .and_then(|p| p.child_by_field_name("property"))
                 .is_some_and(|p| self.text(p) == "add");

@@ -99,11 +99,11 @@ impl<'a, F: FnMut(&str)> Walk<'a, '_, F> {
     /// of the same name never replaces them.
     fn identifier(&self, v: &Visit) -> Cow<'a, str> {
         let name = text(v.node, self.src);
-        let parent = v.parent.map(|p| p.kind());
-        let elsewhere = matches!(
-            (parent, v.field),
-            (Some("attribute"), Some("attribute")) | (Some("keyword_argument"), Some("name"))
-        );
+        let elsewhere = match v.parent.map(|p| p.kind()) {
+            Some("attribute") => v.fills("attribute"),
+            Some("keyword_argument") => v.fills("name"),
+            _ => false,
+        };
         match self.bound.get(name.as_ref()) {
             Some(i) if !elsewhere => Cow::Owned(format!("${i}")),
             _ if Some(name.as_ref()) == self.own_name => Cow::Borrowed("$fn"),

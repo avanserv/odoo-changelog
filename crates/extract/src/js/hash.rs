@@ -35,7 +35,7 @@ struct Walk<'a, 't, F: FnMut(&str)> {
 }
 
 fn in_for_header(v: &Visit) -> bool {
-    v.parent.is_some_and(|p| p.kind() == "for_statement") && v.field != Some("body")
+    v.parent.is_some_and(|p| p.kind() == "for_statement") && !v.fills("body")
 }
 
 impl<'t, F: FnMut(&str)> Visitor<'t> for Walk<'_, 't, F> {
@@ -52,7 +52,7 @@ impl<'t, F: FnMut(&str)> Visitor<'t> for Walk<'_, 't, F> {
             "string" | "template_string" if let Some(s) = string_value(n, self.src) => {
                 self.tokens.push(&format!("str:{s}"))
             }
-            "identifier" if v.field == Some("parameter") => {
+            "identifier" if v.fills("parameter") => {
                 self.tokens.push("(");
                 self.tokens.push(&text(n, self.src));
                 self.tokens.push(")");

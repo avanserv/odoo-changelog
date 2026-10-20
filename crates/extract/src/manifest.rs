@@ -21,8 +21,8 @@ impl Extractor for Manifest {
         "manifest"
     }
 
-    /// Bump with any change to the output, including changes to `python::value` or `syntax`, and a
-    /// tree-sitter or tree-sitter-python upgrade.
+    /// Bump with any change to the output, including changes to `python::value`,
+    /// `python::python2` or `syntax`, and a tree-sitter or tree-sitter-python upgrade.
     fn version(&self) -> u32 {
         1
     }
