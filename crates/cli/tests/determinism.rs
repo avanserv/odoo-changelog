@@ -53,9 +53,11 @@ fn git(dir: &Path, args: &[&str], clock: u64) {
     assert!(status.success(), "git {args:?} failed in {}", dir.display());
 }
 
+/// A relative `config` resolves against the target tmpdir, the parent of every fixture directory.
 fn walk_output(config: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_odoo-changelog"))
         .args(["--config", config.to_str().unwrap(), "walk"])
+        .current_dir(env!("CARGO_TARGET_TMPDIR"))
         .env("RUST_LOG", "warn")
         .output()
         .unwrap()
@@ -197,6 +199,17 @@ fn incremental_walk_equals_full_rebuild() {
         rebuilt,
         "a re-run on the same refs changed the database"
     );
+}
+
+#[test]
+fn config_path_spelling_does_not_reach_the_db() {
+    let (dir, _fx, _clone) = setup("path-spelling");
+    // A relative clone path, which `Config::load` joins with the config's own directory.
+    config(&dir, "plain", Path::new("clone"), "");
+    config(&dir, "dotted", Path::new("clone"), "");
+    walk(Path::new("path-spelling/plain.toml"));
+    walk(Path::new("./path-spelling/dotted.toml"));
+    assert_eq!(dump(&dir.join("plain.db")), dump(&dir.join("dotted.db")));
 }
 
 #[test]

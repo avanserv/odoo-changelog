@@ -7,7 +7,11 @@ use anyhow::{Context, Result};
 use odoo_changelog_core::CommitMeta;
 use rusqlite::{Connection, OptionalExtension, params};
 
-const MIGRATIONS: &[&str] = &[include_str!("schema.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("schema.sql"),
+    // The clone path depends on the machine and on how the config path was spelled.
+    "ALTER TABLE repos DROP COLUMN path;",
+];
 
 pub struct Store {
     pub conn: Connection,
@@ -58,11 +62,11 @@ impl Store {
         Ok(())
     }
 
-    pub fn upsert_repo(&self, name: &str, path: &str, shallow: bool) -> Result<i64> {
+    pub fn upsert_repo(&self, name: &str, shallow: bool) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO repos (name, path, shallow) VALUES (?1, ?2, ?3)
-             ON CONFLICT(name) DO UPDATE SET path = excluded.path, shallow = excluded.shallow",
-            params![name, path, shallow],
+            "INSERT INTO repos (name, shallow) VALUES (?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET shallow = excluded.shallow",
+            params![name, shallow],
         )?;
         Ok(self
             .conn
@@ -179,5 +183,46 @@ impl Store {
             [repo_id],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_v1_without_losing_commits() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute_batch(
+            "INSERT INTO repos (id, name, path, shallow) VALUES (7, 'odoo', '/somewhere/odoo', 0);
+             INSERT INTO commits (repo_id, sha, branch, fp_idx, sub_idx, parents, is_merge,
+                author_name, author_email, authored_at, committed_at, subject, body, modules,
+                related_prs)
+             VALUES (7, 'abc', 'master', 0, 0, '[]', 0, 'a', 'a@x', 0, 0, 's', '', '[]', '[]');",
+        )
+        .unwrap();
+
+        let store = Store { conn };
+        store.migrate().unwrap();
+
+        let version: i64 = store.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        let commits: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM commits WHERE repo_id = 7", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(commits, 1);
+        let has_path: bool = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('repos') WHERE name = 'path'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!has_path);
+        assert_eq!(store.upsert_repo("odoo", false).unwrap(), 7);
     }
 }
