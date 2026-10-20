@@ -302,3 +302,52 @@ fn full_clone_unrelated_branch() {
     assert_eq!(forks[0], ("16.0".into(), "unrelated".into(), String::new()));
     assert_eq!(forks[1].1, "first-parent");
 }
+
+#[test]
+fn merged_commits_follow_their_parents() {
+    let (dir, mut fx, clone) = setup("merge-order");
+    // A base reached from the merge by a short and a long path, which a breadth-first walk
+    // visits before the long path's commits.
+    fx.git(&["checkout", "-q", "-b", "side"]);
+    fx.commit("addons/crm/models.py", "[ADD] crm: base");
+    fx.git(&["checkout", "-q", "-b", "a"]);
+    for i in 1..=3 {
+        fx.commit("addons/crm/leads.py", &format!("[IMP] crm: A{i}"));
+    }
+    fx.git(&["checkout", "-q", "side"]);
+    fx.commit("addons/crm/teams.py", "[IMP] crm: B1");
+    fx.merge("a", "[MERGE] crm: a");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.merge("side", "[MERGE] crm: side");
+    git(&clone, &["fetch", "-q", "origin"], 0);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+
+    let conn = Connection::open(dir.join("walk.db")).unwrap();
+    let (branch, fp_idx): (String, i64) = conn
+        .query_row(
+            "SELECT branch, fp_idx FROM commits WHERE sha = ?1",
+            [rev_parse(&clone, "origin/master")],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let mut stmt = conn
+        .prepare("SELECT sha, sub_idx, parents FROM commits WHERE branch = ?1 AND fp_idx = ?2 AND sub_idx >= 1")
+        .unwrap();
+    let merged: Vec<(String, i64, String)> = stmt
+        .query_map(rusqlite::params![branch, fp_idx], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(merged.len(), 6);
+    for (child, child_idx, parents) in &merged {
+        for (parent, parent_idx, _) in merged.iter().filter(|(sha, ..)| parents.contains(sha.as_str())) {
+            assert!(
+                parent_idx < child_idx,
+                "{child} at {child_idx} precedes its parent {parent} at {parent_idx}"
+            );
+        }
+    }
+}
