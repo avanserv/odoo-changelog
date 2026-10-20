@@ -1,0 +1,157 @@
+{
+  "symbols": [
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/registry",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@demo/views/component#ThingField"
+          },
+          {
+            "ref": "@demo/views/component#thingField"
+          },
+          {
+            "ref": "@web/core/registry#registry"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "actions:thing_debug_action@demo",
+      "line": 19,
+      "span": {
+        "start": 765,
+        "end": 783
+      },
+      "attrs": {
+        "value": {
+          "fn": "b814f2501b444c2c10d031671d5d7cfb"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "debug>form:thing_debug@demo",
+      "line": 10,
+      "span": {
+        "start": 328,
+        "end": 339
+      },
+      "attrs": {
+        "value": {
+          "fn": "d18d6cff8fce06f114a44f5ea6dec82d"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:[`thing_${\"dyn\"}`]@demo",
+      "line": 15,
+      "span": {
+        "start": 623,
+        "end": 639
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#thingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:kanban.thing@demo",
+      "line": 13,
+      "span": {
+        "start": 467,
+        "end": 479
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#thingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:list.thing@demo",
+      "line": 12,
+      "span": {
+        "start": 387,
+        "end": 397
+      },
+      "attrs": {
+        "value": {
+          "component": {
+            "ref": "@demo/views/component#ThingField"
+          },
+          "supportedTypes": [
+            "many2one"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:thing@demo",
+      "line": 16,
+      "span": {
+        "start": 687,
+        "end": 692
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#ThingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "services:thing@demo",
+      "line": 33,
+      "span": {
+        "start": 1102,
+        "end": 1107
+      },
+      "attrs": {
+        "async": [
+          "load"
+        ],
+        "dependencies": [
+          "orm",
+          "notification"
+        ],
+        "value": {
+          "ref": "@demo/views/registry#thingService"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "views:thing_view@demo",
+      "line": 14,
+      "span": {
+        "start": 513,
+        "end": 523
+      },
+      "attrs": {
+        "force": true,
+        "options": {
+          "label": "Thing"
+        },
+        "sequence": 5,
+        "value": {
+          "type": "form"
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

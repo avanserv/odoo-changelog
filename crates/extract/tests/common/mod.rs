@@ -92,6 +92,41 @@ pub fn git(clone: &Path, args: &[&str]) -> Vec<u8> {
     out.stdout
 }
 
+/// The blobs `oids` of `clone`, in order, through one read-only `git cat-file --batch`.
+pub fn batch(clone: &Path, oids: &[&str]) -> Vec<Vec<u8>> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::process::Stdio;
+
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(clone)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let input: String = oids.iter().map(|oid| format!("{oid}\n")).collect();
+    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()).unwrap());
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut blobs = Vec::with_capacity(oids.len());
+    for oid in oids {
+        let mut header = String::new();
+        stdout.read_line(&mut header).unwrap();
+        let size: usize = match header.split_whitespace().collect::<Vec<_>>()[..] {
+            [_, "blob", size] => size.parse().unwrap(),
+            _ => panic!("{oid}: {header}"),
+        };
+        let mut blob = vec![0; size + 1];
+        stdout.read_exact(&mut blob).unwrap();
+        blob.pop();
+        blobs.push(blob);
+    }
+    writer.join().unwrap();
+    assert!(child.wait().unwrap().success());
+    blobs
+}
+
 /// The blob `oid` of the clone of `repo`.
 pub fn odoo_blob(repo: &str, oid: &str) -> Vec<u8> {
     let (_, clone) = clones().into_iter().find(|(name, _)| name == repo).unwrap();

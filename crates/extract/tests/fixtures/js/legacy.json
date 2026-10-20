@@ -1,0 +1,233 @@
+{
+  "symbols": [
+    {
+      "kind": "js_export",
+      "qualname": "demo.ThingWidget#ThingWidget",
+      "line": 53,
+      "span": {
+        "start": 1417,
+        "end": 1428
+      },
+      "attrs": {
+        "kind": "widget"
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "demo.ThingWidget#format",
+      "line": 55,
+      "span": {
+        "start": 1469,
+        "end": 1475
+      },
+      "attrs": {
+        "kind": "value",
+        "value": {
+          "fn": "3221b1ad09ab387a69aa188984cd1c0f"
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "demo.ThingWidget#options",
+      "line": 54,
+      "span": {
+        "start": 1447,
+        "end": 1454
+      },
+      "attrs": {
+        "kind": "var",
+        "value": {
+          "a": 1,
+          "b": 2
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "demo.thing_utils#default",
+      "line": 68,
+      "span": {
+        "start": 1683,
+        "end": 1689
+      },
+      "attrs": {
+        "body": "f4dbdb7c3149c7255e6ba4d1c74515f0",
+        "kind": "function",
+        "local": "helper",
+        "params": [
+          "x"
+        ]
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "demo.ThingWidget",
+      "line": 1,
+      "span": {
+        "start": 13,
+        "end": 29
+      },
+      "attrs": {
+        "declared": "define",
+        "requires": [
+          "web.FormController",
+          "web.Widget",
+          "web.core",
+          "web.field_registry",
+          "web.mixins",
+          "web.public.widget"
+        ]
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "demo.thing_utils",
+      "line": 59,
+      "span": {
+        "start": 1534,
+        "end": 1550
+      },
+      "attrs": {
+        "declared": "define",
+        "requires": [
+          "web.core"
+        ]
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "web.FormController@demo",
+      "line": 29,
+      "span": {
+        "start": 800,
+        "end": 814
+      },
+      "attrs": {
+        "declared": "include",
+        "members": {
+          "_onThingChanged": {
+            "fn": "e7b268832ac64ca4ca1dca655673572c"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "web.public.widget#registry.thingSnippet@demo",
+      "line": 46,
+      "span": {
+        "start": 1271,
+        "end": 1305
+      },
+      "attrs": {
+        "declared": "include",
+        "members": {
+          "start": {
+            "fn": "b395f03c86e73266704df2486f7c0c81"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "web.core#action_registry:demo.thing_action@demo",
+      "line": 36,
+      "span": {
+        "start": 1000,
+        "end": 1017
+      },
+      "attrs": {
+        "value": {
+          "ref": "demo.ThingWidget#ThingWidget"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "web.field_registry:thing@demo",
+      "line": 35,
+      "span": {
+        "start": 921,
+        "end": 926
+      },
+      "attrs": {
+        "value": {
+          "ref": "demo.ThingWidget#ThingWidget"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "web.field_registry:thing_list@demo",
+      "line": 35,
+      "span": {
+        "start": 947,
+        "end": 957
+      },
+      "attrs": {
+        "value": {
+          "ref": "demo.ThingWidget#ThingWidget"
+        }
+      }
+    },
+    {
+      "kind": "js_widget",
+      "qualname": "demo.ThingWidget#ThingWidget",
+      "line": 12,
+      "span": {
+        "start": 356,
+        "end": 367
+      },
+      "attrs": {
+        "custom_events": {
+          "thing_changed": "_onThingChanged"
+        },
+        "events": {
+          "...Widget.prototype.events": {
+            "ref": "web.Widget#prototype.events"
+          },
+          "click .o_thing": "_onClick"
+        },
+        "extends": {
+          "ref": "web.Widget"
+        },
+        "members": {
+          "_onClick": {
+            "fn": "14df1c720c2d6dd2bc83a050824219a5"
+          },
+          "init": {
+            "fn": "99bf07caef1508e8898307bee3b179a1"
+          }
+        },
+        "mixins": [
+          {
+            "ref": "web.mixins#WidgetMixin"
+          }
+        ],
+        "template": "demo.ThingWidget"
+      }
+    },
+    {
+      "kind": "js_widget",
+      "qualname": "web.public.widget#registry.thingSnippet",
+      "line": 40,
+      "span": {
+        "start": 1106,
+        "end": 1118
+      },
+      "attrs": {
+        "extends": {
+          "ref": "web.public.widget#Widget"
+        },
+        "members": {
+          "selector": ".o_thing_snippet",
+          "start": {
+            "fn": "b395f03c86e73266704df2486f7c0c81"
+          }
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

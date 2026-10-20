@@ -14,6 +14,7 @@ quick-xml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tree-sitter.workspace = true
+tree-sitter-javascript.workspace = true
 tree-sitter-python.workspace = true
 
 [dev-dependencies]
