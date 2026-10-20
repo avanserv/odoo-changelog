@@ -2,9 +2,13 @@
 
 mod forks;
 
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
+
 use anyhow::{Context, Result, anyhow};
 use gix::ObjectId;
 use gix::bstr::ByteSlice;
+use gix::revision::walk::Sorting;
 use odoo_changelog_core::Version;
 
 pub use forks::{Fork, ForkSource, resolve_forks};
@@ -114,9 +118,43 @@ impl Repo {
         if parents.len() < 2 {
             return Ok(Vec::new());
         }
-        let walk = self.repo.rev_walk(parents[1..].to_vec()).with_hidden([parents[0]]);
-        let mut ids = walk.all()?.map(|i| i.map(|i| i.id)).collect::<Result<Vec<_>, _>>()?;
-        ids.reverse();
+        let walk = self
+            .repo
+            .rev_walk(parents[1..].to_vec())
+            .sorting(Sorting::ByCommitTime(Default::default()))
+            .with_hidden([parents[0]]);
+        let infos = walk.all()?.collect::<Result<Vec<_>, _>>()?;
+
+        // Kahn's sort, so a commit follows its parents even under clock skew; ties go to the
+        // oldest commit time, then the sha. Parents outside the set are hidden or shallow.
+        let mut pending: HashMap<ObjectId, usize> = HashMap::with_capacity(infos.len());
+        let mut children: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
+        let times: HashMap<ObjectId, i64> = infos.iter().map(|i| (i.id, i.commit_time())).collect();
+        for info in &infos {
+            let inside = info.parent_ids.iter().filter(|p| times.contains_key(*p));
+            let mut count = 0;
+            for parent in inside {
+                children.entry(*parent).or_default().push(info.id);
+                count += 1;
+            }
+            pending.insert(info.id, count);
+        }
+        let mut ready: BinaryHeap<Reverse<(i64, ObjectId)>> = pending
+            .iter()
+            .filter(|(_, n)| **n == 0)
+            .map(|(id, _)| Reverse((times[id], *id)))
+            .collect();
+        let mut ids = Vec::with_capacity(infos.len());
+        while let Some(Reverse((_, id))) = ready.pop() {
+            ids.push(id);
+            for child in children.get(&id).into_iter().flatten() {
+                let n = pending.get_mut(child).expect("child is in the set");
+                *n -= 1;
+                if *n == 0 {
+                    ready.push(Reverse((times[child], *child)));
+                }
+            }
+        }
         Ok(ids)
     }
 
