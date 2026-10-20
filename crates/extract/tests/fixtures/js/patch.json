@@ -35,10 +35,10 @@
         "declared": "patch",
         "members": {
           "get displayName": {
-            "fn": "9e25ab1fda4deb7a44447628baf0f5b2"
+            "fn": "619b40ace25726d75b95e630065865a0"
           },
           "setup": {
-            "fn": "801c84a5a50cbe3aea3cf08480a88178"
+            "fn": "fea8a84e0b7cda4dd57a8ba52d196955"
           }
         }
       }
@@ -90,7 +90,7 @@
         "declared": "patch",
         "members": {
           "run": {
-            "fn": "c2bb01e4f7cc9149058478e621648be7"
+            "fn": "5e3bae9fa382d2f4acfe1fd096fb6e89"
           }
         }
       }
@@ -107,7 +107,7 @@
         "declared": "patch",
         "members": {
           "onCellClicked": {
-            "fn": "3554bc7c868c430aaeb133e7fda24865"
+            "fn": "11535a86f00984e214250c595df842d6"
           }
         },
         "name": "demo.ListRenderer"

@@ -119,7 +119,7 @@ pub fn batch(clone: &Path, oids: &[&str]) -> Vec<Vec<u8>> {
         };
         let mut blob = vec![0; size + 1];
         stdout.read_exact(&mut blob).unwrap();
-        blob.pop();
+        assert_eq!(blob.pop(), Some(b'\n'), "{oid}: no newline after the blob");
         blobs.push(blob);
     }
     writer.join().unwrap();

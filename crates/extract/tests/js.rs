@@ -32,10 +32,11 @@ fn fixtures_match_expected_output() {
     }
 }
 
-/// Every walk over the tree stays within a rayon worker's 2 MiB stack.
+/// Every walk over the tree stays within a rayon worker's 2 MiB stack: a recursive one would
+/// overflow it at a few thousand levels in a debug build.
 #[test]
 fn deep_nesting_reads_within_a_worker_stack() {
-    let n = 100_000;
+    let n = 20_000;
     let deep = |open: &str, close: &str| format!("{}{}", open.repeat(n), close.repeat(n));
     let sources = [
         format!("export const a = {};", deep("[", "]")),
@@ -48,7 +49,15 @@ fn deep_nesting_reads_within_a_worker_stack() {
         format!("set{};", ".add(1)".repeat(n)),
         format!("export const a = {}1{};", "(".repeat(n), ")".repeat(n)),
         format!("patch(X, {});", deep("{a: patch(X, ", "{})}")),
+        format!("export const a = {}{{}}{};", "_.extend({}, ".repeat(n), ")".repeat(n)),
+        format!("export const a = {}{{}}{};", "{...".repeat(n), "}".repeat(n)),
+        format!("if (a) {{}}{}", " else if (a) {}".repeat(n)),
+        format!("export const a = 1{};", " + 1".repeat(n)),
+        deep("odoo.define('a', function (require) {", "});"),
         "[".repeat(n),
+        "(".repeat(n),
+        "{".repeat(n),
+        format!("x = `{}", "${`".repeat(n)),
     ];
     let tables = std::thread::Builder::new()
         .stack_size(2 << 20)
@@ -249,12 +258,96 @@ fn reformatting_gives_no_event() {
     assert_ne!(before["members"]["run"], after["members"]["run"]);
     assert_eq!(before["declared"], after["declared"]);
 
+    assert_eq!(only_changed_key(&changes[0]), "members");
+
     let setup = extract(&COMPONENT.replace("|| \"none\"", "|| \"empty\""));
-    let ops: Vec<(String, Op)> = delta(&Js, Some((path, &old)), Some((path, &setup)))
-        .into_iter()
-        .map(|d| (d.qualname, d.op))
+    let changes = delta(&Js, Some((path, &old)), Some((path, &setup)));
+    let ops: Vec<(&str, &str, Op)> = changes
+        .iter()
+        .map(|d| (d.kind.as_str(), d.qualname.as_str(), d.op))
         .collect();
-    assert_eq!(ops, [("@demo/thing#Thing".to_string(), Op::Changed)]);
+    assert_eq!(ops, [("js_export", "@demo/thing#Thing", Op::Changed)]);
+    assert_eq!(only_changed_key(&changes[0]), "members");
+}
+
+/// The one top-level attr a change touches.
+fn only_changed_key(change: &odoo_changelog_extract::Delta) -> String {
+    let parse = |attrs: &Option<String>| -> serde_json::Map<String, Value> {
+        serde_json::from_str(attrs.as_deref().unwrap()).unwrap()
+    };
+    let (before, after) = (parse(&change.attrs_before), parse(&change.attrs_after));
+    let keys: std::collections::BTreeSet<&String> = before
+        .keys()
+        .chain(after.keys())
+        .filter(|k| before.get(*k) != after.get(*k))
+        .collect();
+    assert_eq!(keys.len(), 1, "{keys:?}");
+    keys.first().unwrap().to_string()
+}
+
+#[test]
+fn exporting_one_declaration_again_points_at_its_first_export() {
+    let k = 1000;
+    let methods: String = (0..50).map(|i| format!("    m{i}() {{ return {i}; }}\n")).collect();
+    let aliases: Vec<String> = (0..k).map(|i| format!("A as a{i}")).collect();
+    let src = format!(
+        "class A {{\n{methods}}}\nconst d = {{ dependencies: [{}] }};\n{}export {{ {} }};\n",
+        (0..50).map(|i| format!("'s{i}'")).collect::<Vec<_>>().join(", "),
+        (0..k)
+            .map(|i| format!("registry.category('services').add('s{i}', d);\n"))
+            .collect::<String>(),
+        aliases.join(", "),
+    );
+    let table = extract(&src);
+    let size = table.to_bytes().len();
+    assert!(size < 30 * src.len(), "{size} bytes from {}", src.len());
+    let first = find(&table, "js_export", "#a0");
+    assert_eq!(first.attrs["members"].as_object().unwrap().len(), 50);
+    let later = find(&table, "js_export", "#a1");
+    assert_eq!(
+        Value::from_iter(later.attrs.clone()),
+        json!({"kind": "class", "local": "A", "of": {"ref": "#a0"}})
+    );
+    assert_eq!(
+        find(&table, "js_registry", "services:s0").attrs["dependencies"]
+            .as_array()
+            .unwrap()
+            .len(),
+        50
+    );
+    assert!(
+        !find(&table, "js_registry", "services:s1")
+            .attrs
+            .contains_key("dependencies")
+    );
+}
+
+#[test]
+fn legacy_default_imports_read_as_requires() {
+    let src = "import FormController from 'web.FormController';\nimport core from 'web.core';\nimport { x } from 'web.x';\nFormController.include({ a() {} });\ncore.action_registry.add('k', 1);\n";
+    let table = extract(src);
+    find(&table, "js_patch", "web.FormController");
+    find(&table, "js_registry", "web.core#action_registry:k");
+    let imports = &find(&table, "js_module", "").attrs["imports"];
+    assert_eq!(
+        imports,
+        &json!([{"ref": "web.FormController"}, {"ref": "web.core"}, {"ref": "web.x#x"}])
+    );
+}
+
+#[test]
+fn block_names_shadow_the_scope() {
+    let src = "import { Foo } from './foo';\ntry { x(); } catch (registry) { registry.category('a').add('caught', 1); }\nfor (const Foo of xs) { registry.category('a').add('loop', Foo); }\nregistry.category('a').add('top', Foo);\n";
+    let table = extract(src);
+    assert!(!table.contains("js_registry", "a:caught"));
+    assert_eq!(
+        find(&table, "js_registry", "a:loop").attrs["value"],
+        json!({"expr": "Foo"})
+    );
+    assert_eq!(
+        find(&table, "js_registry", "a:top").attrs["value"],
+        json!({"ref": "./foo#Foo"})
+    );
 }
 
 #[test]
@@ -462,8 +555,8 @@ fn every_claimed_js_file_at_the_tips_reads() {
             if !refs.lines().any(|r| r == rev) {
                 continue;
             }
-            let tree = git(&clone, &["ls-tree", "-r", &rev]);
-            for line in String::from_utf8(tree).unwrap().lines() {
+            let tree = git(&clone, &["ls-tree", "-r", "-z", &rev]);
+            for line in String::from_utf8(tree).unwrap().split_terminator('\0') {
                 let (meta, path) = line.split_once('\t').unwrap();
                 if Js.claims(path) {
                     let oid = meta.rsplit(' ').next().unwrap().to_string();

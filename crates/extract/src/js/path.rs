@@ -5,11 +5,15 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-/// The addon and the segments after the first `static/src` of `path`, which must have at least
-/// one segment before `static`.
+/// The addon and the segments after `static/src` of `path`, when its first `static` segment is
+/// followed by `src` and has a segment before it. Odoo would name a file under a second
+/// `static/src` after the last one, but such a file sits under another directory of `static`.
 fn static_src(path: &str) -> Option<(&str, Vec<&str>)> {
     let segments: Vec<&str> = path.split('/').collect();
-    let at = segments.windows(2).position(|w| w == ["static", "src"])?;
+    let at = segments.iter().position(|s| *s == "static")?;
+    if segments.get(at + 1) != Some(&"src") {
+        return None;
+    }
     let addon = *segments.get(at.checked_sub(1)?)?;
     Some((addon, segments[at + 2..].to_vec()))
 }
@@ -46,7 +50,8 @@ pub(super) fn module_path(path: &str) -> String {
     url(path).and_then(|u| url_to_module_path(&u)).unwrap_or_default()
 }
 
-/// `url_to_module_path`: `URL_RE`'s greedy module group takes the last `/static/<type>/`.
+/// `url_to_module_path`: `URL_RE`'s greedy module group takes the last `/static/<type>/`, and
+/// the path after it stops at whitespace.
 fn url_to_module_path(url: &str) -> Option<String> {
     let url = url.strip_prefix('/').unwrap_or(url);
     url.rmatch_indices("/static/").find_map(|(at, _)| {
@@ -58,6 +63,7 @@ fn url_to_module_path(url: &str) -> Option<String> {
         if module.is_empty() || module.contains(char::is_whitespace) {
             return None;
         }
+        let rest = rest.split(char::is_whitespace).next().unwrap_or(rest);
         let rest = match rest.ends_with("/index.js") || rest.ends_with("/index") {
             true => rest.rsplit_once('/').map_or(rest, |(r, _)| r),
             false => rest,
@@ -71,8 +77,8 @@ fn url_to_module_path(url: &str) -> Option<String> {
     })
 }
 
-/// `remove_index`, which every import and require goes through: `x/index` and `x/index/` read as
-/// `x`.
+/// `remove_index`, which the sources of an ES module's imports and re-exports go through:
+/// `x/index` and `x/index/` read as `x`.
 pub(super) fn remove_index(spec: &str) -> &str {
     spec.strip_suffix('/')
         .unwrap_or(spec)
@@ -188,6 +194,7 @@ mod tests {
             "static/src/x.js",
             "addons/web-x/static/src/x.js",
             "addons/web/static/src",
+            "addons/x/static/lib/foo/static/src/y.js",
         ] {
             assert!(!claims(path), "{path}");
         }
@@ -204,6 +211,7 @@ mod tests {
                 "addons/base_import_module/tests/test_module/static/src/js/test.js",
                 "@test_module/js/test",
             ),
+            ("addons/sign/static/src/fields/ many2many/x.js", "@sign/fields/"),
         ] {
             assert_eq!(module_path(path), module, "{path}");
             assert_eq!(addon(path), module.trim_start_matches('@').split('/').next().unwrap());

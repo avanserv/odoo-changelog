@@ -7,6 +7,7 @@ var { WidgetMixin } = require('web.mixins');
 var FormController = require('web.FormController');
 var fieldRegistry = require('web.field_registry');
 var publicWidget = require('web.public.widget');
+var FavoriteMenu = require('web.FavoriteMenu');
 var _t = core._t;
 
 var ThingWidget = Widget.extend(WidgetMixin, {
@@ -34,6 +35,7 @@ FormController.include({
 
 fieldRegistry.add('thing', ThingWidget).add('thing_list', ThingWidget);
 core.action_registry.add('demo.thing_action', ThingWidget);
+FavoriteMenu.registry.add('thing-menu', ThingWidget, 10);
 
 var options = $.extend({}, { a: 1 }, { b: 2 });
 

@@ -12,15 +12,23 @@ class ConfirmDialog extends Component {
     static props = ["title?", "confirm", "close"];
 }
 
+export class InlineThing extends Component {
+    static template = xml`
+        <div class="o_inline_thing">
+            <t t-esc="props.label"/>
+        </div>`;
+    static props = { label: String };
+}
+
 export class ThingField extends Component {
     static template = "demo.ThingField";
     static components = { ThingAutocomplete, ConfirmDialog, Inline: InlineThing };
     static props = {
         ...standardFieldProps,
-        placeholder: { type: String, optional: true },
-        canCreate: { type: Boolean, optional: true },
+        hint: { type: String, optional: true },
+        allowNew: { type: Boolean, optional: true },
     };
-    static defaultProps = { canCreate: true };
+    static defaultProps = { allowNew: true };
     static SEARCH_LIMIT = 8;
 
     setup() {
@@ -37,16 +45,8 @@ export class ThingField extends Component {
     }
 
     static extractProps({ attrs }) {
-        return { placeholder: attrs.placeholder };
+        return { hint: attrs.hint };
     }
-}
-
-export class InlineThing extends Component {
-    static template = xml`
-        <div class="o_inline_thing">
-            <t t-esc="props.label"/>
-        </div>`;
-    static props = { label: String };
 }
 
 export class ThingListField extends ThingField {

@@ -16,12 +16,12 @@ use anyhow::Result;
 use serde_json::Value;
 use tree_sitter::Node;
 
-use crate::syntax::{self, Visit, named, statements, text, visit};
+use crate::syntax::{self, Visit, Visitor, named, statements, text, visit};
 use crate::{Extractor, Span, Symbol, SymbolTable};
 use hash::fn_hash;
 use path::{Header, qualify_ref};
-use scope::{Binding, Resolved, Scope, method_call, require};
-use value::{canonical, is_empty_object, key_text, method_key, single, string_value, value};
+use scope::{Binding, Resolved, Scope, Shadowed, method_call, require};
+use value::{canonical, is_empty_object, key_text, method_key, object, single, string_value, tagless, value};
 
 const MODULE: &str = "js_module";
 const EXPORT: &str = "js_export";
@@ -61,6 +61,8 @@ impl Extractor for Js {
             table: SymbolTable::default(),
             registry: BTreeMap::new(),
             patches: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            services: BTreeSet::new(),
             warnings: syntax::syntax_warnings(root, |_| None),
         };
         reader.program(root);
@@ -171,6 +173,14 @@ fn token<'t>(node: Node<'t>, kind: &str) -> Option<Node<'t>> {
     node.children(&mut cursor).find(|c| !c.is_named() && c.kind() == kind)
 }
 
+/// Whether `import X from "S"` reads as `const X = require("S")`, as Odoo's transpiler does
+/// for a lone default import whose source starts with neither `@` nor `.`: a legacy module.
+fn legacy_default(clause: Node, source: &str) -> bool {
+    let parts = named(clause);
+    matches!(parts[..], [only] if only.kind() == "identifier")
+        && source.chars().next().is_some_and(|c| c != '@' && c != '.')
+}
+
 /// The leftmost name of a `.member` chain, such as `$` in `$.fn.extend`.
 fn chain_root<'t>(mut node: Node<'t>) -> Node<'t> {
     while let Some(object) = node
@@ -213,8 +223,14 @@ type Entries<'t> = Vec<(String, Option<Node<'t>>)>;
 struct Reader<'t> {
     src: &'t [u8],
     table: SymbolTable,
-    /// The last entry of each registry key, which Odoo keeps when a file adds it again.
+    /// The last entry of each registry key: a legacy registry and a forced ES `add` replace an
+    /// earlier one, and an unforced ES `add` of a taken key throws.
     registry: BTreeMap<String, Symbol>,
+    /// The first export of each declaration, by reference, so that later exports of it point
+    /// there instead of repeating it: output stays linear in the input.
+    exports: BTreeMap<String, String>,
+    /// The scope declarations already read as a service, by reference, for the same reason.
+    services: BTreeSet<String>,
     /// How often each target was patched so far.
     patches: BTreeMap<String, usize>,
     /// By byte offset, so that they end up in document order.
@@ -264,7 +280,7 @@ impl<'t> Reader<'t> {
         let statements = statements(root);
         let mut scope = Scope::new(String::new());
         let mut decls = self.bind(&mut scope, &statements);
-        self.walk(root, &scope, &mut decls, true);
+        self.walk(root, &mut scope, &mut decls, true);
         let components = self.components(&scope, &decls);
         self.es_exports(&scope, &decls, &components, &statements);
         self.es_module(path::header(self.src), &statements);
@@ -292,12 +308,20 @@ impl<'t> Reader<'t> {
             return;
         };
         let clause = named(statement).into_iter().find(|n| n.kind() == "import_clause");
+        let legacy = clause.is_some_and(|c| legacy_default(c, &source));
         for part in clause.map(named).unwrap_or_default() {
             let member = |path: &str| Binding::Member {
                 module: source.clone(),
                 path: path.into(),
             };
             match part.kind() {
+                "identifier" if legacy => {
+                    let module = Binding::Module {
+                        module: source.clone(),
+                        namespace: false,
+                    };
+                    scope.bind(self.text(part), module);
+                }
                 "identifier" => scope.bind(self.text(part), member("default")),
                 "namespace_import" => {
                     for name in named(part) {
@@ -378,14 +402,13 @@ impl<'t> Reader<'t> {
             "identifier" => {
                 let name = self.text(target).into_owned();
                 let category = value.and_then(|v| scope.category(v, src, |arg| self.label(arg)));
-                match (alias, category) {
-                    (Some(binding), _) => scope.bind(name, binding),
-                    (None, Some(path)) => scope.bind(name, Binding::Category(path)),
-                    (None, None) => {
-                        scope.bind(name.clone(), Binding::Local);
-                        decls.by_name.insert(name, Decl::Var(kind, value));
-                    }
-                }
+                let binding = match (alias, category) {
+                    (Some(binding), _) => binding,
+                    (None, Some(path)) => Binding::Category(path),
+                    (None, None) => Binding::Local,
+                };
+                scope.bind(name.clone(), binding);
+                decls.by_name.insert(name, Decl::Var(kind, value));
             }
             "object_pattern" => {
                 let Some(value) = value else {
@@ -447,27 +470,16 @@ impl<'t> Reader<'t> {
 
     /// Reads what the code of a scope that runs at load declares: defines (`program` only),
     /// registry entries, patches, widgets and statics assigned to the scope's classes.
-    fn walk(&mut self, root: Node<'t>, scope: &Scope, decls: &mut Decls<'t>, program: bool) {
-        visit(root, &mut |v: &Visit<'t>| {
-            let n = v.node;
-            if n.is_extra() && !n.is_error() {
-                return false;
-            }
-            match n.kind() {
-                "class_body" => false,
-                k if is_function_kind(k) => false,
-                "call_expression" => {
-                    let read = (program && self.define(n))
-                        || self.registry_adds(v, scope, decls)
-                        || self.patch(n, scope)
-                        || self.include(n, scope);
-                    !read
-                }
-                "assignment_expression" => !self.assignment(n, scope, decls),
-                "variable_declarator" => !self.declarator(n, scope),
-                _ => true,
-            }
-        });
+    fn walk(&mut self, root: Node<'t>, scope: &mut Scope, decls: &mut Decls<'t>, program: bool) {
+        let mut walker = Walker {
+            reader: self,
+            scope,
+            decls,
+            program,
+            root,
+            blocks: Vec::new(),
+        };
+        visit(root, &mut walker);
     }
 
     /// `odoo.define(name, [deps], function (require) {...})`: a module, and its body a scope.
@@ -506,7 +518,7 @@ impl<'t> Reader<'t> {
         let statements = statements(body);
         let mut scope = Scope::new(name);
         let mut decls = self.bind(&mut scope, &statements);
-        self.walk(body, &scope, &mut decls, false);
+        self.walk(body, &mut scope, &mut decls, false);
         let components = self.components(&scope, &decls);
         if let Some(&returned) = statements.iter().find(|s| s.kind() == "return_statement") {
             self.define_exports(returned, &scope, &decls, &components);
@@ -515,7 +527,7 @@ impl<'t> Reader<'t> {
     }
 
     /// `<receiver>.add(key, value[, options])`, chained or not, on a registry: an ES category,
-    /// or a legacy registry, a required object whose name holds `registry`.
+    /// or a legacy registry, any resolved reference whose last segment holds `registry`.
     fn registry_adds(&mut self, v: &Visit<'t>, scope: &Scope, decls: &Decls<'t>) -> bool {
         // The outermost `.add` of a chain reads the whole chain.
         let chained = v.fills("object")
@@ -553,7 +565,9 @@ impl<'t> Reader<'t> {
             return None;
         };
         let last = legacy.rsplit(['#', '.', '/']).next().unwrap_or_default();
-        let named = last.to_ascii_lowercase().contains("registry") && !legacy.ends_with("#registry");
+        // The root ES registry takes entries through its categories only.
+        let root = receiver.kind() == "identifier" && legacy.ends_with("#registry");
+        let named = last.to_ascii_lowercase().contains("registry") && !root;
         named.then(|| (legacy.clone(), last == "serviceRegistry"))
     }
 
@@ -572,16 +586,19 @@ impl<'t> Reader<'t> {
         }
         match rest.get(1) {
             Some(&options) if options.kind() == "object" => {
-                if let Value::Object(mut options) = self.value(options, scope) {
-                    for promoted in ["sequence", "force"] {
-                        if let Some(v) = options.remove(promoted) {
-                            attrs.insert(promoted.into(), v);
-                        }
-                    }
-                    if !options.is_empty() {
-                        attrs.insert("options".into(), Value::Object(options));
+                let mut options = object(options, self.src, scope, 0);
+                for promoted in ["sequence", "force"] {
+                    if let Some(v) = options.remove(promoted) {
+                        attrs.insert(promoted.into(), v);
                     }
                 }
+                if !options.is_empty() {
+                    attrs.insert("options".into(), tagless(options));
+                }
+            }
+            // A legacy registry's third argument is the sequence.
+            Some(&options) if options.kind() == "number" => {
+                attrs.insert("sequence".into(), self.value(options, scope));
             }
             Some(&options) => {
                 attrs.insert("options".into(), self.value(options, scope));
@@ -593,10 +610,16 @@ impl<'t> Reader<'t> {
     }
 
     /// The `dependencies` and `async` of a service: an inline object, a scope `const` object or
-    /// the object a scope widget extends with.
-    fn service(&self, entry: Node<'t>, scope: &Scope, decls: &Decls<'t>) -> Vec<(String, Value)> {
+    /// the object a scope widget extends with. A declaration added again gives nothing more, its
+    /// entry's `value` naming it.
+    fn service(&mut self, entry: Node<'t>, scope: &Scope, decls: &Decls<'t>) -> Vec<(String, Value)> {
         let declared = match decls.by_name.get(self.text(entry).as_ref()) {
-            Some(Decl::Var(_, Some(v))) if entry.kind() == "identifier" => *v,
+            Some(Decl::Var(_, Some(v))) if entry.kind() == "identifier" => {
+                if !self.services.insert(scope.local(&self.text(entry))) {
+                    return Vec::new();
+                }
+                *v
+            }
             _ => entry,
         };
         let object = match self.extend(declared) {
@@ -616,7 +639,8 @@ impl<'t> Reader<'t> {
         out
     }
 
-    /// `patch(target, [name,] {...})` through an import of `patch` or the bare global.
+    /// `patch(target, [name,] {...})`, where `patch` is any reference ending in `#patch`, an
+    /// import or a local function, or the unbound global.
     fn patch(&mut self, call: Node<'t>, scope: &Scope) -> bool {
         let Some(callee) = call.child_by_field_name("function") else {
             return false;
@@ -730,15 +754,14 @@ impl<'t> Reader<'t> {
             let mixins = mixins.iter().map(|&m| self.reference(m, scope));
             attrs.insert("mixins".into(), Value::from_iter(mixins));
         }
-        if let Value::Object(mut members) = self.value(*object, scope) {
-            for key in ["template", "events", "custom_events"] {
-                if let Some(v) = members.remove(key) {
-                    attrs.insert(key.into(), v);
-                }
+        let mut members = value::object(*object, self.src, scope, 0);
+        for key in ["template", "events", "custom_events"] {
+            if let Some(v) = members.remove(key) {
+                attrs.insert(key.into(), v);
             }
-            if !members.is_empty() {
-                attrs.insert("members".into(), Value::Object(members));
-            }
+        }
+        if !members.is_empty() {
+            attrs.insert("members".into(), tagless(members));
         }
         self.insert(symbol(WIDGET, name, at, attrs));
     }
@@ -814,7 +837,7 @@ impl<'t> Reader<'t> {
                 };
             }
             if !other.is_empty() {
-                attrs.insert("static".into(), Value::from_iter(other));
+                attrs.insert("static".into(), tagless(other));
             }
             self.insert(symbol(COMPONENT, scope.local(&name), class.name, attrs));
             components.insert(name);
@@ -860,7 +883,7 @@ impl<'t> Reader<'t> {
         let entries = entries
             .into_iter()
             .map(|(k, v)| (k, v.map_or(Value::Null, |v| self.value(v, scope))));
-        Value::Object(entries.collect::<BTreeMap<_, _>>().into_iter().collect())
+        tagless(entries.collect())
     }
 
     fn class_attrs(&self, class: &Class<'t>, scope: &Scope, component: bool) -> BTreeMap<String, Value> {
@@ -928,7 +951,19 @@ impl<'t> Reader<'t> {
         }
     }
 
-    /// `exported`, with `local` when the export renames the declaration.
+    /// The `kind` an export of the scope's `name` takes.
+    fn kind_of(&self, name: &str, decls: &Decls<'t>) -> &'static str {
+        match decls.by_name.get(name) {
+            Some(Decl::Class(_)) => "class",
+            Some(Decl::Function(_)) => "function",
+            Some(Decl::Var(_, Some(v))) if self.extend(*v).is_some() => "widget",
+            Some(Decl::Var(kind, _)) => kind,
+            None => "value",
+        }
+    }
+
+    /// `exported`, with `local` when the export renames the declaration. A declaration exported
+    /// again gets its kind and `of`, a reference to its first export.
     fn export(
         &mut self,
         exported: &str,
@@ -939,7 +974,17 @@ impl<'t> Reader<'t> {
         components: &BTreeSet<String>,
     ) {
         let name = self.text(local).into_owned();
-        let mut attrs = self.exported(&name, local, scope, decls, components);
+        let declaration = scope.local(&name);
+        let mut attrs = match self.exports.get(&declaration) {
+            Some(first) => BTreeMap::from([
+                ("kind".to_string(), Value::from(self.kind_of(&name, decls))),
+                ("of".to_string(), single("ref", scope.local(first))),
+            ]),
+            None => {
+                self.exports.insert(declaration, exported.to_string());
+                self.exported(&name, local, scope, decls, components)
+            }
+        };
         if name != exported {
             attrs.insert("local".into(), name.into());
         }
@@ -1020,7 +1065,9 @@ impl<'t> Reader<'t> {
                 }
             }
         }
-        if let Some((at, of)) = star {
+        if let Some((at, mut of)) = star {
+            of.sort_by_cached_key(|r| r.to_string());
+            of.dedup();
             self.reexport("*", at, Value::Array(of), scope);
         }
     }
@@ -1084,7 +1131,7 @@ impl<'t> Reader<'t> {
                         continue;
                     };
                     let clause = named(statement).into_iter().find(|n| n.kind() == "import_clause");
-                    let Some(clause) = clause else {
+                    let Some(clause) = clause.filter(|&c| !legacy_default(c, &source)) else {
                         imports.insert(source);
                         continue;
                     };
@@ -1138,7 +1185,9 @@ impl<'t> Reader<'t> {
             return;
         };
         let (at, default) = alias;
-        let whole = default.is_some_and(|d| matches!(&self.src[d], b"false" | b"False" | b"0"));
+        // Any `default=` makes the alias the whole module, as 18.0 reads it; 17.0 accepts only
+        // `false`, `False` and `0` there, which read the same.
+        let whole = default.is_some();
         let attrs = BTreeMap::from([
             ("declared".to_string(), Value::from("alias")),
             ("of".to_string(), single("ref", if whole { "#*" } else { "#default" })),
@@ -1165,4 +1214,99 @@ impl<'t> Reader<'t> {
         }
         self.table
     }
+}
+
+/// The walk of one scope. The names an inner block, loop or `catch` declares shadow the scope's
+/// while the walk is inside it.
+struct Walker<'w, 't> {
+    reader: &'w mut Reader<'t>,
+    scope: &'w mut Scope,
+    decls: &'w mut Decls<'t>,
+    program: bool,
+    root: Node<'t>,
+    blocks: Vec<(Node<'t>, Shadowed)>,
+}
+
+impl<'t> Visitor<'t> for Walker<'_, 't> {
+    fn enter(&mut self, v: &Visit<'t>) -> bool {
+        let n = v.node;
+        if n.is_extra() && !n.is_error() {
+            return false;
+        }
+        let (reader, scope, decls) = (&mut *self.reader, &*self.scope, &mut *self.decls);
+        let descend = match n.kind() {
+            "class_body" => false,
+            k if is_function_kind(k) => false,
+            "call_expression" => {
+                let read = (self.program && reader.define(n))
+                    || reader.registry_adds(v, scope, decls)
+                    || reader.patch(n, scope)
+                    || reader.include(n, scope);
+                !read
+            }
+            "assignment_expression" => !reader.assignment(n, scope, decls),
+            "variable_declarator" => !reader.declarator(n, scope),
+            _ => true,
+        };
+        if descend && n != self.root {
+            let names = block_names(n, reader.src);
+            if !names.is_empty() {
+                let saved = self.scope.shadow(names);
+                self.blocks.push((n, saved));
+            }
+        }
+        descend
+    }
+
+    fn leave(&mut self, v: &Visit<'t>) {
+        if self.blocks.last().is_some_and(|(n, _)| *n == v.node)
+            && let Some((_, saved)) = self.blocks.pop()
+        {
+            self.scope.restore(saved);
+        }
+    }
+}
+
+/// The names a block, a loop header or a `catch` declares for itself.
+fn block_names(node: Node, src: &[u8]) -> Vec<String> {
+    let mut patterns = Vec::new();
+    match node.kind() {
+        "statement_block" | "switch_case" | "switch_default" => {
+            for statement in named(node) {
+                match statement.kind() {
+                    "lexical_declaration" | "variable_declaration" => patterns.extend(
+                        named(statement)
+                            .into_iter()
+                            .filter_map(|d| d.child_by_field_name("name")),
+                    ),
+                    "class_declaration" | "function_declaration" | "generator_function_declaration" => {
+                        patterns.extend(statement.child_by_field_name("name"))
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "for_statement" => {
+            let initializer = node.child_by_field_name("initializer");
+            for declarator in initializer.map(named).unwrap_or_default() {
+                patterns.extend(declarator.child_by_field_name("name"));
+            }
+        }
+        "for_in_statement" if node.child_by_field_name("kind").is_some() => {
+            patterns.extend(node.child_by_field_name("left"))
+        }
+        "catch_clause" => patterns.extend(node.child_by_field_name("parameter")),
+        _ => {}
+    }
+    let mut names = Vec::new();
+    while let Some(p) = patterns.pop() {
+        match p.kind() {
+            "identifier" | "shorthand_property_identifier_pattern" => names.push(text(p, src).into_owned()),
+            "object_pattern" | "array_pattern" | "rest_pattern" => patterns.extend(named(p)),
+            "pair_pattern" => patterns.extend(p.child_by_field_name("value")),
+            "assignment_pattern" | "object_assignment_pattern" => patterns.extend(p.child_by_field_name("left")),
+            _ => {}
+        }
+    }
+    names
 }

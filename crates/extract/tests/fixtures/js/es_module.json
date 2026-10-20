@@ -48,10 +48,10 @@
         "kind": "class",
         "members": {
           "add": {
-            "fn": "3f7e2fa6b74a9095e9f1fa6e3628d8b4"
+            "fn": "c1c6fa9cafb7f2656aaa57b5ad39cb70"
           },
           "get size": {
-            "fn": "cf4246306378bad22eff129956af665d"
+            "fn": "d93e4e7a0e46db71500b6c3fbe4c82d6"
           },
           "items": []
         },
@@ -69,7 +69,7 @@
         "end": 268
       },
       "attrs": {
-        "body": "385b2e464a158d6c67c5ae947fb52222",
+        "body": "df7295096b524284e193357e43f75199",
         "kind": "function",
         "params": [
           "a",
@@ -182,7 +182,7 @@
       },
       "attrs": {
         "async": true,
-        "body": "e487983b2558fe65a4090077b9ec4f34",
+        "body": "11450072ee62a50754f7e5a9fb0cd155",
         "generator": true,
         "kind": "function",
         "params": [

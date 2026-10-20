@@ -1,5 +1,6 @@
 //! The hash of a function or class: its tokens without layout, comments, quote style, trailing
-//! commas, statement semicolons or its own name, so that reformatted code hashes alike.
+//! commas, semicolons or its own name, so that reformatted code hashes alike. Where each
+//! statement ends is hashed instead of its semicolon, which JS may also infer.
 
 use tree_sitter::Node;
 
@@ -8,8 +9,8 @@ use crate::hash::digest;
 use crate::syntax::{Tokens, Visit, Visitor, text, visit};
 
 /// blake3 over the leaf tokens of `node`, each followed by a 0x00 byte, its strings and the
-/// template strings without substitutions as `str:<decoded text>`, and a lone arrow parameter in
-/// parentheses.
+/// template strings without substitutions as `str:<decoded text>`, a lone arrow parameter in
+/// parentheses and a `;` after each statement.
 pub(super) fn fn_hash(node: Node, src: &[u8]) -> String {
     let mut hasher = blake3::Hasher::new();
     let mut walk = Walk {
@@ -32,6 +33,18 @@ struct Walk<'a, 't, F: FnMut(&str)> {
     /// How many nodes of a `for (...;...;...)` header the walk is in, where `;` is syntax.
     for_header: usize,
     tokens: Tokens<F>,
+}
+
+fn is_statement(kind: &str) -> bool {
+    (kind.ends_with("_statement") && kind != "empty_statement")
+        || matches!(
+            kind,
+            "lexical_declaration"
+                | "variable_declaration"
+                | "function_declaration"
+                | "generator_function_declaration"
+                | "class_declaration"
+        )
 }
 
 fn in_for_header(v: &Visit) -> bool {
@@ -57,6 +70,9 @@ impl<'t, F: FnMut(&str)> Visitor<'t> for Walk<'_, 't, F> {
                 self.tokens.push(&text(n, self.src));
                 self.tokens.push(")");
             }
+            "string_fragment" => self
+                .tokens
+                .push(&text(n, self.src).replace("\r\n", "\n").replace('\r', "\n")),
             _ if n.child_count() == 0 => self.tokens.push(&text(n, self.src)),
             _ => return true,
         }
@@ -66,6 +82,9 @@ impl<'t, F: FnMut(&str)> Visitor<'t> for Walk<'_, 't, F> {
     fn leave(&mut self, v: &Visit<'t>) {
         if in_for_header(v) {
             self.for_header -= 1;
+        }
+        if is_statement(v.node.kind()) {
+            self.tokens.mark(";");
         }
     }
 }
@@ -113,5 +132,12 @@ mod tests {
             assert_ne!(hash(base), hash(changed), "{changed}");
         }
         assert_ne!(hash("f = function () { a; b; };"), hash("f = function () { a, b; };"));
+        for (one, other) in [("a;(b)", "a(b)"), ("return; x", "return x"), ("a++; b", "a\n++b")] {
+            let body = |s: &str| hash(&format!("f = function () {{ {s} }};"));
+            assert_ne!(body(one), body(other), "{one} {other}");
+        }
+        let body = |s: &str| hash(&format!("f = function () {{ {s} }};"));
+        assert_eq!(body("a(b)"), body("a\n(b)"));
+        assert_eq!(hash("f = () => `a\r\n${b}`;"), hash("f = () => `a\n${b}`;"));
     }
 }

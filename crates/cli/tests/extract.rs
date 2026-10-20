@@ -1078,14 +1078,16 @@ fn builtin_js_extractor_records_registry_events() {
     let row = |op: &str, kind: &str, qualname: &str| (op.to_string(), kind.to_string(), qualname.to_string());
 
     let added = at("origin/master~5");
-    let rows = ops(&added);
-    for expected in [
-        row("added", "js_component", "@demo/fields/thing_field#ThingField"),
-        row("added", "js_module", "@demo/fields/thing_field"),
-        row("added", "js_registry", "fields:thing@demo"),
-    ] {
-        assert!(rows.contains(&expected), "{expected:?} in {rows:?}");
-    }
+    assert_eq!(
+        ops(&added),
+        [
+            row("added", "js_component", "@demo/fields/thing_field#ThingField"),
+            row("added", "js_export", "@demo/fields/thing_field#ThingField"),
+            row("added", "js_export", "@demo/fields/thing_field#thingField"),
+            row("added", "js_module", "@demo/fields/thing_field"),
+            row("added", "js_registry", "fields:thing@demo"),
+        ]
+    );
     let module = added.iter().find(|e| e.1 == "js_module").unwrap();
     let imports = module.4.as_deref().unwrap();
     assert!(imports.contains(r#"{"ref":"@demo/fields/utils#helper"}"#), "{imports}");
@@ -1105,23 +1107,32 @@ fn builtin_js_extractor_records_registry_events() {
         (registry.0.as_str(), registry.2.as_str(), registry.3.as_deref()),
         ("changed", "fields:thing@demo", Some(field))
     );
-    let rows = ops(&renamed);
-    for expected in [
-        row("added", "js_module", "@demo/fields/thing/thing_field"),
-        row("removed", "js_module", "@demo/fields/thing_field"),
-    ] {
-        assert!(rows.contains(&expected), "{expected:?} in {rows:?}");
-    }
+    let (new, old) = ("@demo/fields/thing/thing_field", "@demo/fields/thing_field");
+    assert_eq!(
+        ops(&renamed),
+        [
+            row("added", "js_component", &format!("{new}#ThingField")),
+            row("removed", "js_component", &format!("{old}#ThingField")),
+            row("added", "js_export", &format!("{new}#ThingField")),
+            row("added", "js_export", &format!("{new}#thingField")),
+            row("removed", "js_export", &format!("{old}#ThingField")),
+            row("removed", "js_export", &format!("{old}#thingField")),
+            row("added", "js_module", new),
+            row("removed", "js_module", old),
+            row("changed", "js_registry", "fields:thing@demo"),
+        ]
+    );
 
-    let rows = ops(&at("origin/master~1"));
-    for expected in [
-        row("added", "js_module", "demo.thing_legacy"),
-        row("added", "js_widget", "demo.thing_legacy#LegacyThing"),
-        row("added", "js_patch", "web.FormController@demo"),
-        row("added", "js_registry", "web.field_registry:legacy_thing@demo"),
-    ] {
-        assert!(rows.contains(&expected), "{expected:?} in {rows:?}");
-    }
+    assert_eq!(
+        ops(&at("origin/master~1")),
+        [
+            row("added", "js_export", "demo.thing_legacy#default"),
+            row("added", "js_module", "demo.thing_legacy"),
+            row("added", "js_patch", "web.FormController@demo"),
+            row("added", "js_registry", "web.field_registry:legacy_thing@demo"),
+            row("added", "js_widget", "demo.thing_legacy#LegacyThing"),
+        ]
+    );
 
     let broken = cached_warnings(&db, &clone, "js", "origin/master:addons/demo/static/src/broken.js");
     assert!(!broken.is_empty());

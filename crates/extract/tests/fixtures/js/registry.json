@@ -1,6 +1,21 @@
 {
   "symbols": [
     {
+      "kind": "js_export",
+      "qualname": "@demo/views/registry#fieldRegistry",
+      "line": 7,
+      "span": {
+        "start": 184,
+        "end": 197
+      },
+      "attrs": {
+        "kind": "const",
+        "value": {
+          "expr": "registry.category('fields')"
+        }
+      }
+    },
+    {
       "kind": "js_module",
       "qualname": "@demo/views/registry",
       "line": 1,
@@ -19,6 +34,9 @@
           },
           {
             "ref": "@web/core/registry#registry"
+          },
+          {
+            "ref": "web.field_registry"
           }
         ]
       }
@@ -26,10 +44,10 @@
     {
       "kind": "js_registry",
       "qualname": "actions:thing_debug_action@demo",
-      "line": 19,
+      "line": 20,
       "span": {
-        "start": 765,
-        "end": 783
+        "start": 819,
+        "end": 837
       },
       "attrs": {
         "value": {
@@ -40,10 +58,10 @@
     {
       "kind": "js_registry",
       "qualname": "debug>form:thing_debug@demo",
-      "line": 10,
+      "line": 11,
       "span": {
-        "start": 328,
-        "end": 339
+        "start": 382,
+        "end": 393
       },
       "attrs": {
         "value": {
@@ -54,10 +72,10 @@
     {
       "kind": "js_registry",
       "qualname": "fields:[`thing_${\"dyn\"}`]@demo",
-      "line": 15,
+      "line": 16,
       "span": {
-        "start": 623,
-        "end": 639
+        "start": 677,
+        "end": 693
       },
       "attrs": {
         "value": {
@@ -68,10 +86,10 @@
     {
       "kind": "js_registry",
       "qualname": "fields:kanban.thing@demo",
-      "line": 13,
+      "line": 14,
       "span": {
-        "start": 467,
-        "end": 479
+        "start": 521,
+        "end": 533
       },
       "attrs": {
         "value": {
@@ -82,10 +100,10 @@
     {
       "kind": "js_registry",
       "qualname": "fields:list.thing@demo",
-      "line": 12,
+      "line": 13,
       "span": {
-        "start": 387,
-        "end": 397
+        "start": 441,
+        "end": 451
       },
       "attrs": {
         "value": {
@@ -100,11 +118,25 @@
     },
     {
       "kind": "js_registry",
-      "qualname": "fields:thing@demo",
-      "line": 16,
+      "qualname": "fields:looped@demo",
+      "line": 29,
       "span": {
-        "start": 687,
-        "end": 692
+        "start": 1048,
+        "end": 1054
+      },
+      "attrs": {
+        "value": {
+          "expr": "thingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:thing@demo",
+      "line": 17,
+      "span": {
+        "start": 741,
+        "end": 746
       },
       "attrs": {
         "value": {
@@ -115,10 +147,10 @@
     {
       "kind": "js_registry",
       "qualname": "services:thing@demo",
-      "line": 33,
+      "line": 45,
       "span": {
-        "start": 1102,
-        "end": 1107
+        "start": 1422,
+        "end": 1427
       },
       "attrs": {
         "async": [
@@ -136,10 +168,10 @@
     {
       "kind": "js_registry",
       "qualname": "views:thing_view@demo",
-      "line": 14,
+      "line": 15,
       "span": {
-        "start": 513,
-        "end": 523
+        "start": 567,
+        "end": 577
       },
       "attrs": {
         "force": true,
@@ -149,6 +181,20 @@
         "sequence": 5,
         "value": {
           "type": "form"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "web.field_registry:legacy_thing@demo",
+      "line": 32,
+      "span": {
+        "start": 1091,
+        "end": 1103
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#ThingField"
         }
       }
     }

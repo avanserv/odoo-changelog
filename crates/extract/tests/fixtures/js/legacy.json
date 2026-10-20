@@ -3,10 +3,10 @@
     {
       "kind": "js_export",
       "qualname": "demo.ThingWidget#ThingWidget",
-      "line": 53,
+      "line": 55,
       "span": {
-        "start": 1417,
-        "end": 1428
+        "start": 1523,
+        "end": 1534
       },
       "attrs": {
         "kind": "widget"
@@ -15,25 +15,25 @@
     {
       "kind": "js_export",
       "qualname": "demo.ThingWidget#format",
-      "line": 55,
+      "line": 57,
       "span": {
-        "start": 1469,
-        "end": 1475
+        "start": 1575,
+        "end": 1581
       },
       "attrs": {
         "kind": "value",
         "value": {
-          "fn": "3221b1ad09ab387a69aa188984cd1c0f"
+          "fn": "b540373cfa8d7f8cd73fdf175c683b7f"
         }
       }
     },
     {
       "kind": "js_export",
       "qualname": "demo.ThingWidget#options",
-      "line": 54,
+      "line": 56,
       "span": {
-        "start": 1447,
-        "end": 1454
+        "start": 1553,
+        "end": 1560
       },
       "attrs": {
         "kind": "var",
@@ -46,13 +46,13 @@
     {
       "kind": "js_export",
       "qualname": "demo.thing_utils#default",
-      "line": 68,
+      "line": 70,
       "span": {
-        "start": 1683,
-        "end": 1689
+        "start": 1789,
+        "end": 1795
       },
       "attrs": {
-        "body": "f4dbdb7c3149c7255e6ba4d1c74515f0",
+        "body": "3ca18210e86a4b347b95dce2830a8674",
         "kind": "function",
         "local": "helper",
         "params": [
@@ -71,6 +71,7 @@
       "attrs": {
         "declared": "define",
         "requires": [
+          "web.FavoriteMenu",
           "web.FormController",
           "web.Widget",
           "web.core",
@@ -83,10 +84,10 @@
     {
       "kind": "js_module",
       "qualname": "demo.thing_utils",
-      "line": 59,
+      "line": 61,
       "span": {
-        "start": 1534,
-        "end": 1550
+        "start": 1640,
+        "end": 1656
       },
       "attrs": {
         "declared": "define",
@@ -98,16 +99,16 @@
     {
       "kind": "js_patch",
       "qualname": "web.FormController@demo",
-      "line": 29,
+      "line": 30,
       "span": {
-        "start": 800,
-        "end": 814
+        "start": 848,
+        "end": 862
       },
       "attrs": {
         "declared": "include",
         "members": {
           "_onThingChanged": {
-            "fn": "e7b268832ac64ca4ca1dca655673572c"
+            "fn": "750ce52b3075cb32a7a2d4e664ddcc29"
           }
         }
       }
@@ -115,27 +116,42 @@
     {
       "kind": "js_patch",
       "qualname": "web.public.widget#registry.thingSnippet@demo",
-      "line": 46,
+      "line": 48,
       "span": {
-        "start": 1271,
-        "end": 1305
+        "start": 1377,
+        "end": 1411
       },
       "attrs": {
         "declared": "include",
         "members": {
           "start": {
-            "fn": "b395f03c86e73266704df2486f7c0c81"
+            "fn": "0f8b3ee6954e98efb60c6918f39af483"
           }
         }
       }
     },
     {
       "kind": "js_registry",
-      "qualname": "web.core#action_registry:demo.thing_action@demo",
-      "line": 36,
+      "qualname": "web.FavoriteMenu#registry:thing-menu@demo",
+      "line": 38,
       "span": {
-        "start": 1000,
-        "end": 1017
+        "start": 1109,
+        "end": 1119
+      },
+      "attrs": {
+        "sequence": 10,
+        "value": {
+          "ref": "demo.ThingWidget#ThingWidget"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "web.core#action_registry:demo.thing_action@demo",
+      "line": 37,
+      "span": {
+        "start": 1048,
+        "end": 1065
       },
       "attrs": {
         "value": {
@@ -146,10 +162,10 @@
     {
       "kind": "js_registry",
       "qualname": "web.field_registry:thing@demo",
-      "line": 35,
+      "line": 36,
       "span": {
-        "start": 921,
-        "end": 926
+        "start": 969,
+        "end": 974
       },
       "attrs": {
         "value": {
@@ -160,10 +176,10 @@
     {
       "kind": "js_registry",
       "qualname": "web.field_registry:thing_list@demo",
-      "line": 35,
+      "line": 36,
       "span": {
-        "start": 947,
-        "end": 957
+        "start": 995,
+        "end": 1005
       },
       "attrs": {
         "value": {
@@ -174,10 +190,10 @@
     {
       "kind": "js_widget",
       "qualname": "demo.ThingWidget#ThingWidget",
-      "line": 12,
+      "line": 13,
       "span": {
-        "start": 356,
-        "end": 367
+        "start": 404,
+        "end": 415
       },
       "attrs": {
         "custom_events": {
@@ -194,10 +210,10 @@
         },
         "members": {
           "_onClick": {
-            "fn": "14df1c720c2d6dd2bc83a050824219a5"
+            "fn": "695c28685918a99983c74de20fb0411a"
           },
           "init": {
-            "fn": "99bf07caef1508e8898307bee3b179a1"
+            "fn": "3fbb3e611808174f0849ff38c2041c9f"
           }
         },
         "mixins": [
@@ -211,10 +227,10 @@
     {
       "kind": "js_widget",
       "qualname": "web.public.widget#registry.thingSnippet",
-      "line": 40,
+      "line": 42,
       "span": {
-        "start": 1106,
-        "end": 1118
+        "start": 1212,
+        "end": 1224
       },
       "attrs": {
         "extends": {
@@ -223,7 +239,7 @@
         "members": {
           "selector": ".o_thing_snippet",
           "start": {
-            "fn": "b395f03c86e73266704df2486f7c0c81"
+            "fn": "0f8b3ee6954e98efb60c6918f39af483"
           }
         }
       }

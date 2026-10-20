@@ -28,10 +28,10 @@
     {
       "kind": "js_component",
       "qualname": "@demo/views/component#InlineThing",
-      "line": 44,
+      "line": 15,
       "span": {
-        "start": 1274,
-        "end": 1285
+        "start": 499,
+        "end": 510
       },
       "attrs": {
         "extends": {
@@ -50,10 +50,10 @@
     {
       "kind": "js_component",
       "qualname": "@demo/views/component#ThingField",
-      "line": 15,
+      "line": 23,
       "span": {
-        "start": 499,
-        "end": 509
+        "start": 703,
+        "end": 713
       },
       "attrs": {
         "components": {
@@ -74,13 +74,13 @@
           "...standardFieldProps": {
             "ref": "@web/views/fields/standard_field_props#standardFieldProps"
           },
-          "canCreate": {
+          "allowNew": {
             "optional": true,
             "type": {
               "expr": "Boolean"
             }
           },
-          "placeholder": {
+          "hint": {
             "optional": true,
             "type": {
               "expr": "String"
@@ -90,10 +90,10 @@
         "static": {
           "SEARCH_LIMIT": 8,
           "defaultProps": {
-            "canCreate": true
+            "allowNew": true
           },
           "extractProps": {
-            "fn": "b049a0677e082d52ca46cbcc36cf9381"
+            "fn": "754fccb55aedbc1174b75c2f567f505c"
           }
         },
         "template": "demo.ThingField"
@@ -104,8 +104,8 @@
       "qualname": "@demo/views/component#ThingListField",
       "line": 52,
       "span": {
-        "start": 1478,
-        "end": 1492
+        "start": 1455,
+        "end": 1469
       },
       "attrs": {
         "extends": {
@@ -119,8 +119,8 @@
       "qualname": "@demo/views/component#Helper",
       "line": 56,
       "span": {
-        "start": 1575,
-        "end": 1581
+        "start": 1552,
+        "end": 1558
       },
       "attrs": {
         "kind": "class",
@@ -137,10 +137,10 @@
     {
       "kind": "js_export",
       "qualname": "@demo/views/component#InlineThing",
-      "line": 44,
+      "line": 15,
       "span": {
-        "start": 1274,
-        "end": 1285
+        "start": 499,
+        "end": 510
       },
       "attrs": {
         "extends": {
@@ -152,10 +152,10 @@
     {
       "kind": "js_export",
       "qualname": "@demo/views/component#ThingField",
-      "line": 15,
+      "line": 23,
       "span": {
-        "start": 499,
-        "end": 509
+        "start": 703,
+        "end": 713
       },
       "attrs": {
         "extends": {
@@ -164,13 +164,13 @@
         "kind": "class",
         "members": {
           "get displayName": {
-            "fn": "f57701ad7b63557b287ac5705786703f"
+            "fn": "2a90c5ae3e93a636dc49be6475ce7c54"
           },
           "onCreate": {
-            "fn": "f23075b11b6bdea0244f07532c51e840"
+            "fn": "c9477263faad97452a21d8a1261e7301"
           },
           "setup": {
-            "fn": "e43eae4f035d69deb83be4ab3e348d97"
+            "fn": "7a24615687f7dd99be5fb6af631c89e4"
           }
         }
       }
@@ -180,8 +180,8 @@
       "qualname": "@demo/views/component#ThingListField",
       "line": 52,
       "span": {
-        "start": 1478,
-        "end": 1492
+        "start": 1455,
+        "end": 1469
       },
       "attrs": {
         "extends": {

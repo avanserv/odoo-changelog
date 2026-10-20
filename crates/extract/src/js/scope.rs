@@ -28,7 +28,12 @@ pub(super) enum Binding {
     Global(String),
     /// A registry category, its path from the root registry.
     Category(Vec<String>),
+    /// A name an inner block, loop or `catch` declares, which names nothing the file exports.
+    Block,
 }
+
+/// The bindings block names hid, to put back when the block ends.
+pub(super) type Shadowed = Vec<(String, Option<Binding>)>;
 
 pub(super) struct Scope {
     /// `""` for an ES module, whose members the path names, or the `odoo.define` name.
@@ -86,9 +91,29 @@ impl Scope {
                 }
                 Binding::Local => Resolved::Ref(format!("{}#{}", self.prefix, joined(&name))),
                 Binding::Global(expr) => Resolved::Expr(joined(expr)),
-                Binding::Category(_) => return None,
+                Binding::Category(_) | Binding::Block => return None,
             },
         })
+    }
+
+    /// Binds `names` as block locals until `restore` gets the bindings this returns.
+    pub fn shadow(&mut self, names: Vec<String>) -> Shadowed {
+        names
+            .into_iter()
+            .map(|name| {
+                let previous = self.bindings.insert(name.clone(), Binding::Block);
+                (name, previous)
+            })
+            .collect()
+    }
+
+    pub fn restore(&mut self, saved: Shadowed) {
+        for (name, previous) in saved.into_iter().rev() {
+            match previous {
+                Some(binding) => self.bindings.insert(name, binding),
+                None => self.bindings.remove(&name),
+            };
+        }
     }
 
     /// The binding a declarator takes for a value that is an import, a require or a global, or
@@ -101,7 +126,7 @@ impl Scope {
                 namespace: false,
             },
             Root::Name(name) => match self.bindings.get(&name)? {
-                Binding::Local | Binding::Category(_) => return None,
+                Binding::Local | Binding::Category(_) | Binding::Block => return None,
                 b => b.clone(),
             },
         };
@@ -114,7 +139,8 @@ impl Scope {
     }
 
     /// The registry category `node` names: a bound category, or `registry.category(..)`, chained,
-    /// on the root registry. Legacy registries, required objects named like one, are the caller's.
+    /// on the root registry, an unbound `registry` or an imported one. Legacy registries are the
+    /// caller's to recognize.
     pub fn category(&self, node: Node, src: &[u8], label: impl Fn(Node) -> String) -> Option<Vec<String>> {
         let mut names = Vec::new();
         let mut n = node;
@@ -149,7 +175,7 @@ pub(super) fn member_of(base: &Binding, key: &str) -> Option<Binding> {
             path: format!("{path}.{key}"),
         },
         Binding::Global(expr) => Binding::Global(format!("{expr}.{key}")),
-        Binding::Local | Binding::Category(_) => return None,
+        Binding::Local | Binding::Category(_) | Binding::Block => return None,
     })
 }
 
