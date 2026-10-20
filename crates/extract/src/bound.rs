@@ -11,6 +11,12 @@ pub(crate) const MAX_TEXT: usize = 256;
 /// charging the budget before a symbol is built.
 pub(crate) const ENVELOPE: usize = 128;
 
+/// The bytes `text` takes as a JSON string, escapes included, for charging the budget before a
+/// symbol is built.
+pub(crate) fn json_len(text: &str) -> usize {
+    serde_json::to_string(text).map_or(usize::MAX, |json| json.len())
+}
+
 /// Warnings past this many are summed up in one by `warn_capped`.
 const MAX_WARNINGS: usize = 10;
 

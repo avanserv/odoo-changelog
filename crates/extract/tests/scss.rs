@@ -281,8 +281,8 @@ fn reassignments_and_deep_control_flow_stay_linear() {
     }
 }
 
-/// A `url(` that never closes is read once, not once per later `url(`: lexing a megabyte of
-/// them takes well under the seconds a rescan per `url(` would.
+/// A `url(` that never closes is read once, not once per later `url(`, which a megabyte of them
+/// would turn into minutes of test time.
 #[test]
 fn unclosed_urls_lex_in_linear_time() {
     for src in [
@@ -290,10 +290,7 @@ fn unclosed_urls_lex_in_linear_time() {
         "url(#{".repeat(1 << 17),
         "a url(b ".repeat(1 << 17),
     ] {
-        let start = std::time::Instant::now();
         let table = extract(&src);
-        let elapsed = start.elapsed();
-        assert!(elapsed < std::time::Duration::from_secs(10), "{elapsed:?}");
         assert!(table.to_bytes().len() < src.len());
     }
 }

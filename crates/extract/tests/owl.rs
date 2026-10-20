@@ -390,6 +390,15 @@ fn long_names_stay_linear() {
             false,
         ),
     ];
+    // JSON escapes a control character in 6 bytes and a quote in 2, in the owner and path every
+    // node repeats.
+    let escaped = |text: &str| {
+        let leaves: String = (0..100_000).map(|i| format!("<b name=\"{i}\"/>")).collect();
+        let (owner, ancestor) = (text.repeat(255), text.repeat(240));
+        let src = format!("<templates><t t-name=\"{owner}\"><g name=\"{ancestor}\">{leaves}</g></t></templates>");
+        (src, true)
+    };
+    let shapes = [shapes.to_vec(), vec![escaped("\u{1}"), escaped("&quot;")]].concat();
     for (src, budgeted) in shapes {
         let table = extract(&src);
         let size = table.to_bytes().len();

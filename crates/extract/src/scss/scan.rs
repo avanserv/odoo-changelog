@@ -113,8 +113,9 @@ fn string_end(src: &[u8], at: usize) -> (usize, bool) {
 }
 
 /// The end of an unquoted `url(...)` starting at `at`, if there is one there: the first `)`
-/// outside interpolation on its line. A scan that finds none moves `fail` to where it stopped,
-/// and a later `url(` before that point is no url either, so each byte is scanned once.
+/// outside interpolation on its line, an interpolation ending where the lexer ends it. A scan
+/// that finds none moves `fail` to where it stopped, and a later `url(` before that point is no
+/// url either, so each byte is scanned once.
 fn url_end(src: &[u8], at: usize, fail: &mut usize) -> Option<usize> {
     let head = src.get(at..at + 4)?;
     if !head.eq_ignore_ascii_case(b"url(") || (at > 0 && is_word_byte(src[at - 1])) {
@@ -124,20 +125,20 @@ fn url_end(src: &[u8], at: usize, fail: &mut usize) -> Option<usize> {
     if matches!(src.get(inner), Some(b'"' | b'\'')) || inner < *fail {
         return None;
     }
-    let (mut depth, mut j) = (0usize, inner);
+    let mut j = inner;
     while j < src.len() {
         match src[j] {
-            b'#' if src.get(j + 1) == Some(&b'{') => {
-                depth += 1;
-                j += 1;
-            }
-            b'{' if depth > 0 => depth += 1,
-            b'}' if depth > 0 => depth -= 1,
-            b')' if depth == 0 => return Some(j + 1),
+            b'#' if src.get(j + 1) == Some(&b'{') => match interpolation_close(src, j) {
+                Some(end) => j = end,
+                None => {
+                    j = src.len();
+                    break;
+                }
+            },
+            b')' => return Some(j + 1),
             b'\n' => break,
-            _ => {}
+            _ => j += 1,
         }
-        j += 1;
     }
     *fail = j;
     None
@@ -203,6 +204,14 @@ fn ends_word(src: &[u8], at: usize) -> bool {
 
 /// The end of the interpolation at `at`, its nested braces counted and its strings skipped.
 fn interpolation_end(src: &[u8], at: usize, lines: &Lines, warnings: &mut Warnings) -> usize {
+    interpolation_close(src, at).unwrap_or_else(|| {
+        warn(warnings, lines, at, "unclosed interpolation");
+        src.len()
+    })
+}
+
+/// `interpolation_end`, or `None` when the interpolation never closes.
+fn interpolation_close(src: &[u8], at: usize) -> Option<usize> {
     let (mut depth, mut j) = (1usize, at + 2);
     while j < src.len() {
         match src[j] {
@@ -210,7 +219,7 @@ fn interpolation_end(src: &[u8], at: usize, lines: &Lines, warnings: &mut Warnin
             b'}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return j + 1;
+                    return Some(j + 1);
                 }
             }
             b'"' | b'\'' => {
@@ -221,8 +230,7 @@ fn interpolation_end(src: &[u8], at: usize, lines: &Lines, warnings: &mut Warnin
         }
         j += 1;
     }
-    warn(warnings, lines, at, "unclosed interpolation");
-    src.len()
+    None
 }
 
 /// What the tokens make, as ranges of token indices.
@@ -416,6 +424,9 @@ mod tests {
                 (Kind::Word, "x"),
             ]
         );
+        let (tokens, warnings) = lexed("$a: url(#{\"{\"} url(http://x));");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(tokens[2], (Kind::Url, "url(#{\"{\"} url(http://x)".to_string()));
         let (tokens, _) = lexed("url(a\nb) url(c)");
         assert_eq!(tokens[0], (Kind::Word, "url".to_string()));
         assert_eq!(tokens.last().unwrap(), &(Kind::Url, "url(c)".to_string()));

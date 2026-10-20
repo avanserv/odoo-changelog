@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::bound::{Budget, ENVELOPE, bounded, warn_capped};
+use crate::bound::{Budget, ENVELOPE, bounded, json_len, warn_capped};
 use crate::path::{static_addon, static_file};
 use crate::xml::arch::{self, NamedNode, TEMPLATE_KEYS};
 use crate::xml::dom::{self, Attr, Element};
@@ -221,7 +221,7 @@ impl Reader {
                 merged.count += node.count;
             } else if self
                 .budget
-                .afford(name.len() + node.path.len() + ENVELOPE, node.line as usize)
+                .afford(json_len(&name) + json_len(&node.path) + ENVELOPE, node.line as usize)
             {
                 let merged = MergedNode {
                     count: node.count,

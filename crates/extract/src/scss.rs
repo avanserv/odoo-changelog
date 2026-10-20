@@ -10,7 +10,7 @@ use std::rc::Rc;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::bound::{Budget, ENVELOPE, bounded, warn_capped};
+use crate::bound::{Budget, ENVELOPE, bounded, json_len, warn_capped};
 use crate::hash::digest;
 use crate::path::{static_addon, static_file};
 use crate::{Extractor, Span, Symbol, SymbolTable};
@@ -257,7 +257,10 @@ impl Reader<'_> {
                 }
             }
             None => {
-                if self.budget.afford(entry_size + name.len() + ENVELOPE, name_token.start) {
+                if self
+                    .budget
+                    .afford(entry_size + json_len(&name) + ENVELOPE, name_token.start)
+                {
                     let span = Self::span(name_token);
                     let variable = Variable {
                         span,
