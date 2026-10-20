@@ -124,6 +124,13 @@ fn malformed_manifests_give_a_partial_table_and_a_warning() {
 }
 
 #[test]
+fn a_repeated_key_keeps_the_last_value_silently() {
+    let table = extract("{'a': 1, 'a': 2}");
+    assert_eq!(module(&table).attrs["a"], 2);
+    assert!(table.warnings().is_empty(), "{:?}", table.warnings());
+}
+
+#[test]
 fn empty_or_garbage_manifests_give_no_symbol() {
     for src in ["", "# nothing\n", "garbage ]]] {", "dict(name='x')"] {
         let table = extract(src);
@@ -255,7 +262,7 @@ fn exprs<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
 const DIRECTIVES: [&str; 7] = ["append", "prepend", "before", "after", "include", "remove", "replace"];
 
 /// Real manifests are all Python literals, but a set (`{'a'}`, once a bundle in error) has no
-/// JSON form and is the one literal kept as `{"expr"}`. A few repeat a key, which Python allows.
+/// JSON form and is the one literal kept as `{"expr"}`.
 #[test]
 #[ignore = "reads every Odoo clone in config/odoo-changelog.toml"]
 fn every_manifest_at_the_tips_reads_cleanly() {
@@ -283,10 +290,7 @@ fn every_manifest_at_the_tips_reads_cleanly() {
         for oid in &blobs {
             let blob = git(&clone, &["cat-file", "blob", oid]);
             let table = Manifest.extract(&blob).unwrap();
-            for warning in table.warnings() {
-                println!("{repo} {oid}: {warning}");
-                assert!(warning.contains(": duplicate key '"), "{repo} {oid}: {warning}");
-            }
+            assert!(table.warnings().is_empty(), "{repo} {oid}: {:?}", table.warnings());
             let attrs = Value::from_iter(module(&table).attrs.clone());
             let mut found = Vec::new();
             exprs(&attrs, &mut found);

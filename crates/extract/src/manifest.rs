@@ -8,7 +8,7 @@ use serde_json::Value;
 use tree_sitter::Node;
 
 use crate::python::value::{canonical, value};
-use crate::python::{parse, syntax_warnings};
+use crate::python::{named_with_errors, parse, syntax_warnings};
 use crate::{Extractor, Span, Symbol, SymbolTable};
 
 const MODULE: &str = "module";
@@ -82,24 +82,15 @@ impl Extractor for Manifest {
     }
 }
 
-/// Named children without comments. Unlike `python::named`, ERROR nodes stay even when
-/// tree-sitter marks them extra, as it does an unclosed dictionary.
-fn children(node: Node) -> Vec<Node> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .filter(|n| !n.is_extra() || n.is_error())
-        .collect()
-}
-
 /// The first top-level dictionary, closed or not, and the statements around it. Statements
 /// inside an ERROR node are left out: the syntax warning already covers them.
 fn top_level(root: Node) -> (Option<Node>, Vec<Node>) {
     let (mut dict, mut ignored) = (None, Vec::new());
-    let mut todo: Vec<(Node, bool)> = children(root).into_iter().rev().map(|n| (n, false)).collect();
+    let mut todo: Vec<(Node, bool)> = named_with_errors(root).into_iter().rev().map(|n| (n, false)).collect();
     while let Some((node, in_error)) = todo.pop() {
         match dictionary(node) {
             Some(d) if dict.is_none() => dict = Some(d),
-            None if node.is_error() => todo.extend(children(node).into_iter().rev().map(|n| (n, true))),
+            None if node.is_error() => todo.extend(named_with_errors(node).into_iter().rev().map(|n| (n, true))),
             _ if !in_error => ignored.push(node),
             _ => {}
         }
@@ -113,7 +104,7 @@ fn dictionary(mut node: Node) -> Option<Node> {
     loop {
         match node.kind() {
             "dictionary" => return Some(node),
-            "expression_statement" | "parenthesized_expression" => match children(node)[..] {
+            "expression_statement" | "parenthesized_expression" => match named_with_errors(node)[..] {
                 [only] => node = only,
                 _ => return None,
             },
@@ -127,12 +118,12 @@ fn dictionary(mut node: Node) -> Option<Node> {
 /// that are no pair are skipped without a warning of their own.
 fn attrs(dict: Node, src: &[u8], warnings: &mut Vec<(usize, String)>) -> BTreeMap<String, Value> {
     let mut attrs = BTreeMap::new();
-    let mut todo: Vec<(Node, bool)> = children(dict).into_iter().rev().map(|n| (n, false)).collect();
+    let mut todo: Vec<(Node, bool)> = named_with_errors(dict).into_iter().rev().map(|n| (n, false)).collect();
     while let Some((entry, in_error)) = todo.pop() {
         let line = entry.start_position().row + 1;
         let mut warn = |warning: String| warnings.push((entry.start_byte(), format!("line {line}: {warning}")));
         if entry.is_error() {
-            todo.extend(children(entry).into_iter().rev().map(|n| (n, true)));
+            todo.extend(named_with_errors(entry).into_iter().rev().map(|n| (n, true)));
             continue;
         }
         let pair = (entry.kind() == "pair")
@@ -149,9 +140,7 @@ fn attrs(dict: Node, src: &[u8], warnings: &mut Vec<(usize, String)>) -> BTreeMa
         }
         match value(key, src) {
             Value::String(key) => {
-                if attrs.insert(key.clone(), value(val, src)).is_some() {
-                    warn(format!("duplicate key '{key}'; the last one wins"));
-                }
+                attrs.insert(key, value(val, src));
             }
             _ if in_error => {}
             _ => warn(format!("key {} is not a string; ignored", canonical(key, src))),

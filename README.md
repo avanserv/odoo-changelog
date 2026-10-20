@@ -92,8 +92,8 @@ literal and never run, as Odoo reads it. Every key is kept as written, without O
 and values follow the literal rules above: lists keep their order, so asset entries keep their
 order within a bundle and a directive such as `('include', 'web._assets_helpers')` is an array;
 dict keys are sorted; anything JSON cannot hold as a literal, a set among them, is kept as
-`{"expr": "<source>"}`. A manifest with a syntax error keeps the keys that parse, and one that
-repeats a key keeps the last, as Python does; both leave a warning.
+`{"expr": "<source>"}`. A repeated key keeps its last value, as in Python. A manifest with a
+syntax error keeps the keys that parse and leaves a warning.
 
 On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) with both extractors
 takes 123 s with an empty cache and 31 s with a warm one (2026-10-20).
