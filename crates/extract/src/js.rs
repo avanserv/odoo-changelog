@@ -16,11 +16,12 @@ use anyhow::Result;
 use serde_json::Value;
 use tree_sitter::Node;
 
+use crate::bound::{Budget, bounded};
 use crate::syntax::{self, Visit, Visitor, named, statements, text, visit};
 use crate::{Extractor, Span, Symbol, SymbolTable};
 use hash::fn_hash;
 use path::{Header, qualify_ref};
-use scope::{Binding, Resolved, Scope, Shadowed, bounded, method_call, require};
+use scope::{Binding, Resolved, Scope, Shadowed, method_call, require};
 use value::{canonical, is_empty_object, key_text, method_key, object, single, string_value, tagless, value};
 
 const MODULE: &str = "js_module";
@@ -65,7 +66,7 @@ impl Extractor for Js {
     fn extract(&self, blob: &[u8]) -> Result<SymbolTable> {
         let tree = syntax::parse(blob, &tree_sitter_javascript::LANGUAGE.into())?;
         let root = tree.root_node();
-        let budget = OUTPUT_PER_BYTE * blob.len() + OUTPUT_SLACK;
+        let budget = Budget::new(blob, OUTPUT_PER_BYTE, OUTPUT_SLACK);
         let mut reader = Reader::new(blob, budget, syntax::syntax_warnings(root, |_| None));
         reader.program(root);
         Ok(reader.finish())
@@ -234,10 +235,8 @@ struct Reader<'t> {
     exports: BTreeMap<String, String>,
     /// The scope declarations already read as a service, by reference, for the same reason.
     services: BTreeSet<String>,
-    /// Bytes of serialized symbols the file may still give, and once they run out, how many
-    /// symbols were dropped and the offset of the first, in the order the reader gives them.
-    budget: usize,
-    dropped: Option<(usize, usize)>,
+    /// Spent in the order the reader gives symbols.
+    budget: Budget,
     /// How many duplicates were dropped, and the offset of the first one past those that warn.
     duplicates: usize,
     more_duplicates_at: Option<usize>,
@@ -248,7 +247,7 @@ struct Reader<'t> {
 }
 
 impl<'t> Reader<'t> {
-    fn new(src: &'t [u8], budget: usize, warnings: Vec<(usize, String)>) -> Self {
+    fn new(src: &'t [u8], budget: Budget, warnings: Vec<(usize, String)>) -> Self {
         Reader {
             src,
             table: SymbolTable::default(),
@@ -257,30 +256,9 @@ impl<'t> Reader<'t> {
             exports: BTreeMap::new(),
             services: BTreeSet::new(),
             budget,
-            dropped: None,
             duplicates: 0,
             more_duplicates_at: None,
             warnings,
-        }
-    }
-
-    /// Spends `symbol`'s serialized size from the budget, or counts it dropped once the budget
-    /// ran out, after which every later symbol is dropped too.
-    fn afford(&mut self, symbol: &Symbol) -> bool {
-        if let Some((count, _)) = &mut self.dropped {
-            *count += 1;
-            return false;
-        }
-        let size = serde_json::to_vec(symbol).map_or(usize::MAX, |b| b.len());
-        match self.budget.checked_sub(size) {
-            Some(left) => {
-                self.budget = left;
-                true
-            }
-            None => {
-                self.dropped = Some((1, symbol.span.start as usize));
-                false
-            }
         }
     }
 
@@ -322,7 +300,7 @@ impl<'t> Reader<'t> {
             } else {
                 self.more_duplicates_at.get_or_insert(symbol.span.start as usize);
             }
-        } else if self.afford(&symbol) {
+        } else if self.budget.symbol(&symbol) {
             self.table.insert(symbol);
         }
     }
@@ -661,7 +639,7 @@ impl<'t> Reader<'t> {
         }
         let name = format!("{category}:{}", self.label(key));
         let entry = symbol(REGISTRY, name.clone(), key, attrs);
-        if self.afford(&entry) {
+        if self.budget.symbol(&entry) {
             self.registry.insert(name, entry);
         }
     }
@@ -1269,10 +1247,7 @@ impl<'t> Reader<'t> {
             let more = self.duplicates - MAX_DUPLICATE_WARNINGS;
             self.warnings.push((at, format!("{more} more duplicates")));
         }
-        if let Some((count, at)) = self.dropped {
-            let warning = format!("output budget exceeded; {count} symbols dropped");
-            self.warnings.push((at, warning));
-        }
+        self.warnings.extend(self.budget.warning("symbols"));
         self.warnings.sort_by_key(|(at, _)| *at);
         for (_, warning) in self.warnings {
             self.table.warn(warning);
@@ -1391,7 +1366,7 @@ mod tests {
                 .len()
         };
         let tree = syntax::parse(src, &tree_sitter_javascript::LANGUAGE.into()).unwrap();
-        let mut reader = Reader::new(src, size("") + size("a:one"), Vec::new());
+        let mut reader = Reader::new(src, Budget::new(b"", 0, size("") + size("a:one")), Vec::new());
         reader.program(tree.root_node());
         let table = reader.finish();
         let names: Vec<&str> = table.iter().map(|s| s.name.as_str()).collect();

@@ -2,6 +2,7 @@
 //! or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
 
 mod access_csv;
+mod bound;
 mod data;
 mod delta;
 mod hash;

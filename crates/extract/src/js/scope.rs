@@ -6,32 +6,13 @@ use std::collections::BTreeMap;
 use tree_sitter::Node;
 
 use super::value::string_value;
-use crate::hash::digest;
+use crate::bound::{MAX_TEXT, bounded};
 use crate::syntax::{named, text};
 
-/// The most `.member` segments a reference or a category path is read through, and the most
-/// bytes of text a binding, a scope or a reference holds: a reference is read through a longer
-/// chain as an expression, and a longer text is stored as `bounded` makes it. A symbol repeats
-/// such text, so the bound keeps one file's output linear in its size.
+/// The most `.member` segments a reference or a category path is read through: a reference is
+/// read through a longer chain as an expression. A binding, a scope or a reference holds at most
+/// `MAX_TEXT` bytes of text, and a longer text is stored as `bounded` makes it.
 pub(super) const MAX_SEGMENTS: usize = 64;
-pub(super) const MAX_TEXT: usize = 256;
-
-/// `text`, or past `MAX_TEXT` bytes `~<hash>` of it followed by its last `#`, `.` or `/`
-/// segment when that is short, for name text a symbol may repeat. The segment keeps what a
-/// name ends with, such as `.registry` or `#patch`, which the reader recognizes names by.
-pub(super) fn bounded(text: String) -> String {
-    if text.len() <= MAX_TEXT {
-        return text;
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(text.as_bytes());
-    let tail = text.rfind(['#', '.', '/']).map_or("", |at| &text[at..]);
-    let tail = if tail.len() <= MAX_TAIL { tail } else { "" };
-    format!("~{}{tail}", digest(&hasher))
-}
-
-/// The longest last segment `bounded` keeps.
-const MAX_TAIL: usize = 64;
 
 /// A reference's target, `<module>#<member path>` or `<module>`, or the canonical text of a
 /// global's member, which no module names.
