@@ -83,15 +83,29 @@ fn config(dir: &Path, name: &str, clone: &Path, extra: &str) -> PathBuf {
     path
 }
 
-/// Upstream with 16.0 and 17.0 forked from master and a forward-port merge, cloned to `clone`.
-fn setup(name: &str) -> (PathBuf, Fixture, PathBuf) {
+fn rev_parse(repo: &Path, rev: &str) -> String {
+    let out = Command::new("git")
+        .args(["rev-parse", rev])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+/// An empty upstream repository in a fresh `name` directory.
+fn init(name: &str) -> (PathBuf, Fixture) {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
     let upstream = dir.join("upstream");
     std::fs::create_dir_all(&upstream).unwrap();
-    let mut fx = Fixture { upstream, clock: 0 };
+    let fx = Fixture { upstream, clock: 0 };
     fx.git(&["init", "-q"]);
+    (dir, fx)
+}
 
+/// Upstream with 16.0 and 17.0 forked from master and a forward-port merge, cloned to `clone`.
+fn setup(name: &str) -> (PathBuf, Fixture, PathBuf) {
+    let (dir, mut fx) = init(name);
     fx.commit("odoo/release.py", "[ADD] base: version_info = (15, 5)");
     fx.commit("addons/sale/models.py", "[IMP] sale: order lines");
     fx.git(&["checkout", "-q", "-b", "16.0"]);
@@ -136,6 +150,18 @@ fn dump(db: &Path) -> Vec<String> {
         out.extend(rows.map(Result::unwrap));
     }
     out
+}
+
+/// `(name, fork_source, fork_sha)` of every version, in release order.
+fn forks(db: &Path) -> Vec<(String, String, String)> {
+    let conn = Connection::open(db).unwrap();
+    let mut stmt = conn
+        .prepare("SELECT name, fork_source, fork_sha FROM versions ORDER BY ord")
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
 }
 
 #[test]
@@ -186,17 +212,12 @@ fn moved_fork_asks_for_rebuild() {
         .current_dir(&clone)
         .output()
         .unwrap();
-    let root = String::from_utf8(root.stdout).unwrap();
+    let root = String::from_utf8(root.stdout).unwrap().trim().to_string();
     // 17.0 pinned to 16.0's fork moves that branch's walk range but not master's base.
-    let fork_16 = Command::new("git")
-        .args(["rev-parse", "origin/16.0~1"])
-        .current_dir(&clone)
-        .output()
-        .unwrap();
-    let fork_16 = String::from_utf8(fork_16.stdout).unwrap();
+    let fork_16 = rev_parse(&clone, "origin/16.0~1");
     for (version, sha, expected) in [
-        ("16.0", root.trim(), "master's oldest fork moved"),
-        ("17.0", fork_16.trim(), "fork of 17.0 moved"),
+        ("16.0", root.as_str(), "master's oldest fork moved"),
+        ("17.0", fork_16.as_str(), "fork of 17.0 moved"),
     ] {
         let cfg = config(
             &dir,
@@ -214,4 +235,57 @@ fn moved_fork_asks_for_rebuild() {
             "the failed walk wrote to the database"
         );
     }
+}
+
+#[test]
+fn shallow_oldest_branch_uses_release_file() {
+    let (dir, mut fx) = init("shallow");
+    fx.commit("odoo/release.py", "version_info = (15, 5)");
+    fx.commit("addons/sale/models.py", "[IMP] sale: order lines");
+    let fork_16 = rev_parse(&fx.upstream, "HEAD");
+    fx.git(&["checkout", "-q", "-b", "16.0"]);
+    for i in 1..=5 {
+        fx.commit("addons/sale/models.py", &format!("[FIX] sale: rounding {i}"));
+    }
+    fx.git(&["checkout", "-q", "master"]);
+    fx.commit("odoo/release.py", "version_info = (16, 1)");
+    fx.commit("addons/stock/models.py", "[IMP] stock: moves");
+    fx.git(&["checkout", "-q", "-b", "17.0"]);
+    fx.commit("addons/stock/models.py", "[FIX] stock: quants");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.commit("odoo/release.py", "version_info = (17, 1)");
+    fx.commit("addons/account/models.py", "[IMP] account: moves");
+
+    // Depth 5 keeps 16.0's five commits but cuts the oldest from its fork, which master reaches.
+    let upstream = format!("file://{}", fx.upstream.display());
+    let args = ["clone", "-q", "--depth", "5", "--no-single-branch", &upstream, "clone"];
+    git(&dir, &args, 0);
+    let cfg = config(&dir, "walk", &dir.join("clone"), "release_file = \"odoo/release.py\"\n");
+    walk(&cfg);
+
+    let forks = forks(&dir.join("walk.db"));
+    assert_eq!(forks[0], ("16.0".into(), "release-file".into(), fork_16));
+    assert_eq!(forks[1].1, "first-parent");
+}
+
+#[test]
+fn full_clone_unrelated_branch() {
+    let (dir, mut fx) = init("unrelated");
+    fx.commit("odoo/release.py", "version_info = (15, 5)");
+    fx.git(&["checkout", "-q", "--orphan", "16.0"]);
+    fx.commit("theme/models.py", "[ADD] theme: first");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.commit("odoo/release.py", "version_info = (16, 1)");
+    fx.git(&["checkout", "-q", "-b", "17.0"]);
+    fx.commit("addons/stock/models.py", "[FIX] stock: quants");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.commit("odoo/release.py", "version_info = (17, 1)");
+
+    git(&dir, &["clone", "-q", "upstream", "clone"], 0);
+    let cfg = config(&dir, "walk", &dir.join("clone"), "release_file = \"odoo/release.py\"\n");
+    walk(&cfg);
+
+    let forks = forks(&dir.join("walk.db"));
+    assert_eq!(forks[0], ("16.0".into(), "unrelated".into(), String::new()));
+    assert_eq!(forks[1].1, "first-parent");
 }

@@ -4,7 +4,8 @@
 //! fork. `git merge-base` is not usable: until 13.0 stable branches were merged forward into
 //! master, so the merge-base is the last merged stable commit. On a shallow clone the chain can
 //! stop before the fork; the community repo then falls back to master's `release.py`, which
-//! bumps `version_info` to the next series right after a fork.
+//! bumps `version_info` to the next series right after a fork. The fallback searches master's
+//! whole chain, so an old branch it resolves moves master's base back.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -60,50 +61,49 @@ pub fn parse_version_info(text: &str) -> Option<(u32, u32)> {
 /// first-parent chain starting at the oldest fork found.
 pub fn resolve_forks(repo: &Repo, rc: &RepoConfig, cfg: &Config) -> Result<(Vec<Fork>, Vec<ObjectId>)> {
     let first = Version::parse_branch(&cfg.first_version).ok_or_else(|| anyhow!("bad first_version"))?;
+    let shallow = repo.is_shallow()?;
     let master = repo.master_head()?;
     let branches = repo.version_branches(first)?;
     let full_chain = repo.first_parent_chain(master, None)?;
     let full_index: HashMap<ObjectId, usize> = full_chain.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+    let mut release_cache = None;
     let mut found = Vec::new();
     for (version, head) in &branches {
-        let f = match cfg.fork_override(&repo.name, &version.branch()) {
+        let mut f = match cfg.fork_override(&repo.name, &version.branch()) {
             Some(sha) => Some((ObjectId::from_hex(sha.as_bytes())?, ForkSource::Override)),
             None => repo
                 .first_parent_meeting(*head, &full_index)?
                 .map(|id| (id, ForkSource::FirstParent)),
         };
-        found.push(f);
-    }
-    let Some(base_pos) = found.iter().position(Option::is_some) else {
-        return Err(anyhow!("{}: no version branch shares history with master", repo.name));
-    };
-    let base = found[base_pos].unwrap().0;
-    let offset = *full_index
-        .get(&base)
-        .ok_or_else(|| anyhow!("{}: fork {base} is not on master", repo.name))?;
-    let chain = full_chain[offset..].to_vec();
-    let index: HashMap<ObjectId, usize> = chain.iter().enumerate().map(|(i, id)| (*id, i)).collect();
-
-    let mut release_cache = None;
-    let mut forks = Vec::new();
-    for (pos, ((version, head), f)) in branches.into_iter().zip(found).enumerate() {
-        let f = match (f, &rc.release_file) {
-            (Some(f), _) => Some(f),
-            (None, Some(file)) if pos > base_pos => {
-                let releases = release_cache.get_or_insert_with(|| release_series(repo, &chain, file));
-                let releases = releases.as_ref().map_err(|e| anyhow!("{e}"))?;
-                fork_from_releases(&chain, releases, version).map(|f| (f, ForkSource::ReleaseFile))
-            }
-            _ => None,
-        };
-        let fork = match f {
+        if let (None, true, Some(file)) = (f, shallow, &rc.release_file) {
+            let releases = release_cache.get_or_insert_with(|| release_series(repo, &full_chain, file));
+            let releases = releases.as_ref().map_err(|e| anyhow!("{e}"))?;
+            f = fork_from_releases(&full_chain, releases, *version).map(|f| (f, ForkSource::ReleaseFile));
+        }
+        found.push(match f {
             Some((fork, source)) => {
-                let fp = *index.get(&fork).ok_or_else(|| {
+                let fp = *full_index.get(&fork).ok_or_else(|| {
                     anyhow!(
                         "{}: fork of {version} ({fork}) is not on master's first-parent chain",
                         repo.name
                     )
                 })?;
+                Some((fork, fp, source))
+            }
+            None => None,
+        });
+    }
+    let Some(base_pos) = found.iter().position(Option::is_some) else {
+        return Err(anyhow!("{}: no version branch shares history with master", repo.name));
+    };
+    let offset = found.iter().flatten().map(|(_, fp, _)| *fp).min().unwrap_or_default();
+    let chain = full_chain[offset..].to_vec();
+
+    let mut forks = Vec::new();
+    for (pos, ((version, head), f)) in branches.into_iter().zip(found).enumerate() {
+        let fork = match f {
+            Some((fork, fp, source)) => {
+                let fp = fp - offset;
                 info!(
                     "{}: {version} forked at {} (fp {fp}, {})",
                     repo.name,
@@ -118,7 +118,8 @@ pub fn resolve_forks(repo: &Repo, rc: &RepoConfig, cfg: &Config) -> Result<(Vec<
                     source,
                 }
             }
-            None if pos < base_pos => {
+            // In a shallow clone a chain that never meets master may just stop before its fork.
+            None if !shallow && pos < base_pos => {
                 info!(
                     "{}: {version} shares no history with master; walked standalone",
                     repo.name
@@ -184,6 +185,35 @@ fn fork_from_releases(chain: &[ObjectId], releases: &[(usize, (u32, u32))], vers
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn chain(n: u8) -> Vec<ObjectId> {
+        (0..n).map(|i| ObjectId::from_bytes_or_panic(&[i; 20])).collect()
+    }
+
+    #[test]
+    fn fork_is_parent_of_series_entry() {
+        let chain = chain(6);
+        let v16 = Version { major: 16, minor: 0 };
+        let releases = [(0, (15, 5)), (3, (16, 1)), (5, (16, 2))];
+        assert_eq!(fork_from_releases(&chain, &releases, v16), Some(chain[2]));
+    }
+
+    #[test]
+    fn reverted_series_takes_last_entry() {
+        // 16.1 announced, reverted to 15.5, then announced again when 16.0 really forked.
+        let chain = chain(10);
+        let v16 = Version { major: 16, minor: 0 };
+        let releases = [(0, (15, 5)), (3, (16, 1)), (5, (15, 5)), (8, (16, 1))];
+        assert_eq!(fork_from_releases(&chain, &releases, v16), Some(chain[7]));
+    }
+
+    #[test]
+    fn series_not_entered_on_chain() {
+        let chain = chain(4);
+        let v16 = Version { major: 16, minor: 0 };
+        assert_eq!(fork_from_releases(&chain, &[(0, (16, 1)), (2, (16, 2))], v16), None);
+        assert_eq!(fork_from_releases(&chain, &[(0, (15, 5)), (2, (15, 6))], v16), None);
+    }
 
     #[test]
     fn version_info_formats() {
