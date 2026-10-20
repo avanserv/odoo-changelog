@@ -157,6 +157,8 @@ fn python2_and_syntax_errors_give_a_partial_table_and_a_warning() {
     for (file, before, after) in [
         ("python2.py", "demo.legacy#name", "demo.legacy#after"),
         ("syntax_error.py", "demo.broken#first", "demo.after#after"),
+        ("error_region.py", "before", "after"),
+        ("error_region_class.py", "demo.pond#depth", "demo.pond#drain"),
     ] {
         let table = Python.extract(&std::fs::read(dir.join(file)).unwrap()).unwrap();
         assert!(!table.warnings().is_empty(), "{file}");

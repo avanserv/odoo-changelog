@@ -1,0 +1,33 @@
+{
+  "symbols": [
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.models.error_region.after",
+      "line": 7,
+      "span": {
+        "start": 44,
+        "end": 49
+      },
+      "attrs": {
+        "body": "404314408dfc4f90c86637d1fda6dfbf",
+        "signature": []
+      }
+    },
+    {
+      "kind": "function",
+      "qualname": "odoo.addons.demo.models.error_region.before",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 10
+      },
+      "attrs": {
+        "body": "404314408dfc4f90c86637d1fda6dfbf",
+        "signature": []
+      }
+    }
+  ],
+  "warnings": [
+    "line 1: syntax error"
+  ]
+}

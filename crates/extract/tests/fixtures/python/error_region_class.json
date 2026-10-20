@@ -1,0 +1,50 @@
+{
+  "symbols": [
+    {
+      "kind": "field",
+      "qualname": "demo.pond#depth@demo",
+      "line": 6,
+      "span": {
+        "start": 88,
+        "end": 93
+      },
+      "attrs": {
+        "type": "Float"
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.pond#drain@demo",
+      "line": 8,
+      "span": {
+        "start": 120,
+        "end": 125
+      },
+      "attrs": {
+        "body": "0441cb3e81f1724d8f16d5d14359fb09",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.pond@demo",
+      "line": 5,
+      "span": {
+        "start": 73,
+        "end": 82
+      },
+      "attrs": {
+        "_name": "demo.pond",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Pond"
+      }
+    }
+  ],
+  "warnings": [
+    "line 1: syntax error"
+  ]
+}

@@ -198,15 +198,24 @@ fn named(node: Node) -> Vec<Node> {
     node.named_children(&mut cursor).filter(|n| !n.is_extra()).collect()
 }
 
+/// Named children without comments, keeping the ERROR nodes tree-sitter marks extra, as it does
+/// most ERROR nodes at module and class level.
+pub(crate) fn named_with_errors(node: Node) -> Vec<Node> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|n| !n.is_extra() || n.is_error())
+        .collect()
+}
+
 /// The statements of a module or block in order, those inside ERROR nodes included, so that the
 /// definitions around a syntax error survive it.
 fn statements(block: Node) -> Vec<Node> {
     let mut out = Vec::new();
-    let mut todo = named(block);
+    let mut todo = named_with_errors(block);
     todo.reverse();
     while let Some(n) = todo.pop() {
         if n.is_error() {
-            todo.extend(named(n).into_iter().rev());
+            todo.extend(named_with_errors(n).into_iter().rev());
         } else {
             out.push(n);
         }
@@ -474,7 +483,14 @@ impl<'t> Reader<'t> {
             return;
         };
         let class = self.text(name).into_owned();
-        let body = node.child_by_field_name("body").map(statements).unwrap_or_default();
+        // tree-sitter puts the statements before a syntax error in a class body in an ERROR child
+        // of the class, ahead of `body`.
+        let mut body: Vec<Node<'t>> = named_with_errors(node)
+            .into_iter()
+            .filter(|n| n.is_error())
+            .flat_map(statements)
+            .collect();
+        body.extend(node.child_by_field_name("body").map(statements).unwrap_or_default());
         let bases: Vec<Value> = node
             .child_by_field_name("superclasses")
             .map(named)
