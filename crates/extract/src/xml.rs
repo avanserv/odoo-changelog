@@ -396,18 +396,10 @@ fn put(out: &mut BTreeMap<String, Value>, key: &str, value: Option<Value>) {
 fn view_arch(out: &mut BTreeMap<String, Value>, arch: &[Node], inheriting: bool) -> Vec<arch::NamedNode> {
     out.insert("arch".into(), arch::hash(arch).into());
     if !inheriting {
-        return arch::named_nodes(arch);
+        return arch::named_nodes(arch, arch::VIEW_KEYS);
     }
-    let (specs, nodes) = arch::specs(arch);
-    let specs = specs.into_iter().map(|s| {
-        let mut spec = BTreeMap::new();
-        put(&mut spec, "expr", s.expr.map(Value::from));
-        put(&mut spec, "target", s.target.map(Value::from));
-        spec.insert("position".into(), s.position.into());
-        put(&mut spec, "mode", s.mode.map(Value::from));
-        Value::from_iter(spec)
-    });
-    out.insert("specs".into(), specs.collect());
+    let (specs, nodes) = arch::specs(arch, arch::VIEW_KEYS);
+    out.insert("specs".into(), arch::specs_value(specs));
     nodes
 }
 

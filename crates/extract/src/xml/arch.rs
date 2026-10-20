@@ -1,14 +1,16 @@
-//! What a view's arch offers to others: its named nodes, the inheritance specs it applies in
-//! order, and a hash that layout leaves alone.
+//! What a view's arch or a client template offers to others: its named nodes, the inheritance
+//! specs it applies in order, and a hash that layout leaves alone. `data` and `owl` share it.
 
 use std::collections::{BTreeMap, VecDeque};
+
+use serde_json::Value;
 
 use super::dom::{Element, Node, elements};
 use crate::Span;
 use crate::hash::digest;
 
-/// The attributes that name a node, in key order.
-const NAMING: [&str; 3] = ["name", "id", "t-name"];
+/// The attributes that name an element of a data view's arch, in key order.
+pub(crate) const VIEW_KEYS: &[&str] = &["name", "id", "t-name"];
 
 /// One distinct `tag[@attr='value']` of an arch.
 pub(crate) struct NamedNode {
@@ -44,10 +46,10 @@ fn predicate(attr: &str, value: &str) -> String {
     format!("[@{attr}={quote}{value}{quote}]")
 }
 
-/// Every element of a full arch named by `name`, `id` or `t-name`, one per distinct key, in
-/// order of first occurrence.
-pub(crate) fn named_nodes(arch: &[Node]) -> Vec<NamedNode> {
-    let mut nodes = Nodes::default();
+/// Every element of a full arch named by one of `keys`, one per distinct key, in order of first
+/// occurrence.
+pub(crate) fn named_nodes(arch: &[Node], keys: &[&str]) -> Vec<NamedNode> {
+    let mut nodes = Nodes::new(keys);
     for element in elements(arch) {
         nodes.walk(element, &mut Vec::new());
     }
@@ -57,9 +59,9 @@ pub(crate) fn named_nodes(arch: &[Node]) -> Vec<NamedNode> {
 /// The specs of an inheriting arch in the order Odoo applies them, which puts the content of a
 /// `data` spec after the specs already queued, and the named nodes their content adds. A
 /// `position="move"` child of a spec is a spec of its own, listed after it.
-pub(crate) fn specs(arch: &[Node]) -> (Vec<Spec>, Vec<NamedNode>) {
+pub(crate) fn specs(arch: &[Node], keys: &[&str]) -> (Vec<Spec>, Vec<NamedNode>) {
     let mut queue: VecDeque<&Element> = elements(arch).collect();
-    let (mut specs, mut nodes) = (Vec::new(), Nodes::default());
+    let (mut specs, mut nodes) = (Vec::new(), Nodes::new(keys));
     while let Some(element) = queue.pop_front() {
         if element.tag == "data" {
             queue.extend(element.elements());
@@ -111,15 +113,39 @@ fn spec(element: &Element) -> Spec {
     }
 }
 
-#[derive(Default)]
-struct Nodes {
+/// `specs` as attrs hold them: `{"expr"|"target", "position", "mode"?}` each, in order.
+pub(crate) fn specs_value(specs: Vec<Spec>) -> Value {
+    let specs = specs.into_iter().map(|s| {
+        let mut spec = BTreeMap::new();
+        spec.insert("position", Value::from(s.position));
+        for (key, value) in [("expr", s.expr), ("target", s.target), ("mode", s.mode)] {
+            if let Some(value) = value {
+                spec.insert(key, value.into());
+            }
+        }
+        Value::from_iter(spec)
+    });
+    specs.collect()
+}
+
+struct Nodes<'k> {
+    keys: &'k [&'k str],
     out: Vec<NamedNode>,
     index: BTreeMap<String, usize>,
 }
 
-impl Nodes {
+impl<'k> Nodes<'k> {
+    fn new(keys: &'k [&'k str]) -> Self {
+        Nodes {
+            keys,
+            out: Vec::new(),
+            index: BTreeMap::new(),
+        }
+    }
+
     fn walk(&mut self, element: &Element, path: &mut Vec<String>) {
-        let keys: Vec<_> = NAMING
+        let keys: Vec<_> = self
+            .keys
             .iter()
             .filter_map(|name| element.attr_node(name))
             .map(|a| (node_key(&element.tag, &a.name, &a.value), a))
@@ -166,22 +192,7 @@ pub(crate) fn hash(arch: &[Node]) -> String {
 pub(crate) fn feed(hasher: &mut blake3::Hasher, nodes: &[Node]) {
     for node in nodes {
         match node {
-            Node::Element(element) => {
-                hasher.update(&[0x01]);
-                hasher.update(element.tag.as_bytes());
-                hasher.update(&[0x00]);
-                let mut attrs: Vec<_> = element.attrs.iter().collect();
-                attrs.sort_by(|a, b| a.name.cmp(&b.name));
-                for attr in attrs {
-                    hasher.update(attr.name.as_bytes());
-                    hasher.update(&[0x02]);
-                    hasher.update(collapse(&attr.value).as_bytes());
-                    hasher.update(&[0x00]);
-                }
-                hasher.update(&[0x03]);
-                feed(hasher, &element.children);
-                hasher.update(&[0x04]);
-            }
+            Node::Element(element) => feed_element(hasher, element),
             Node::Text(text) => {
                 let text = collapse(text);
                 if !text.is_empty() {
@@ -192,6 +203,23 @@ pub(crate) fn feed(hasher: &mut blake3::Hasher, nodes: &[Node]) {
             }
         }
     }
+}
+
+fn feed_element(hasher: &mut blake3::Hasher, element: &Element) {
+    hasher.update(&[0x01]);
+    hasher.update(element.tag.as_bytes());
+    hasher.update(&[0x00]);
+    let mut attrs: Vec<_> = element.attrs.iter().collect();
+    attrs.sort_by(|a, b| a.name.cmp(&b.name));
+    for attr in attrs {
+        hasher.update(attr.name.as_bytes());
+        hasher.update(&[0x02]);
+        hasher.update(collapse(&attr.value).as_bytes());
+        hasher.update(&[0x00]);
+    }
+    hasher.update(&[0x03]);
+    feed(hasher, &element.children);
+    hasher.update(&[0x04]);
 }
 
 /// XML whitespace runs as one space, trimmed.
@@ -250,7 +278,7 @@ mod tests {
                 <t t-name="tpl"><div id="x"/></t>
             </sheet>
         </form>"#;
-        let nodes = named_nodes(&arch(src));
+        let nodes = named_nodes(&arch(src), VIEW_KEYS);
         assert_eq!(
             keys(&nodes),
             [
@@ -284,7 +312,7 @@ mod tests {
             <xpath expr="//group" position="replace" mode="inner"/>
             <page name="p"><field name="f"/></page>
         </data>"#;
-        let (specs, nodes) = specs(&arch(src));
+        let (specs, nodes) = specs(&arch(src), VIEW_KEYS);
         assert_eq!(
             spec_list(&specs),
             [
