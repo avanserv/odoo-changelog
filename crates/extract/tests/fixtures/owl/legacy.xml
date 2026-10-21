@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-extend="DemoOrderline">
+        <t t-jquery=".info-list" t-operation="append">
+            <li class="info demo-note" name="note">
+                <t t-esc="line.note"/>
+            </li>
+        </t>
+        <t t-jquery=".product-name" t-operation="attributes">
+            <attribute name="class">product-name demo</attribute>
+        </t>
+        <t t-jquery=".price">
+            this.removeClass('price');
+        </t>
+    </t>
+
+    <t t-name="DemoBills.buttons" t-extend="DemoList.buttons">
+        <t t-jquery="button.o_list_button_add" t-operation="after">
+            <button type="button" class="btn btn-secondary" id="demo_upload">Upload</button>
+        </t>
+    </t>
+
+    <t t-name="DemoOrderlineNote">
+        <div class="control-button" t-ref="note">Note</div>
+    </t>
+</templates>

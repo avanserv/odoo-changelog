@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <t t-name="demo.Helper">
+        <div class="o_helper" name="helper">Nothing here yet.</div>
+    </t>
+    <t t-name="demo.HelperList" t-inherit="demo.List" t-inherit-mode="primary">
+        <t t-call="demo.ActionHelper" position="replace">
+            <t t-call="demo.Helper"/>
+        </t>
+    </t>
+</odoo>

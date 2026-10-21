@@ -360,9 +360,32 @@ fn malformed_files_give_a_partial_table_and_a_warning() {
     assert_eq!(headerless.warnings(), ["line 1: no id column; rows ignored"]);
 }
 
-/// Every recursive walk over the tree, and its drop, stays within a rayon worker's 2 MiB stack.
+/// Every recursive walk over the tree, and its drop, stays within a rayon worker's 2 MiB stack:
+/// complete documents just under the DOM's depth limit go through every walk, and deeper ones
+/// stop with a warning.
 #[test]
 fn deep_nesting_stops_with_a_warning() {
+    let levels = 253;
+    let names: String = (0..levels).map(|i| format!("<div name=\"d{i}\">")).collect();
+    let complete = [
+        view(&format!("{names}{}", "</div>".repeat(levels))),
+        format!(
+            "<odoo><template id=\"t\">{names}{}</template></odoo>",
+            "</div>".repeat(levels)
+        ),
+    ];
+    let tables = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || complete.map(|doc| Data.extract(doc.as_bytes()).unwrap()))
+        .unwrap()
+        .join()
+        .unwrap();
+    for (table, id) in tables.iter().zip(["view_order_form", "t"]) {
+        assert!(table.warnings().is_empty(), "{:?}", table.warnings());
+        let deepest = find(table, "view_node", &format!("{id}#div[@name='d{}']", levels - 1));
+        assert!(deepest.attrs["path"].as_str().unwrap().starts_with('~'));
+    }
+
     let deep = |open: &str, close: &str| format!("<odoo>{}{}</odoo>", open.repeat(10_000), close.repeat(10_000));
     let docs = [
         deep("<data>", "</data>"),
@@ -382,6 +405,69 @@ fn deep_nesting_stops_with_a_warning() {
     }
 }
 
+/// A view repeats its id in every node's name, so a long one is bounded once: the output stays
+/// linear in the input, and the budget catches what still grows faster.
+#[test]
+fn long_ids_stay_linear() {
+    let long = "L".repeat(512 * 1024);
+    let nodes: String = (0..60_000).map(|i| format!("<f name=\"{i}\"/>")).collect();
+    let keyed: String = (0..30_000)
+        .map(|i| format!("<a name=\"{i}\" id=\"{i}\" t-name=\"{i}\"/>"))
+        .collect();
+    let shapes = [
+        (
+            format!(
+                r#"<odoo><record id="{long}" model="ir.ui.view"><field name="arch" type="xml"><form>{nodes}</form></field></record></odoo>"#
+            ),
+            false,
+        ),
+        (
+            format!(
+                r#"<odoo><record id="{long}" model="ir.ui.view"><field name="inherit_id" ref="a.b"/><field name="arch" type="xml"><xpath expr="//x">{nodes}</xpath></field></record></odoo>"#
+            ),
+            false,
+        ),
+        (
+            format!(r#"<odoo><template id="{long}"><div>{nodes}</div></template></odoo>"#),
+            false,
+        ),
+        (
+            format!(
+                r#"<odoo><template id="{}"><g name="{}">{keyed}</g></template></odoo>"#,
+                "T".repeat(255),
+                "G".repeat(240)
+            ),
+            true,
+        ),
+    ];
+    for (src, budgeted) in shapes {
+        let table = extract(&src);
+        let size = table.to_bytes().len();
+        assert!(src.len() > 1 << 20, "{}", src.len());
+        assert!(size < 30 * src.len(), "{size} bytes from {}", src.len());
+        let warnings = table.warnings();
+        match budgeted {
+            false => assert!(warnings.is_empty(), "{warnings:?}"),
+            true => assert!(
+                warnings.len() == 1 && warnings[0].contains("output budget exceeded"),
+                "{warnings:?}"
+            ),
+        }
+    }
+    let node = extract(&format!(
+        r#"<odoo><template id="{}"><f name="x"/></template></odoo>"#,
+        "a".repeat(300)
+    ));
+    let node = node.iter().find(|s| s.kind == "view_node").unwrap();
+    assert!(
+        node.name.starts_with('~') && node.name.ends_with("#f[@name='x']"),
+        "{}",
+        node.name
+    );
+    let qualname = Data.qualify("addons/sale/views/x.xml", node);
+    assert_eq!(qualname, format!("{}@sale", node.name));
+}
+
 #[test]
 fn builtin_registry_gives_data_files_one_claimant() {
     let registry = Registry::builtin();
@@ -390,7 +476,7 @@ fn builtin_registry_gives_data_files_one_claimant() {
     for path in ["addons/sale/views/x.xml", "addons/sale/security/ir.model.access.csv"] {
         assert_eq!(claimants(path), ["data"], "{path}");
     }
-    assert!(claimants("addons/sale/static/src/x.xml").is_empty());
+    assert_eq!(claimants("addons/sale/static/src/x.xml"), ["owl"]);
 }
 
 /// Blobs of the community clone at the 17.0, master and 12.0 heads on 2026-10-20, pinned so that

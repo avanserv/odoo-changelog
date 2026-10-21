@@ -133,6 +133,17 @@ pub fn odoo_blob(repo: &str, oid: &str) -> Vec<u8> {
     git(&clone, &["cat-file", "blob", oid])
 }
 
+/// `src` with each `(from, to)` replaced in turn, failing when a `from` is not there, so that
+/// an edit a test relies on cannot silently stop applying.
+pub fn edit(src: &str, edits: &[(&str, &str)]) -> String {
+    let mut out = src.to_string();
+    for (from, to) in edits {
+        assert!(out.contains(from), "{from:?} not found");
+        out = out.replace(from, to);
+    }
+    out
+}
+
 /// With `ODOO_CHANGELOG_BLESS=1`, writes `actual` to `expected` instead of comparing them.
 pub fn check(expected: &Path, actual: &str) {
     if std::env::var_os("ODOO_CHANGELOG_BLESS").is_some_and(|v| v == "1") {

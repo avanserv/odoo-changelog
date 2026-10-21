@@ -1,0 +1,42 @@
+{
+  "symbols": [
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Alone#p[@name='text']@demo",
+      "line": 4,
+      "span": {
+        "start": 126,
+        "end": 130
+      },
+      "attrs": {
+        "count": 1,
+        "path": "section[@t-ref='section']"
+      }
+    },
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Alone#section[@t-ref='section']@demo",
+      "line": 3,
+      "span": {
+        "start": 99,
+        "end": 106
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.Alone@demo",
+      "line": 2,
+      "span": {
+        "start": 50,
+        "end": 60
+      },
+      "attrs": {
+        "arch": "a99f817ba3e91e5f7bbaa3574d076ffa"
+      }
+    }
+  ],
+  "warnings": []
+}

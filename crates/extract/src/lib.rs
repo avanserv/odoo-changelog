@@ -2,13 +2,16 @@
 //! or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
 
 mod access_csv;
+mod bound;
 mod data;
 mod delta;
 mod hash;
 mod js;
 mod manifest;
+mod owl;
 mod path;
 mod python;
+mod scss;
 mod symbol;
 mod syntax;
 mod xml;
@@ -23,8 +26,10 @@ pub use data::Data;
 pub use delta::{Delta, Op, delta};
 pub use js::Js;
 pub use manifest::Manifest;
+pub use owl::Owl;
 pub use path::module_of;
 pub use python::Python;
+pub use scss::Scss;
 pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
 
 pub trait Extractor: Send + Sync {
@@ -63,8 +68,15 @@ impl Registry {
 
     /// The extractors the binary ships with.
     pub fn builtin() -> Self {
-        Registry::new(vec![Box::new(Data), Box::new(Js), Box::new(Manifest), Box::new(Python)])
-            .expect("builtin extractor names are unique")
+        Registry::new(vec![
+            Box::new(Data),
+            Box::new(Js),
+            Box::new(Manifest),
+            Box::new(Owl),
+            Box::new(Python),
+            Box::new(Scss),
+        ])
+        .expect("builtin extractor names are unique")
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &dyn Extractor> {

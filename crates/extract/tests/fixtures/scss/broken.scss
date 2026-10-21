@@ -1,0 +1,7 @@
+$o-demo-kept: 1px;
+}
+$o-demo-after: 2px;
+@mixin o-demo-unclosed {
+    color: red;
+/* never closed
+$o-demo-lost: 3px;

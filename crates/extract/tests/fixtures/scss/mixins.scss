@@ -1,0 +1,38 @@
+@import "demo_variables";
+
+@mixin o-demo-position($top: auto, $right: auto, $bottom: auto, $left: auto) {
+    top: $top;
+    right: $right;
+    bottom: $bottom;
+    left: $left;
+}
+
+@mixin o-demo-hover {
+    $o-demo-local: 1px;
+    &:hover {
+        @content;
+    }
+}
+
+@function o-demo-to-rem($px, $base: 16) {
+    @return ($px / $base) * 1rem;
+}
+
+%o-demo-reset {
+    margin: 0;
+    padding: 0;
+}
+
+.o_demo_list {
+    @mixin o-demo-nested {
+        color: red;
+    }
+    @include o-demo-hover {
+        color: $o-demo-brand;
+    }
+    @extend %o-demo-reset;
+}
+
+@mixin o-demo-hover {
+    color: blue;
+}

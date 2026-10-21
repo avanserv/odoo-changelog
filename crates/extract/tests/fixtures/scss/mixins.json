@@ -1,0 +1,65 @@
+{
+  "symbols": [
+    {
+      "kind": "scss_function",
+      "qualname": "o-demo-to-rem@demo",
+      "line": 17,
+      "span": {
+        "start": 278,
+        "end": 291
+      },
+      "attrs": {
+        "body": "0dd0e75e9aa51802dcd6ace0f72fffc5",
+        "params": [
+          "$px",
+          "$base: 16"
+        ]
+      }
+    },
+    {
+      "kind": "scss_mixin",
+      "qualname": "o-demo-hover@demo",
+      "line": 10,
+      "span": {
+        "start": 188,
+        "end": 200
+      },
+      "attrs": {
+        "body": "a3393b56f2119972e463d950da67c38b"
+      }
+    },
+    {
+      "kind": "scss_mixin",
+      "qualname": "o-demo-position@demo",
+      "line": 3,
+      "span": {
+        "start": 34,
+        "end": 49
+      },
+      "attrs": {
+        "body": "a5bd291f1cedcf61b52c6fa25d41b0b5",
+        "params": [
+          "$top: auto",
+          "$right: auto",
+          "$bottom: auto",
+          "$left: auto"
+        ]
+      }
+    },
+    {
+      "kind": "scss_placeholder",
+      "qualname": "%o-demo-reset@demo",
+      "line": 21,
+      "span": {
+        "start": 347,
+        "end": 360
+      },
+      "attrs": {
+        "body": "b5977d994ff8064b170f07039b047664"
+      }
+    }
+  ],
+  "warnings": [
+    "line 36: duplicate scss_mixin o-demo-hover dropped"
+  ]
+}

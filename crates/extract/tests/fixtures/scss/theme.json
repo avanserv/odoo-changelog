@@ -1,0 +1,73 @@
+{
+  "symbols": [
+    {
+      "kind": "scss_variable",
+      "qualname": "$enable-shadows@theme_demo",
+      "line": 8,
+      "span": {
+        "start": 234,
+        "end": 249
+      },
+      "attrs": {
+        "value": "true"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-palettes@theme_demo",
+      "line": 11,
+      "span": {
+        "start": 285,
+        "end": 301
+      },
+      "attrs": {
+        "reassigned": [
+          {
+            "value": "map-merge($o-demo-palettes, ($name: $palette))",
+            "within": [
+              "@each $name, $palette in $o-demo-base-palettes"
+            ]
+          }
+        ],
+        "value": "()"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-size-multiplier@theme_demo",
+      "line": 3,
+      "span": {
+        "start": 106,
+        "end": 129
+      },
+      "attrs": {
+        "reassigned": [
+          {
+            "value": "1",
+            "within": [
+              "@else if o-website-value('font') == 'Demo Mono'"
+            ]
+          }
+        ],
+        "value": "(1.25 / 1.125)",
+        "within": [
+          "@if o-website-value('font') == 'Demo Serif'"
+        ]
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$spacer@theme_demo",
+      "line": 9,
+      "span": {
+        "start": 257,
+        "end": 264
+      },
+      "attrs": {
+        "default": true,
+        "value": "1.25rem"
+      }
+    }
+  ],
+  "warnings": []
+}

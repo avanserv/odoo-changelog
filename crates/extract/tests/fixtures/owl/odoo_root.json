@@ -1,0 +1,49 @@
+{
+  "symbols": [
+    {
+      "kind": "owl_node",
+      "qualname": "demo.Helper#div[@name='helper']@demo",
+      "line": 4,
+      "span": {
+        "start": 111,
+        "end": 117
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.Helper@demo",
+      "line": 3,
+      "span": {
+        "start": 61,
+        "end": 72
+      },
+      "attrs": {
+        "arch": "359fe78cd0cdf183779610f089819175"
+      }
+    },
+    {
+      "kind": "owl_template",
+      "qualname": "demo.HelperList@demo",
+      "line": 6,
+      "span": {
+        "start": 167,
+        "end": 182
+      },
+      "attrs": {
+        "arch": "679075f7475e0e800317b24960a36b25",
+        "inherit": "demo.List",
+        "mode": "primary",
+        "specs": [
+          {
+            "position": "replace",
+            "target": "t[@t-call='demo.ActionHelper']"
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

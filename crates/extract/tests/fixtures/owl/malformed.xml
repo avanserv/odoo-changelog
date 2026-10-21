@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates>
+    <t t-name="demo.First">
+        <div t-ref="first"/>
+    </t>
+    <t t-name="demo.Second">
+        <div name="second"/>
+    </t>
+    <t t-name="demo.Broken">
+        <div name="broken"></span>
+    </t>
+</templates>

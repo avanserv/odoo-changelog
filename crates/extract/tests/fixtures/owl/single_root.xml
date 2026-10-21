@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<t t-name="demo.Alone">
+    <section class="o_alone" t-ref="section">
+        <p name="text">Alone</p>
+    </section>
+</t>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates>
+    <div class="o_nameless">No name</div>
+    <t t-name="demo.Twice"><span name="first"/></t>
+    <t t-name="demo.Twice"><span name="second"/></t>
+    <t t-name="demo.Override" t-inherit="demo.Twice" t-inherit-mode="override"/>
+    <t t-inherit="demo.Twice" t-inherit-mode="primary">
+        <xpath expr="//span" position="after"/>
+    </t>
+</templates>
