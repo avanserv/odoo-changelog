@@ -146,7 +146,7 @@ fn empty_or_garbage_manifests_give_no_symbol() {
 /// `(op, qualname)` of each change from `old` at `old_path` to `new` at `new_path`.
 fn changes(old_path: &str, old: &str, new_path: &str, new: &str) -> Vec<(Op, String)> {
     let (old, new) = (extract(old), extract(new));
-    delta(&Manifest, Some((old_path, &old)), Some((new_path, &new)))
+    delta(&Manifest, &[(Some((old_path, &old)), Some((new_path, &new)))])
         .into_iter()
         .map(|d| (d.op, d.qualname))
         .collect()
@@ -160,7 +160,7 @@ fn renaming_openerp_to_manifest_is_a_move() {
     assert_eq!(changes(openerp, base, SALE, base), [(Op::Moved, sale())]);
 
     let edited = base.replace("'payment'", "'account_payment'");
-    assert_eq!(changes(openerp, base, SALE, &edited), [(Op::Changed, sale())]);
+    assert_eq!(changes(openerp, base, SALE, &edited), [(Op::Moved, sale())]);
 
     let moved = changes("addons/a/__manifest__.py", base, "addons/b/__manifest__.py", base);
     assert_eq!(moved, [(Op::Removed, "a".into()), (Op::Added, "b".into())]);

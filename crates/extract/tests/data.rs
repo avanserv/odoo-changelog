@@ -180,7 +180,7 @@ fn every_requested_tag_is_a_named_node() {
 fn changes(old: &str, new: &str) -> Vec<(Op, String)> {
     let path = "addons/sale/views/x.xml";
     let (old, new) = (extract(old), extract(new));
-    delta(&Data, Some((path, &old)), Some((path, &new)))
+    delta(&Data, &[(Some((path, &old)), Some((path, &new)))])
         .into_iter()
         .map(|d| (d.op, d.qualname))
         .collect()

@@ -341,6 +341,14 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
         .replace("_prepare", "_prepare_vals")
         .replace("\n\n", "\n    foo = fields.Char()\n\n");
     fx.commit_files(&[(SALE_EXT, &model)], "[IMP] sale_ext: foo");
+    let more = "class SaleOrder(models.Model):\n    _inherit = 'sale.order'\n    foo = fields.Char()\n";
+    fx.commit_files(
+        &[
+            (SALE_EXT, &model.replace("    foo = fields.Char()\n", "")),
+            ("addons/sale_more/models/sale_order.py", more),
+        ],
+        "[MOV] sale_ext: foo to sale_more",
+    );
     fx.merge("17.0", "[MERGE] forward port 17.0");
     fetch(&clone);
     (dir, clone)
@@ -392,6 +400,9 @@ fn thread_count_does_not_change_the_database() {
     );
     let python = "SELECT COUNT(*) FROM events WHERE extractor = 'python' AND path = ?1";
     assert!(count(&db, python, [SALE_EXT]) >= 4, "python gave too few events");
+    let moved = "SELECT COUNT(*) FROM events
+        WHERE extractor = 'python' AND op = 'moved' AND old_module = 'sale_ext' AND module = 'sale_more'";
+    assert_eq!(count(&db, moved, []), 1, "foo moved to sale_more once");
     let modules = "SELECT COUNT(*) FROM events WHERE extractor = 'manifest' AND op = 'added'";
     assert_eq!(count(&db, modules, []), 9, "one module per [ADD] commit");
     let views = "SELECT COUNT(*) FROM events e JOIN symbols s ON s.id = e.symbol_id
@@ -415,7 +426,7 @@ fn thread_count_does_not_change_the_database() {
     }
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
-    let broken = rev_parse(&clone, "origin/master~3");
+    let broken = rev_parse(&clone, "origin/master~4");
     assert!(
         events(&db, &broken).is_empty(),
         "a file that failed to parse gave events"
@@ -481,10 +492,8 @@ fn renames_are_paired() {
             old.clone(),
         )
     };
-    let moved = ["a", "b", "c", "d"].map(|n| event("addons/sale/b.py", "moved", n, &from_a));
-    let mut expected = moved.to_vec();
-    expected.push(event("addons/sale/b.py", "changed", "e", &from_a));
-    assert_eq!(events(&db, &sha("origin/master~2")), expected);
+    let moved = ["a", "b", "c", "d", "e"].map(|n| event("addons/sale/b.py", "moved", n, &from_a));
+    assert_eq!(events(&db, &sha("origin/master~2")), moved);
     let from_c = Some("addons/sale/c.py".to_string());
     assert_eq!(
         events(&db, &sha("origin/master~1")),
@@ -610,7 +619,7 @@ fn rename_pairing_ignores_other_extractors() {
     let moved = events(&db, &rev_parse(&clone, "origin/master"));
     let py: Vec<_> = moved.iter().filter(|e| e.0 == "addons/sale/b.py").collect();
     let ops: Vec<&str> = py.iter().map(|e| e.1.as_str()).collect();
-    assert_eq!(ops, [["changed"; 3].as_slice(), &["moved"; 7]].concat(), "{moved:?}");
+    assert_eq!(ops, ["moved"; 10], "{moved:?}");
     assert!(py.iter().all(|e| e.3.as_deref() == Some("addons/sale/a.py")));
     assert!(moved.iter().all(|e| e.0 != "addons/sale/a.py"), "{moved:?}");
 }
@@ -758,6 +767,126 @@ fn builtin_python_extractor_records_model_events() {
     assert_eq!(at("origin/master~1"), [field("changed")]);
     let broken = cached_warnings(&db, &clone, "python", "origin/master:addons/sale_ext/models/broken.py");
     assert!(!broken.is_empty());
+}
+
+/// The python events of `sha`, one line each: op, path, qualname and module, then where a move
+/// came from, then the attrs.
+fn python_events(db: &Path, sha: &str) -> Vec<String> {
+    let conn = Connection::open(db).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.op, e.path, s.qualname, e.module, e.old_path, o.qualname, e.old_module,
+                    e.attrs_before, e.attrs_after
+               FROM events e JOIN symbols s ON s.id = e.symbol_id
+               LEFT JOIN symbols o ON o.id = e.old_symbol_id
+              WHERE e.sha = ?1 AND e.extractor = 'python' ORDER BY e.path, s.qualname",
+        )
+        .unwrap();
+    stmt.query_map([sha], |r| {
+        let text = |i| r.get::<_, Option<String>>(i).map(|v| v.unwrap_or_else(|| "-".into()));
+        Ok(format!(
+            "{} {} {} [{}] from {} {} [{}] {} -> {}",
+            text(0)?,
+            text(1)?,
+            text(2)?,
+            text(3)?,
+            text(4)?,
+            text(5)?,
+            text(6)?,
+            text(7)?,
+            text(8)?
+        ))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
+}
+
+#[test]
+fn builtin_python_extractor_pairs_cross_module_moves() {
+    let (dir, mut fx, clone) = setup("extract-moves");
+    let (sale, management) = (
+        "addons/sale/models/sale_order.py",
+        "addons/sale_management/models/sale_order.py",
+    );
+    let base = "class SaleOrder(models.Model):\n    _name = 'sale.order'\n    foo = fields.Char(string='Foo')\n";
+    let ext = "class SaleOrder(models.Model):\n    _inherit = 'sale.order'\n    bar = fields.Integer()\n";
+    fx.commit_files(&[(sale, base), (management, ext)], "[ADD] sale, sale_management");
+    let moved = format!("{ext}    foo = fields.Char(string='Foo')\n");
+    fx.commit_files(
+        &[
+            (sale, &base.replace("    foo = fields.Char(string='Foo')\n", "")),
+            (management, &moved),
+        ],
+        "[MOV] sale, sale_management: foo",
+    );
+    let required = moved.replace("string='Foo')", "string='Foo', required=True)");
+    fx.commit_files(&[(management, &required)], "[IMP] sale_management: foo is required");
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+    let out = odoo_changelog(&cfg, &["extract"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let db = dir.join("walk.db");
+    let at = |rev: &str| python_events(&db, &rev_parse(&clone, rev));
+    assert_eq!(
+        at("origin/master~1"),
+        [format!(
+            "moved {management} sale.order#foo@sale_management [sale_management] \
+             from {sale} sale.order#foo@sale [sale] - -> -"
+        )]
+    );
+    assert_eq!(
+        at("origin/master"),
+        [format!(
+            "changed {management} sale.order#foo@sale_management [sale_management] \
+             from - - [-] {{\"args\":{{}}}} -> {{\"args\":{{\"required\":true}}}}"
+        )]
+    );
+}
+
+/// A forward port's events reach the original's through `commits.original_sha`.
+#[test]
+fn forward_port_events_join_the_original() {
+    let (dir, mut fx, clone) = setup("extract-forward-port");
+    let model = "class SaleOrder(models.Model):\n    _inherit = 'sale.order'\n    foo = fields.Char()\n";
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(&[(SALE_EXT, model)], "[ADD] sale_ext: foo");
+    let original = rev_parse(&fx.upstream, "HEAD");
+    fx.git(&["checkout", "-q", "17.0"]);
+    fx.commit_files(
+        &[(SALE_EXT, model)],
+        &format!("[ADD] sale_ext: foo\n\nX-original-commit: {original}"),
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+    let out = odoo_changelog(&cfg, &["extract"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let db = dir.join("walk.db");
+    let conn = Connection::open(&db).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT o.sha, o.op, s.qualname
+               FROM events e
+               JOIN commits c ON c.repo_id = e.repo_id AND c.sha = e.sha
+               JOIN events o ON o.repo_id = c.repo_id AND o.sha = c.original_sha
+                            AND o.extractor = e.extractor AND o.symbol_id = e.symbol_id
+               JOIN symbols s ON s.id = e.symbol_id
+              WHERE e.sha = ?1 ORDER BY s.qualname",
+        )
+        .unwrap();
+    let joined: Vec<(String, String, String)> = stmt
+        .query_map([rev_parse(&clone, "origin/17.0")], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let added = |q: &str| (original.clone(), "added".to_string(), q.to_string());
+    assert_eq!(joined, [added("sale.order#foo@sale_ext"), added("sale.order@sale_ext")]);
 }
 
 /// `(op, qualname, old_path, attrs_after)` of the manifest events of `sha`.
@@ -1122,7 +1251,7 @@ fn builtin_js_extractor_records_registry_events() {
     let registry = renamed.iter().find(|e| e.1 == "js_registry").unwrap();
     assert_eq!(
         (registry.0.as_str(), registry.2.as_str(), registry.3.as_deref()),
-        ("changed", "fields:thing@demo", Some(field))
+        ("moved", "fields:thing@demo", Some(field))
     );
     let (new, old) = ("@demo/fields/thing/thing_field", "@demo/fields/thing_field");
     assert_eq!(
@@ -1136,7 +1265,7 @@ fn builtin_js_extractor_records_registry_events() {
             row("removed", "js_export", &format!("{old}#thingField")),
             row("added", "js_module", new),
             row("removed", "js_module", old),
-            row("changed", "js_registry", "fields:thing@demo"),
+            row("moved", "js_registry", "fields:thing@demo"),
         ]
     );
 

@@ -172,10 +172,10 @@ fn reformatting_templates_gives_no_event() {
     );
     let (old, new) = (extract(&src), extract(&reformatted));
     assert!(new.warnings().is_empty(), "{:?}", new.warnings());
-    assert_eq!(delta(&Owl, Some((PATH, &old)), Some((PATH, &new))), []);
+    assert_eq!(delta(&Owl, &[(Some((PATH, &old)), Some((PATH, &new)))]), []);
 
     let removed = extract(&edit(&src, &[(r#"<ul t-ref="list"><li>item</li></ul>"#, "")]));
-    let changes: Vec<(String, String, Op)> = delta(&Owl, Some((PATH, &old)), Some((PATH, &removed)))
+    let changes: Vec<(String, String, Op)> = delta(&Owl, &[(Some((PATH, &old)), Some((PATH, &removed)))])
         .into_iter()
         .map(|d| (d.kind, d.qualname, d.op))
         .collect();

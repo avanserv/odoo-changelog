@@ -9,13 +9,14 @@ use anyhow::{Context, Result};
 use odoo_changelog_core::CommitMeta;
 use rusqlite::{Connection, OptionalExtension, params};
 
-pub use extract::{CachedBlob, EventRow, PendingCommit};
+pub use extract::{CachedBlob, EventRow, OldSide, PendingCommit};
 
 const MIGRATIONS: &[&str] = &[
     include_str!("schema.sql"),
     // The clone path depends on the machine and on how the config path was spelled.
     "ALTER TABLE repos DROP COLUMN path;",
     include_str!("extract.sql"),
+    include_str!("moves.sql"),
 ];
 
 pub struct Store {
@@ -311,6 +312,50 @@ mod tests {
         assert!(candidates[0].done.is_empty());
     }
 
+    #[test]
+    fn migrates_v3_rebuilds_events_and_keeps_the_cache() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..3] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 3).unwrap();
+        conn.execute_batch(
+            "INSERT INTO repos (id, name, shallow) VALUES (7, 'odoo', 0);
+             INSERT INTO commits (repo_id, sha, branch, fp_idx, sub_idx, parents, is_merge,
+                author_name, author_email, authored_at, committed_at, subject, body, modules,
+                related_prs)
+             VALUES (7, 'abc', 'master', 0, 0, '[]', 0, 'a', 'a@x', 0, 0, 's', '', '[]', '[]');
+             INSERT INTO extractors (name, version) VALUES ('py', 1);
+             INSERT INTO symbols (id, kind, qualname) VALUES (x'01', 'def', 'f');
+             INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, line, attrs_after)
+             VALUES (7, 'abc', 'f.py', 'py', x'01', 'added', 1, '{}');
+             INSERT INTO extracted (repo_id, sha, extractor) VALUES (7, 'abc', 'py');
+             INSERT INTO blob_cache (blob_oid, extractor, extractor_version, symbols)
+             VALUES ('b1', 'py', 1, x'00');",
+        )
+        .unwrap();
+
+        let store = Store { conn };
+        store.migrate().unwrap();
+
+        for (table, n) in [
+            ("events", 0),
+            ("extracted", 0),
+            ("symbols", 0),
+            ("blob_cache", 1),
+            ("extractors", 1),
+        ] {
+            assert_eq!(count(&store, &format!("SELECT COUNT(*) FROM {table}")), n, "{table}");
+        }
+        let columns = count(
+            &store,
+            "SELECT COUNT(*) FROM pragma_table_info('events')
+              WHERE name IN ('module', 'old_symbol_id', 'old_path', 'old_module')",
+        );
+        assert_eq!(columns, 4);
+        assert!(store.extract_candidates(7).unwrap()[0].done.is_empty());
+    }
+
     fn count(store: &Store, sql: &str) -> i64 {
         store.conn.query_row(sql, [], |r| r.get(0)).unwrap()
     }
@@ -337,7 +382,14 @@ mod tests {
             )
             .unwrap();
         assert!(store.sync_extractors(&[("py", 1), ("xml", 1)]).unwrap().is_empty());
-        for (extractor, id) in [("py", [1u8; 32]), ("xml", [2u8; 32])] {
+        // The xml event is a move, whose old symbol outlives a purge of py too.
+        let old = OldSide {
+            symbol_id: &[3u8; 32],
+            qualname: "xml-old",
+            path: "g",
+            module: None,
+        };
+        for (extractor, id, old) in [("py", [1u8; 32], None), ("xml", [2u8; 32], Some(old))] {
             store.insert_cached_blob("b1", extractor, 1, Some(b"[]"), None).unwrap();
             store
                 .insert_events(
@@ -349,11 +401,12 @@ mod tests {
                         symbol_id: &id,
                         kind: "def",
                         qualname: extractor,
-                        op: "added",
-                        old_path: None,
+                        op: if old.is_some() { "moved" } else { "added" },
+                        module: None,
                         line: 1,
                         attrs_before: None,
                         attrs_after: Some("{}"),
+                        old,
                     }],
                 )
                 .unwrap();
@@ -367,7 +420,7 @@ mod tests {
             let sql = format!("SELECT COUNT(*) FROM {table} WHERE extractor = 'py'");
             assert_eq!(count(&store, &sql), 0, "{table}");
         }
-        assert_eq!(count(&store, "SELECT COUNT(*) FROM symbols"), 1);
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM symbols"), 2);
         assert_eq!(count(&store, "SELECT version FROM extractors WHERE name = 'py'"), 2);
         assert_eq!(store.extract_candidates(repo_id).unwrap()[0].done, ["xml"]);
 

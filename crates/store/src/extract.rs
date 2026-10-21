@@ -24,10 +24,19 @@ pub struct EventRow<'a> {
     pub kind: &'a str,
     pub qualname: &'a str,
     pub op: &'a str,
-    pub old_path: Option<&'a str>,
+    pub module: Option<&'a str>,
     pub line: i64,
     pub attrs_before: Option<&'a str>,
     pub attrs_after: Option<&'a str>,
+    /// Where a moved symbol was; it keeps the kind of the new one.
+    pub old: Option<OldSide<'a>>,
+}
+
+pub struct OldSide<'a> {
+    pub symbol_id: &'a [u8],
+    pub qualname: &'a str,
+    pub path: &'a str,
+    pub module: Option<&'a str>,
 }
 
 impl Store {
@@ -66,7 +75,8 @@ impl Store {
         }
         if !purged.is_empty() {
             self.conn.execute(
-                "DELETE FROM symbols WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.symbol_id = symbols.id)",
+                "DELETE FROM symbols WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.symbol_id = symbols.id)
+                   AND NOT EXISTS (SELECT 1 FROM events e WHERE e.old_symbol_id = symbols.id)",
                 [],
             )?;
         }
@@ -141,12 +151,15 @@ impl Store {
             .conn
             .prepare_cached("INSERT OR IGNORE INTO symbols (id, kind, qualname) VALUES (?1, ?2, ?3)")?;
         let mut event = self.conn.prepare_cached(
-            "INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, old_path, line,
-                attrs_before, attrs_after)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, module, line,
+                attrs_before, attrs_after, old_symbol_id, old_path, old_module)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         )?;
         for e in rows {
             symbol.execute(params![e.symbol_id, e.kind, e.qualname])?;
+            if let Some(old) = &e.old {
+                symbol.execute(params![old.symbol_id, e.kind, old.qualname])?;
+            }
             event.execute(params![
                 repo_id,
                 e.sha,
@@ -154,10 +167,13 @@ impl Store {
                 e.extractor,
                 e.symbol_id,
                 e.op,
-                e.old_path,
+                e.module,
                 e.line,
                 e.attrs_before,
-                e.attrs_after
+                e.attrs_after,
+                e.old.as_ref().map(|o| o.symbol_id),
+                e.old.as_ref().map(|o| o.path),
+                e.old.as_ref().and_then(|o| o.module)
             ])?;
         }
         Ok(())

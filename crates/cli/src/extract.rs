@@ -7,7 +7,7 @@ use gix::ObjectId;
 use odoo_changelog_core::{Config, RepoConfig, Version};
 use odoo_changelog_extract::{Delta, Extractor, Registry, SymbolTable, delta};
 use odoo_changelog_git::{FileChange, FileSide, Repo, SharedRepo};
-use odoo_changelog_store::{CachedBlob, EventRow, Store};
+use odoo_changelog_store::{CachedBlob, EventRow, OldSide, Store};
 use rayon::prelude::*;
 use tracing::{debug, info, warn};
 
@@ -67,8 +67,8 @@ struct Ctx<'a> {
 }
 
 /// Records the symbol events of every walked, non-merge commit that some extractor has not
-/// processed yet. Each commit is diffed against its only parent and renames are paired per
-/// extractor, so an extractor's events depend on the commit and that extractor alone, and an
+/// processed yet. Each commit is diffed against its only parent, and renames and moves are paired
+/// per extractor, so an extractor's events depend on the commit and that extractor alone, and an
 /// incremental run equals a full rebuild.
 pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> Result<Timings> {
     let repos = cfg.select_repos(&opts.repos)?;
@@ -270,7 +270,7 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
     timings.cache += start.elapsed();
 
     let start = Instant::now();
-    let mut events: Vec<(&str, &str, Option<&str>, &str, Delta)> = Vec::new();
+    let mut events: Vec<(&str, &str, Delta)> = Vec::new();
     let mut done = Vec::new();
     for (c, per_extractor) in batch.iter().zip(&diffs) {
         let Some(per_extractor) = per_extractor else {
@@ -278,6 +278,7 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
             continue;
         };
         for (&i, changes) in c.pending.iter().zip(per_extractor) {
+            let mut files = Vec::with_capacity(changes.len());
             for change in changes {
                 let (Some(old), Some(new)) = (
                     parsed_side(&tables, i, &change.old),
@@ -292,32 +293,34 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
                         debug!("{name}: {} {path}: {}", c.sha, table.warnings().join("; "));
                     }
                 }
-                let old_path = change
-                    .old
-                    .as_ref()
-                    .filter(|o| change.new.as_ref().is_some_and(|n| n.path != o.path))
-                    .map(|o| o.path.as_str());
-                for d in delta(ex[i], old, new) {
-                    events.push((&c.sha, change.path(), old_path, ex[i].name(), d));
-                }
+                files.push((old, new));
+            }
+            for d in delta(ex[i], &files) {
+                events.push((&c.sha, ex[i].name(), d));
             }
         }
         done.push(c);
     }
     let rows: Vec<EventRow> = events
         .iter()
-        .map(|(sha, path, old_path, extractor, d)| EventRow {
+        .map(|(sha, extractor, d)| EventRow {
             sha,
-            path,
+            path: &d.path,
             extractor,
             symbol_id: d.id.as_bytes(),
             kind: &d.kind,
             qualname: &d.qualname,
             op: d.op.as_str(),
-            old_path: *old_path,
+            module: d.module.as_deref(),
             line: d.line.into(),
             attrs_before: d.attrs_before.as_deref(),
             attrs_after: d.attrs_after.as_deref(),
+            old: d.old.as_ref().map(|o| OldSide {
+                symbol_id: o.id.as_bytes(),
+                qualname: &o.qualname,
+                path: &o.path,
+                module: o.module.as_deref(),
+            }),
         })
         .collect();
     ctx.store.insert_events(ctx.repo_id, &rows)?;
