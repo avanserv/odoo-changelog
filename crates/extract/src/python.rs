@@ -1,6 +1,6 @@
-//! Models, fields, methods, selection values, constraints and routes from Python files, read with
-//! tree-sitter. Model-scope symbols are named after the model, the way Odoo code refers to them;
-//! the others after their import path.
+//! Models, fields, methods, selection values, constraints, routes and constants from Python
+//! files, read with tree-sitter. Model-scope symbols are named after the model, the way Odoo code
+//! refers to them; the others after their import path.
 
 mod body;
 pub(crate) mod value;
@@ -26,6 +26,7 @@ const CONSTRAINT: &str = "constraint";
 const CLASS: &str = "class";
 const FUNCTION: &str = "function";
 const ROUTE: &str = "route";
+const CONSTANT: &str = "constant";
 
 const ROUTE_DECORATORS: [&str; 3] = ["http.route", "route", "odoo.http.route"];
 
@@ -39,7 +40,7 @@ impl Extractor for Python {
     /// Bump with any change to the output, including a tree-sitter or tree-sitter-python upgrade
     /// and changes to `syntax`.
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     /// Importable files only: migration scripts and other paths that are no Python identifier
@@ -69,7 +70,7 @@ impl Extractor for Python {
     /// Model-scope symbols get `@<module>`; the others are prefixed with the file's import path.
     fn qualify(&self, path: &str, symbol: &Symbol) -> String {
         match symbol.kind.as_str() {
-            CLASS | FUNCTION | ROUTE => format!("{}.{}", import_path(path), symbol.name),
+            CLASS | FUNCTION | ROUTE | CONSTANT => format!("{}.{}", import_path(path), symbol.name),
             _ => format!("{}@{}", symbol.name, module_of(path).unwrap_or_default()),
         }
     }
@@ -98,6 +99,14 @@ pub(crate) fn python2(n: Node, src: &[u8]) -> Option<String> {
 fn closes_single_tuple(v: &Visit) -> bool {
     v.parent
         .is_some_and(|p| matches!(p.kind(), "tuple" | "tuple_pattern") && named(p).len() == 1)
+}
+
+/// `[A-Z][A-Z0-9_]*`.
+fn is_constant(name: &str) -> bool {
+    name.bytes().next().is_some_and(|b| b.is_ascii_uppercase())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
 }
 
 fn is_identifier(s: &str) -> bool {
@@ -254,8 +263,8 @@ struct Reader<'t> {
     constants: BTreeMap<String, Node<'t>>,
     /// Model classes in source order.
     models: Vec<ModelClass>,
-    /// Module-level names, the last definition of each winning as in Python: a function, or a
-    /// plain class with its methods and routes.
+    /// Module-level names, the last definition of each winning as in Python: a function, a
+    /// constant, or a plain class with its methods and routes.
     bindings: BTreeMap<String, Vec<Symbol>>,
     /// By byte offset, so that they end up in document order.
     warnings: Vec<(usize, String)>,
@@ -317,14 +326,79 @@ impl<'t> Reader<'t> {
         }
     }
 
+    /// An all-caps name is a constant custom code may import; lower-case module globals such as
+    /// `_logger` are not.
     fn constant(&mut self, statement: Node<'t>) {
+        self.unpacked(statement);
         for (left, right) in assignments(statement) {
             let name = self.text(left).into_owned();
+            if is_constant(&name) {
+                self.bind_constant(left, value(right, self.src));
+            }
             if matches!(right.kind(), "list" | "tuple") {
                 self.constants.insert(name, right);
             } else {
                 self.constants.remove(&name);
             }
+        }
+    }
+
+    fn bind_constant(&mut self, name: Node<'t>, value: Value) {
+        let text = self.text(name).into_owned();
+        let attrs = BTreeMap::from([("value".to_string(), value)]);
+        self.bindings
+            .insert(text.clone(), vec![symbol(CONSTANT, text, name, attrs)]);
+    }
+
+    /// `A, B = 1, 2` gives each name its element, and `A, B = f()` the whole value. `A += v`
+    /// appends `{op, value}` to an earlier constant's `augmented`, so editing it is a change.
+    fn unpacked(&mut self, statement: Node<'t>) {
+        let Some(&node) = named(statement).first() else { return };
+        let (Some(left), Some(right)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) else {
+            return;
+        };
+        match (node.kind(), left.kind()) {
+            ("assignment", "pattern_list" | "tuple_pattern") => {
+                let targets = named(left);
+                let values = match right.kind() {
+                    "expression_list" | "tuple" => named(right),
+                    _ => Vec::new(),
+                };
+                for (i, &target) in targets.iter().enumerate() {
+                    if target.kind() != "identifier" || !is_constant(&self.text(target)) {
+                        continue;
+                    }
+                    let v = match values.get(i).filter(|_| values.len() == targets.len()) {
+                        Some(&v) => value(v, self.src),
+                        None => expr(right, self.src),
+                    };
+                    self.bind_constant(target, v);
+                }
+            }
+            ("augmented_assignment", "identifier") => {
+                let op = node
+                    .child_by_field_name("operator")
+                    .map(|o| text(o, self.src).into_owned());
+                let step = serde_json::json!({"op": op, "value": value(right, self.src)});
+                let Some([constant]) = self
+                    .bindings
+                    .get_mut(text(left, self.src).as_ref())
+                    .map(Vec::as_mut_slice)
+                else {
+                    return;
+                };
+                if constant.kind != CONSTANT {
+                    return;
+                }
+                let steps = constant
+                    .attrs
+                    .entry("augmented".to_string())
+                    .or_insert_with(|| Value::Array(Vec::new()));
+                if let Value::Array(steps) = steps {
+                    steps.push(step);
+                }
+            }
+            _ => {}
         }
     }
 

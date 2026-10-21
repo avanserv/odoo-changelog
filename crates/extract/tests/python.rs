@@ -177,7 +177,7 @@ fn every_symbol_spans_its_name() {
             let last = match symbol.kind.as_str() {
                 "selection" => name.split_once(':').unwrap().1,
                 "model" => name.split('[').next().unwrap(),
-                "class" | "function" | "route" => name.rsplit('.').next().unwrap(),
+                "class" | "function" | "route" | "constant" => name.rsplit('.').next().unwrap(),
                 _ => name.split_once('#').unwrap().1,
             };
             let spanned = String::from_utf8_lossy(&blob[symbol.span.range()]);

@@ -67,6 +67,22 @@ fn sale_order_17() {
     assert_eq!(constraint.attrs["declared"], "_sql_constraints");
     assert!(!model.attrs.contains_key("_sql_constraints"));
 
+    let status = find(&table, "constant", "INVOICE_STATUS");
+    assert_eq!(
+        Python.qualify(file, status),
+        "odoo.addons.sale.models.sale_order.INVOICE_STATUS"
+    );
+    assert_eq!(
+        status.attrs["value"],
+        json!([
+            ["upselling", "Upselling Opportunity"],
+            ["invoiced", "Fully Invoiced"],
+            ["to invoice", "To Invoice"],
+            ["no", "Nothing to Invoice"]
+        ])
+    );
+    assert!(table.iter().all(|s| s.kind != "constant" || !s.name.starts_with('_')));
+
     for symbol in table.iter() {
         let spanned = String::from_utf8_lossy(&blob[symbol.span.range()]);
         let name = symbol.name.rsplit(['#', ':']).next().unwrap();
