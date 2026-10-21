@@ -1,0 +1,65 @@
+{
+  "symbols": [
+    {
+      "kind": "record",
+      "qualname": "base.state_demo_w@demo",
+      "line": 6,
+      "span": {
+        "start": 177,
+        "end": 194
+      },
+      "attrs": {
+        "declared": "csv",
+        "name": "West",
+        "record_model": "res.country.state",
+        "values": "ddc8ecade8c389c01cebcdc23eb7b345"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.state_demo_e@demo",
+      "line": 5,
+      "span": {
+        "start": 144,
+        "end": 156
+      },
+      "attrs": {
+        "declared": "csv",
+        "name": "East",
+        "record_model": "res.country.state",
+        "values": "f4c8469952485023c6fd172287a1337c"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.state_demo_n@demo",
+      "line": 2,
+      "span": {
+        "start": 40,
+        "end": 52
+      },
+      "attrs": {
+        "declared": "csv",
+        "name": "North, the cold one",
+        "record_model": "res.country.state",
+        "values": "4f2d149a4bd98c19cfd11f19372b63e5"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.state_demo_s@demo",
+      "line": 3,
+      "span": {
+        "start": 94,
+        "end": 106
+      },
+      "attrs": {
+        "declared": "csv",
+        "name": "\"South\" side",
+        "record_model": "res.country.state",
+        "values": "6da4fbf598e869da9271e0b643758d57"
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -4,6 +4,7 @@
 mod access_csv;
 mod bound;
 mod data;
+mod data_csv;
 mod delta;
 mod hash;
 mod js;

@@ -1,0 +1,6 @@
+﻿"id","country_id:id","name","code"
+"state_demo_n","base.demo","North, the cold one","N"
+"state_demo_s","base.demo","""South"" side","S"
+
+state_demo_e,demo_country,East,
+base.state_demo_w,base.demo,West,W

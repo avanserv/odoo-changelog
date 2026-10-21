@@ -1,0 +1,5 @@
+"id","name","amount","tax_group_id","repartition_line_ids/repartition_type","repartition_line_ids/factor_percent","repartition_line_ids/tag_ids","name@fr"
+"tax_demo_21","21%","21","tax_group_21","base","","+base_tag","21 %"
+"","","","","tax","100","+tax_tag",""
+"","","","","base","","-base_tag",""
+"tax_demo_0","0%","0","tax_group_0","base","","",""

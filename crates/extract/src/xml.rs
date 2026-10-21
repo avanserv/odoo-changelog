@@ -472,26 +472,18 @@ fn values(decl: &Decl, skip: &[&str], skip_fields: &[&str], content: Option<&[No
         empty = false;
     }
     for (name, field) in decl.fields.iter().filter(|(n, _)| !skip_fields.contains(n)) {
-        hasher.update(&[0x07]);
-        hasher.update(name.as_bytes());
-        hasher.update(&[0x00]);
-        let mut attrs: Vec<&Attr> = field.attrs.iter().filter(|a| a.name != "name").collect();
-        attrs.sort_by(|a, b| a.name.cmp(&b.name));
-        for attr in attrs {
-            hasher.update(attr.name.as_bytes());
-            hasher.update(&[0x02]);
-            hasher.update(attr.value.as_bytes());
-            hasher.update(&[0x00]);
-        }
-        hasher.update(&[0x03]);
+        let mut attrs: Vec<(&str, &str)> = field
+            .attrs
+            .iter()
+            .filter(|a| a.name != "name")
+            .map(|a| (a.name.as_str(), a.value.as_str()))
+            .collect();
+        attrs.sort();
         if is_markup(field) {
-            arch::feed(&mut hasher, &field.children);
+            feed_field_with(&mut hasher, name, &attrs, |h| arch::feed(h, &field.children));
         } else {
-            hasher.update(&[0x05]);
-            hasher.update(text(field).as_bytes());
-            hasher.update(&[0x00]);
+            feed_field(&mut hasher, name, &attrs, &text(field));
         }
-        hasher.update(&[0x04]);
         empty = false;
     }
     if let Some(content) = content.filter(|c| elements(c).next().is_some()) {
@@ -500,4 +492,34 @@ fn values(decl: &Decl, skip: &[&str], skip_fields: &[&str], content: Option<&[No
         empty = false;
     }
     (!empty).then(|| digest(&hasher).into())
+}
+
+/// A plain field as `values` hashes it, with `attrs` in name order and without `name`, so that
+/// the CSV reader hashes a cell as the XML field that sets it.
+pub(crate) fn feed_field(hasher: &mut blake3::Hasher, name: &str, attrs: &[(&str, &str)], text: &str) {
+    feed_field_with(hasher, name, attrs, |h| {
+        h.update(&[0x05]);
+        h.update(text.as_bytes());
+        h.update(&[0x00]);
+    });
+}
+
+fn feed_field_with(
+    hasher: &mut blake3::Hasher,
+    name: &str,
+    attrs: &[(&str, &str)],
+    content: impl FnOnce(&mut blake3::Hasher),
+) {
+    hasher.update(&[0x07]);
+    hasher.update(name.as_bytes());
+    hasher.update(&[0x00]);
+    for (name, value) in attrs {
+        hasher.update(name.as_bytes());
+        hasher.update(&[0x02]);
+        hasher.update(value.as_bytes());
+        hasher.update(&[0x00]);
+    }
+    hasher.update(&[0x03]);
+    content(hasher);
+    hasher.update(&[0x04]);
 }
