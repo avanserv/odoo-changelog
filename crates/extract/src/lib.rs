@@ -2,12 +2,16 @@
 //! or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
 
 mod delta;
+mod path;
+mod python;
 mod symbol;
 
 use anyhow::Result;
 
 pub use delta::{Delta, Op, delta};
-pub use symbol::{Symbol, SymbolId, SymbolTable};
+pub use path::module_of;
+pub use python::Python;
+pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
 
 pub trait Extractor: Send + Sync {
     /// Stored in the database; never rename.
@@ -40,7 +44,7 @@ impl Registry {
 
     /// The extractors the binary ships with.
     pub fn builtin() -> Self {
-        Registry { extractors: Vec::new() }
+        Registry::new(vec![Box::new(Python)]).expect("builtin extractor names are unique")
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &dyn Extractor> {

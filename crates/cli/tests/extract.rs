@@ -14,12 +14,14 @@ use common::{Fixture, config, dump, git, init, odoo_changelog, rev_parse, setup,
 use gix::ObjectId;
 use odoo_changelog::extract::{Options, Timings, run};
 use odoo_changelog_core::{Config, Version};
-use odoo_changelog_extract::{Extractor, Registry, Symbol, SymbolTable};
+use odoo_changelog_extract::{Extractor, Python, Registry, Span, Symbol, SymbolTable};
 use odoo_changelog_git::{FileChange, FileSide, Repo};
 use odoo_changelog_store::Store;
 use rusqlite::Connection;
 
 type Calls = Arc<Mutex<BTreeMap<String, usize>>>;
+
+const SALE_EXT: &str = "addons/sale_ext/models/sale_order.py";
 
 struct Defs {
     name: &'static str,
@@ -57,6 +59,7 @@ impl Extractor for Defs {
                     kind: "def".into(),
                     name: name.into(),
                     line: i as u32 + 1,
+                    span: Span::default(),
                     attrs: [("body".to_string(), body.into())].into(),
                 });
             }
@@ -258,7 +261,8 @@ fn version_bump_invalidates_only_that_extractor() {
 }
 
 /// About 30 commits across 16.0, 17.0 and master: forward-port merges, renames, deletions,
-/// reverts, one blob at many paths, a blob that fails to parse and unclaimed files.
+/// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, and a model
+/// file for `Python` that gains a field and renames a method.
 fn busy(name: &str) -> (PathBuf, PathBuf) {
     let (dir, mut fx, clone) = setup(name);
     for round in 0..3 {
@@ -294,6 +298,13 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
         "[MOV] mmaster_1",
     );
     fx.commit_files(&[("addons/broken/x.py", "def a: x\n!broken\n")], "[ADD] broken");
+    let model =
+        "class SaleOrder(models.Model):\n    _inherit = 'sale.order'\n\n    def _prepare(self):\n        return {}\n";
+    fx.commit_files(&[(SALE_EXT, model)], "[ADD] sale_ext");
+    let model = model
+        .replace("_prepare", "_prepare_vals")
+        .replace("\n\n", "\n    foo = fields.Char()\n\n");
+    fx.commit_files(&[(SALE_EXT, &model)], "[IMP] sale_ext: foo");
     fx.merge("17.0", "[MERGE] forward port 17.0");
     fetch(&clone);
     (dir, clone)
@@ -312,7 +323,7 @@ fn thread_count_does_not_change_the_database() {
             threads: NonZeroUsize::new(threads),
             ..options()
         };
-        extract(&cfg, vec![py, xml], &opts);
+        extract(&cfg, vec![py, xml, Box::new(Python)], &opts);
         dumps.push(dump(&dir.join(format!("t{threads}.db"))));
     }
     let n = dumps[0].iter().filter(|r| r.starts_with("events: ")).count();
@@ -324,15 +335,17 @@ fn thread_count_does_not_change_the_database() {
         EXISTS (SELECT 1 FROM extracted e WHERE e.sha = c.sha) OR EXISTS (SELECT 1 FROM events e WHERE e.sha = c.sha))";
     assert_eq!(count(&db, merges, []), 0, "a merge was extracted");
     let unmarked = "SELECT COUNT(*) FROM commits c WHERE is_merge = 0
-        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 2";
+        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 3";
     assert_eq!(
         count(&db, unmarked, []),
         0,
-        "a commit was not marked by both extractors"
+        "a commit was not marked by every extractor"
     );
+    let python = "SELECT COUNT(*) FROM events WHERE extractor = 'python' AND path = ?1";
+    assert!(count(&db, python, [SALE_EXT]) >= 4, "python gave too few events");
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
-    let broken = rev_parse(&clone, "origin/master~1");
+    let broken = rev_parse(&clone, "origin/master~3");
     assert!(
         events(&db, &broken).is_empty(),
         "a file that failed to parse gave events"
@@ -630,36 +643,49 @@ fn extract_command_prints_timings_and_checks_its_arguments() {
     }
 }
 
-/// Lines per Python or XML file, the cheapest extractor that reads every claimed blob.
-struct Lines;
+#[test]
+fn builtin_python_extractor_records_model_events() {
+    let (dir, mut fx, clone) = setup("extract-python");
+    let model = "class SaleOrder(models.Model):\n    _inherit = 'sale.order'\n    foo = fields.Char()\n";
+    fx.commit_files(&[(SALE_EXT, model)], "[ADD] sale_ext");
+    let shifted = format!("# Extends the sale order.\nfrom odoo import fields, models\n\n\n{model}");
+    fx.commit_files(&[(SALE_EXT, &shifted)], "[IMP] sale_ext: imports");
+    let required = shifted.replace("fields.Char()", "fields.Char(required=True)");
+    fx.commit_files(&[(SALE_EXT, &required)], "[IMP] sale_ext: foo is required");
+    fx.commit_files(
+        &[("addons/sale_ext/models/broken.py", "def f(:\n")],
+        "[ADD] sale_ext: broken",
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
 
-impl Extractor for Lines {
-    fn name(&self) -> &'static str {
-        "lines"
-    }
+    let out = odoo_changelog(&cfg, &["extract"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(output.contains("gave warnings"), "{output}");
 
-    fn version(&self) -> u32 {
-        1
-    }
-
-    fn claims(&self, path: &str) -> bool {
-        path.ends_with(".py") || path.ends_with(".xml")
-    }
-
-    fn extract(&self, blob: &[u8]) -> anyhow::Result<SymbolTable> {
-        let mut table = SymbolTable::default();
-        table.insert(Symbol {
-            kind: "file".into(),
-            name: String::new(),
-            line: 1,
-            attrs: [("lines".to_string(), blob.split(|b| *b == b'\n').count().into())].into(),
-        });
-        Ok(table)
-    }
-
-    fn qualify(&self, path: &str, _: &Symbol) -> String {
-        path.into()
-    }
+    let db = dir.join("walk.db");
+    let at = |rev: &str| events(&db, &rev_parse(&clone, rev));
+    let field = |op: &str| {
+        (
+            SALE_EXT.to_string(),
+            op.to_string(),
+            "sale.order#foo@sale_ext".to_string(),
+            None,
+        )
+    };
+    assert!(
+        at("origin/master~3").contains(&field("added")),
+        "{:?}",
+        at("origin/master~3")
+    );
+    assert_eq!(at("origin/master~2"), []);
+    assert_eq!(at("origin/master~1"), [field("changed")]);
 }
 
 #[test]
@@ -674,6 +700,8 @@ fn real_odoo_17_to_18() {
     cfg.first_version = "17.0".into();
     let store = Store::open(&cfg.db).unwrap();
     let only = ["odoo".to_string()];
+    // Prints the run's counts, the file sides that gave warnings among them.
+    let _ = tracing_subscriber::fmt().with_target(false).try_init();
 
     let start = std::time::Instant::now();
     odoo_changelog::walk::run(&cfg, &store, &only).unwrap();
@@ -692,7 +720,7 @@ fn real_odoo_17_to_18() {
             conn.execute_batch("DELETE FROM events; DELETE FROM extracted; DELETE FROM symbols;")
                 .unwrap();
         }
-        let t = run(&cfg, &store, &Registry::new(vec![Box::new(Lines)]).unwrap(), &opts).unwrap();
+        let t = run(&cfg, &store, &Registry::builtin(), &opts).unwrap();
         println!("{run_name}");
         for (phase, spent) in [
             ("setup", t.setup),

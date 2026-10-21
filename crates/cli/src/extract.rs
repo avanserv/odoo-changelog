@@ -9,7 +9,7 @@ use odoo_changelog_extract::{Delta, Extractor, Registry, SymbolTable, delta};
 use odoo_changelog_git::{FileChange, FileSide, Repo, SharedRepo};
 use odoo_changelog_store::{CachedBlob, EventRow, Store};
 use rayon::prelude::*;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Commits per transaction: a crash loses at most one batch, and it bounds the tables in memory.
 const BATCH: usize = 512;
@@ -42,6 +42,9 @@ struct Counts {
     events: usize,
     shallow: usize,
     failures: usize,
+    /// File sides whose table carries warnings: counted when written, so the count depends on
+    /// the commits extracted and not on what the cache held.
+    partial: usize,
 }
 
 struct Commit {
@@ -153,6 +156,12 @@ fn extract_repo(
         warn!(
             "{}: {} file sides failed to parse and gave no events",
             rc.name, counts.failures
+        );
+    }
+    if counts.partial > 0 {
+        warn!(
+            "{}: {} file sides gave warnings and may be missing symbols (RUST_LOG=debug lists them)",
+            rc.name, counts.partial
         );
     }
     Ok(())
@@ -277,6 +286,12 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
                     counts.failures += 1;
                     continue;
                 };
+                for (path, table) in [old, new].into_iter().flatten() {
+                    if !table.warnings().is_empty() {
+                        counts.partial += 1;
+                        debug!("{name}: {} {path}: {}", c.sha, table.warnings().join("; "));
+                    }
+                }
                 let old_path = change
                     .old
                     .as_ref()

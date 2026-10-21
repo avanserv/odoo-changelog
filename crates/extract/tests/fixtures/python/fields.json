@@ -1,0 +1,322 @@
+{
+  "symbols": [
+    {
+      "kind": "field",
+      "qualname": "demo.book#author_id@demo",
+      "line": 12,
+      "span": {
+        "start": 335,
+        "end": 344
+      },
+      "attrs": {
+        "args": {
+          "ondelete": "cascade",
+          "string": "Author"
+        },
+        "comodel": "res.partner",
+        "type": "Many2one"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#company_id@demo",
+      "line": 18,
+      "span": {
+        "start": 743,
+        "end": 753
+      },
+      "attrs": {
+        "args": {
+          "default": {
+            "expr": "lambda self:self.env.company"
+          }
+        },
+        "comodel": "res.company",
+        "type": "Many2one"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#date@demo",
+      "line": 22,
+      "span": {
+        "start": 853,
+        "end": 857
+      },
+      "attrs": {
+        "args": {
+          "default": {
+            "expr": "fields.Date.today"
+          },
+          "string": {
+            "expr": "_('Date')"
+          }
+        },
+        "type": "Date"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#editor_id@demo",
+      "line": 13,
+      "span": {
+        "start": 412,
+        "end": 421
+      },
+      "attrs": {
+        "args": {
+          "string": "Editor"
+        },
+        "comodel": "res.partner",
+        "type": "Many2one"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#extra@demo",
+      "line": 27,
+      "span": {
+        "start": 1028,
+        "end": 1033
+      },
+      "attrs": {
+        "args": {
+          "#1": "unexpected",
+          "**": {
+            "expr": "common_kwargs"
+          },
+          "string": "Extra"
+        },
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#help_text@demo",
+      "line": 23,
+      "span": {
+        "start": 921,
+        "end": 930
+      },
+      "attrs": {
+        "args": {
+          "help": "A help text that was wrapped over two lines."
+        },
+        "type": "Text"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#kind@demo",
+      "line": 11,
+      "span": {
+        "start": 272,
+        "end": 276
+      },
+      "attrs": {
+        "args": {
+          "selection": "_kinds",
+          "string": "Kind"
+        },
+        "type": "Reference"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#name@demo",
+      "line": 8,
+      "span": {
+        "start": 118,
+        "end": 122
+      },
+      "attrs": {
+        "args": {
+          "required": true,
+          "string": "Title"
+        },
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#notes@demo",
+      "line": 28,
+      "span": {
+        "start": 1092,
+        "end": 1097
+      },
+      "attrs": {
+        "type": "Html"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#page_ids@demo",
+      "line": 14,
+      "span": {
+        "start": 489,
+        "end": 497
+      },
+      "attrs": {
+        "args": {
+          "inverse_name": "book_id",
+          "string": "Pages"
+        },
+        "comodel": "demo.page",
+        "type": "One2many"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#pages@demo",
+      "line": 30,
+      "span": {
+        "start": 1152,
+        "end": 1157
+      },
+      "attrs": {
+        "args": {
+          "compute": "_compute_pages"
+        },
+        "type": "Integer"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#price@demo",
+      "line": 17,
+      "span": {
+        "start": 691,
+        "end": 696
+      },
+      "attrs": {
+        "args": {
+          "currency_field": "currency_id",
+          "string": "Price"
+        },
+        "type": "Monetary"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#state@demo",
+      "line": 10,
+      "span": {
+        "start": 220,
+        "end": 225
+      },
+      "attrs": {
+        "args": {
+          "selection": [
+            [
+              "a",
+              "A"
+            ]
+          ],
+          "string": "State"
+        },
+        "type": "Selection"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#tag_ids@demo",
+      "line": 15,
+      "span": {
+        "start": 553,
+        "end": 560
+      },
+      "attrs": {
+        "args": {
+          "column1": "book_id",
+          "column2": "tag_id",
+          "relation": "demo_book_tag_rel",
+          "string": "Tags"
+        },
+        "comodel": "demo.tag",
+        "type": "Many2many"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#title@demo",
+      "line": 9,
+      "span": {
+        "start": 165,
+        "end": 170
+      },
+      "attrs": {
+        "args": {
+          "required": true,
+          "string": "Title"
+        },
+        "type": "Char"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.book#weight@demo",
+      "line": 16,
+      "span": {
+        "start": 646,
+        "end": 652
+      },
+      "attrs": {
+        "args": {
+          "digits": [
+            16,
+            2
+          ],
+          "string": "Weight"
+        },
+        "type": "Float"
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.book#_kinds@demo",
+      "line": 32,
+      "span": {
+        "start": 1210,
+        "end": 1216
+      },
+      "attrs": {
+        "body": "ae152cf4d32dd44596a7b796c8efb583",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.book@demo",
+      "line": 5,
+      "span": {
+        "start": 76,
+        "end": 85
+      },
+      "attrs": {
+        "_description": "Book",
+        "_name": "demo.book",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Book"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.book#state:a@demo",
+      "line": 10,
+      "span": {
+        "start": 248,
+        "end": 249
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "A"
+      }
+    }
+  ],
+  "warnings": []
+}

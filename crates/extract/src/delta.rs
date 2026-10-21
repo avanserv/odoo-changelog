@@ -95,6 +95,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+    use crate::Span;
 
     /// Prefixes the parent directory, so a rename within a directory keeps qualnames.
     struct ByDir;
@@ -125,6 +126,10 @@ mod tests {
                 kind: "def".into(),
                 name: (*name).into(),
                 line: *line,
+                span: Span {
+                    start: *line * 10,
+                    end: *line * 10 + 1,
+                },
                 attrs: [("body".to_string(), Value::from(*body))].into(),
             });
         }
@@ -153,9 +158,10 @@ mod tests {
     }
 
     #[test]
-    fn line_only_edit_is_no_event() {
+    fn span_and_line_edits_are_no_event() {
         let old = table(&[("f", 1, "x")]);
         let new = table(&[("f", 7, "x")]);
+        assert_ne!(old.iter().next().unwrap().span, new.iter().next().unwrap().span);
         assert!(delta(&ByDir, Some(("a/f.py", &old)), Some(("a/f.py", &new))).is_empty());
     }
 

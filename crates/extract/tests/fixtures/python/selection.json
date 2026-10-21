@@ -1,0 +1,266 @@
+{
+  "symbols": [
+    {
+      "kind": "field",
+      "qualname": "demo.order#inline@demo",
+      "line": 19,
+      "span": {
+        "start": 313,
+        "end": 319
+      },
+      "attrs": {
+        "args": {
+          "selection": [
+            [
+              "a",
+              "Alpha"
+            ],
+            [
+              "b",
+              "Beta"
+            ]
+          ]
+        },
+        "type": "Selection"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.order#method@demo",
+      "line": 21,
+      "span": {
+        "start": 435,
+        "end": 441
+      },
+      "attrs": {
+        "args": {
+          "selection": "_selection_method"
+        },
+        "type": "Selection"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.order#priority@demo",
+      "line": 20,
+      "span": {
+        "start": 376,
+        "end": 384
+      },
+      "attrs": {
+        "args": {
+          "selection": [
+            [
+              0,
+              "Low"
+            ],
+            [
+              1,
+              "High"
+            ]
+          ]
+        },
+        "type": "Selection"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.order#state@demo",
+      "line": 18,
+      "span": {
+        "start": 249,
+        "end": 254
+      },
+      "attrs": {
+        "args": {
+          "default": "draft",
+          "selection": {
+            "expr": "STATES"
+          }
+        },
+        "type": "Selection"
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.order[OrderExtension]#state@demo",
+      "line": 27,
+      "span": {
+        "start": 553,
+        "end": 558
+      },
+      "attrs": {
+        "args": {
+          "ondelete": {
+            "sent": "set default"
+          },
+          "selection_add": [
+            [
+              "sent",
+              "Sent"
+            ],
+            [
+              "cancel"
+            ]
+          ]
+        },
+        "type": "Selection"
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#_selection_method@demo",
+      "line": 32,
+      "span": {
+        "start": 691,
+        "end": 708
+      },
+      "attrs": {
+        "body": "390556bf9e8e5f09e23d2826cea15ce0",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.order@demo",
+      "line": 15,
+      "span": {
+        "start": 205,
+        "end": 215
+      },
+      "attrs": {
+        "_description": "Order",
+        "_name": "demo.order",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Order"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.order[OrderExtension]@demo",
+      "line": 25,
+      "span": {
+        "start": 536,
+        "end": 546
+      },
+      "attrs": {
+        "_inherit": [
+          "demo.order"
+        ],
+        "bases": [
+          "models.Model"
+        ],
+        "class": "OrderExtension"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#inline:a@demo",
+      "line": 19,
+      "span": {
+        "start": 342,
+        "end": 343
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Alpha"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#inline:b@demo",
+      "line": 19,
+      "span": {
+        "start": 358,
+        "end": 359
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Beta"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#priority:0@demo",
+      "line": 20,
+      "span": {
+        "start": 406,
+        "end": 407
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Low"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#priority:1@demo",
+      "line": 20,
+      "span": {
+        "start": 418,
+        "end": 419
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "High"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#state:draft@demo",
+      "line": 9,
+      "span": {
+        "start": 110,
+        "end": 115
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Quotation"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#state:sale@demo",
+      "line": 10,
+      "span": {
+        "start": 138,
+        "end": 142
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Sales Order"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order[OrderExtension]#state:cancel@demo",
+      "line": 28,
+      "span": {
+        "start": 622,
+        "end": 628
+      },
+      "attrs": {
+        "declared": "selection_add",
+        "label": null
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order[OrderExtension]#state:sent@demo",
+      "line": 28,
+      "span": {
+        "start": 604,
+        "end": 608
+      },
+      "attrs": {
+        "declared": "selection_add",
+        "label": "Sent"
+      }
+    }
+  ],
+  "warnings": []
+}

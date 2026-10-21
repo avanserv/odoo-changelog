@@ -1,0 +1,219 @@
+{
+  "symbols": [
+    {
+      "kind": "field",
+      "qualname": "demo.order#amount@demo",
+      "line": 8,
+      "span": {
+        "start": 123,
+        "end": 129
+      },
+      "attrs": {
+        "type": "Float"
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#_check_amount@demo",
+      "line": 25,
+      "span": {
+        "start": 540,
+        "end": 553
+      },
+      "attrs": {
+        "body": "04e05af4f33e68ef2588ddddea25f768",
+        "decorators": [
+          {
+            "args": [
+              "amount"
+            ],
+            "name": "api.constrains"
+          }
+        ],
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#_compute_amount@demo",
+      "line": 11,
+      "span": {
+        "start": 203,
+        "end": 218
+      },
+      "attrs": {
+        "body": "493814e46295fce68d32646ea05c79b8",
+        "decorators": [
+          {
+            "args": [
+              "line_ids",
+              "line_ids.price"
+            ],
+            "name": "api.depends"
+          }
+        ],
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#_default_name@demo",
+      "line": 17,
+      "span": {
+        "start": 369,
+        "end": 382
+      },
+      "attrs": {
+        "body": "b652046e074020142f15d0ea0072b426",
+        "decorators": [
+          {
+            "name": "api.model"
+          }
+        ],
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#_onchange_partner@demo",
+      "line": 21,
+      "span": {
+        "start": 452,
+        "end": 469
+      },
+      "attrs": {
+        "body": "07aa35d6e47b41ffba6a0b5dab9541b1",
+        "decorators": [
+          {
+            "args": [
+              "partner_id"
+            ],
+            "name": "api.onchange"
+          }
+        ],
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#annotated@demo",
+      "line": 43,
+      "span": {
+        "start": 954,
+        "end": 963
+      },
+      "attrs": {
+        "body": "f2b50a2ac836c7f98660588cacf8d9cb",
+        "returns": "list[str]",
+        "signature": [
+          "self",
+          "count: int"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#fetch@demo",
+      "line": 46,
+      "span": {
+        "start": 1057,
+        "end": 1062
+      },
+      "attrs": {
+        "async": true,
+        "body": "d8bb6cf225ad2abfa91125febf02b040",
+        "signature": [
+          "self"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#label@demo",
+      "line": 34,
+      "span": {
+        "start": 744,
+        "end": 749
+      },
+      "attrs": {
+        "body": "f3eb0b006bafc2834ecea4e2a1962ce2",
+        "decorators": [
+          {
+            "name": "label.setter"
+          }
+        ],
+        "signature": [
+          "self",
+          "value"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#separators@demo",
+      "line": 40,
+      "span": {
+        "start": 887,
+        "end": 897
+      },
+      "attrs": {
+        "body": "a5daf98a87a588b6a88e8573ce182cf0",
+        "signature": [
+          "self",
+          "x",
+          "/",
+          "y",
+          "*",
+          "z"
+        ]
+      }
+    },
+    {
+      "kind": "method",
+      "qualname": "demo.order#signature@demo",
+      "line": 37,
+      "span": {
+        "start": 801,
+        "end": 810
+      },
+      "attrs": {
+        "body": "049fc645f0a5434f3b1164ffeadf4e8f",
+        "signature": [
+          "self",
+          "a",
+          "b=None",
+          "*args",
+          "c",
+          "d: int=3",
+          "**kwargs"
+        ]
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.order@demo",
+      "line": 5,
+      "span": {
+        "start": 79,
+        "end": 89
+      },
+      "attrs": {
+        "_description": "Order",
+        "_name": "demo.order",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "Order"
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -10,3 +10,8 @@ anyhow.workspace = true
 blake3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tree-sitter.workspace = true
+tree-sitter-python.workspace = true
+
+[dev-dependencies]
+odoo-changelog-core.workspace = true
