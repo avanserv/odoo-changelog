@@ -1,0 +1,230 @@
+{
+  "symbols": [
+    {
+      "kind": "js_component",
+      "qualname": "@demo/views/component#ConfirmDialog",
+      "line": 9,
+      "span": {
+        "start": 318,
+        "end": 331
+      },
+      "attrs": {
+        "components": {
+          "Dialog": {
+            "ref": "@web/core/dialog/dialog#Dialog"
+          }
+        },
+        "extends": {
+          "ref": "@odoo/owl#Component"
+        },
+        "props": [
+          "close",
+          "confirm",
+          "title?"
+        ],
+        "template": "demo.ConfirmDialog"
+      }
+    },
+    {
+      "kind": "js_component",
+      "qualname": "@demo/views/component#InlineThing",
+      "line": 15,
+      "span": {
+        "start": 499,
+        "end": 510
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@odoo/owl#Component"
+        },
+        "props": {
+          "label": {
+            "expr": "String"
+          }
+        },
+        "template": {
+          "inline": "178156af99ed149ef161edba94f1ef16"
+        }
+      }
+    },
+    {
+      "kind": "js_component",
+      "qualname": "@demo/views/component#ThingField",
+      "line": 23,
+      "span": {
+        "start": 703,
+        "end": 713
+      },
+      "attrs": {
+        "components": {
+          "ConfirmDialog": {
+            "ref": "@demo/views/component#ConfirmDialog"
+          },
+          "Inline": {
+            "ref": "@demo/views/component#InlineThing"
+          },
+          "ThingAutocomplete": {
+            "ref": "@demo/thing/autocomplete#ThingAutocomplete"
+          }
+        },
+        "extends": {
+          "ref": "@odoo/owl#Component"
+        },
+        "props": {
+          "...standardFieldProps": {
+            "ref": "@web/views/fields/standard_field_props#standardFieldProps"
+          },
+          "allowNew": {
+            "optional": true,
+            "type": {
+              "expr": "Boolean"
+            }
+          },
+          "hint": {
+            "optional": true,
+            "type": {
+              "expr": "String"
+            }
+          }
+        },
+        "static": {
+          "SEARCH_LIMIT": 8,
+          "defaultProps": {
+            "allowNew": true
+          },
+          "extractProps": {
+            "fn": "754fccb55aedbc1174b75c2f567f505c"
+          }
+        },
+        "template": "demo.ThingField"
+      }
+    },
+    {
+      "kind": "js_component",
+      "qualname": "@demo/views/component#ThingListField",
+      "line": 52,
+      "span": {
+        "start": 1455,
+        "end": 1469
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@demo/views/component#ThingField"
+        },
+        "template": "demo.ThingListField"
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/component#Helper",
+      "line": 56,
+      "span": {
+        "start": 1552,
+        "end": 1558
+      },
+      "attrs": {
+        "kind": "class",
+        "members": {
+          "run": {
+            "fn": "a7e04cf7f7693e98c84e78476424b046"
+          }
+        },
+        "static": {
+          "version": 2
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/component#InlineThing",
+      "line": 15,
+      "span": {
+        "start": 499,
+        "end": 510
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@odoo/owl#Component"
+        },
+        "kind": "class"
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/component#ThingField",
+      "line": 23,
+      "span": {
+        "start": 703,
+        "end": 713
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@odoo/owl#Component"
+        },
+        "kind": "class",
+        "members": {
+          "get displayName": {
+            "fn": "2a90c5ae3e93a636dc49be6475ce7c54"
+          },
+          "onCreate": {
+            "fn": "c9477263faad97452a21d8a1261e7301"
+          },
+          "setup": {
+            "fn": "7a24615687f7dd99be5fb6af631c89e4"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/component#ThingListField",
+      "line": 52,
+      "span": {
+        "start": 1455,
+        "end": 1469
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@demo/views/component#ThingField"
+        },
+        "kind": "class"
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/component",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@demo/thing/autocomplete#ThingAutocomplete"
+          },
+          {
+            "ref": "@odoo/owl#Component"
+          },
+          {
+            "ref": "@odoo/owl#useState"
+          },
+          {
+            "ref": "@odoo/owl#xml"
+          },
+          {
+            "ref": "@web/core/dialog/dialog#Dialog"
+          },
+          {
+            "ref": "@web/core/l10n/translation#_t"
+          },
+          {
+            "ref": "@web/views/fields/standard_field_props#standardFieldProps"
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

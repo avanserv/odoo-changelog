@@ -1,0 +1,244 @@
+{
+  "symbols": [
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#*",
+      "line": 39,
+      "span": {
+        "start": 857,
+        "end": 858
+      },
+      "attrs": {
+        "kind": "reexport",
+        "of": [
+          {
+            "ref": "@demo/views/z#*"
+          },
+          {
+            "ref": "@demo/more#*"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#LIMIT",
+      "line": 17,
+      "span": {
+        "start": 406,
+        "end": 411
+      },
+      "attrs": {
+        "kind": "const",
+        "value": 80
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#Store",
+      "line": 21,
+      "span": {
+        "start": 503,
+        "end": 508
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@demo/utils#Base"
+        },
+        "kind": "class",
+        "members": {
+          "add": {
+            "fn": "c1c6fa9cafb7f2656aaa57b5ad39cb70"
+          },
+          "get size": {
+            "fn": "d93e4e7a0e46db71500b6c3fbe4c82d6"
+          },
+          "items": []
+        },
+        "static": {
+          "instances": 0
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#compute",
+      "line": 9,
+      "span": {
+        "start": 261,
+        "end": 268
+      },
+      "attrs": {
+        "body": "df7295096b524284e193357e43f75199",
+        "kind": "function",
+        "params": [
+          "a",
+          "b=2",
+          "...rest"
+        ]
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#counter",
+      "line": 18,
+      "span": {
+        "start": 429,
+        "end": 436
+      },
+      "attrs": {
+        "kind": "let",
+        "value": {
+          "count": 0
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#default",
+      "line": 37,
+      "span": {
+        "start": 774,
+        "end": 781
+      },
+      "attrs": {
+        "kind": "value",
+        "value": {
+          "limit": {
+            "ref": "@demo/views/es_module#LIMIT"
+          },
+          "name": "demo"
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#ns",
+      "line": 41,
+      "span": {
+        "start": 914,
+        "end": 916
+      },
+      "attrs": {
+        "kind": "reexport",
+        "of": {
+          "ref": "@demo/q#*"
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#odd",
+      "line": 38,
+      "span": {
+        "start": 843,
+        "end": 846
+      },
+      "attrs": {
+        "kind": "value",
+        "value": {
+          "ref": "@demo/views/thing#odd name"
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#other",
+      "line": 42,
+      "span": {
+        "start": 951,
+        "end": 956
+      },
+      "attrs": {
+        "kind": "reexport",
+        "of": {
+          "ref": "@demo/views/thing#thing"
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#shared",
+      "line": 38,
+      "span": {
+        "start": 835,
+        "end": 841
+      },
+      "attrs": {
+        "kind": "const",
+        "local": "internal",
+        "value": {
+          "expr": "utils.make(Thing)"
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/es_module#stream",
+      "line": 13,
+      "span": {
+        "start": 354,
+        "end": 360
+      },
+      "attrs": {
+        "async": true,
+        "body": "11450072ee62a50754f7e5a9fb0cd155",
+        "generator": true,
+        "kind": "function",
+        "params": [
+          "source"
+        ]
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/es_module",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@demo/utils#*"
+          },
+          {
+            "ref": "@demo/views/format#format"
+          },
+          {
+            "ref": "@demo/views/thing#default"
+          },
+          {
+            "ref": "@demo/views/thing#helper"
+          },
+          {
+            "ref": "@demo/views/thing#odd name"
+          },
+          {
+            "ref": "@demo/side_effect"
+          },
+          {
+            "ref": "@web/core/registry#registry"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "demo_stores:store@demo",
+      "line": 35,
+      "span": {
+        "start": 750,
+        "end": 755
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/es_module#Store"
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -6,9 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use tree_sitter::Node;
 
+use super::closes_single_tuple;
 use super::value::{delimiters, prefix};
-use super::{Tokens, Visit, Visitor, named, text, visit};
 use crate::hash::digest;
+use crate::syntax::{Tokens, Visit, Visitor, named, text, visit};
 
 /// The first 16 bytes of blake3 over the body's tokens, each followed by a 0x00 byte, as hex.
 /// The whole def is one scope: a name bound anywhere in it, nested defs and lambdas included,
@@ -68,7 +69,7 @@ impl<'t, F: FnMut(&str)> Visitor<'t> for Walk<'_, 't, F> {
                 self.tokens.push(&text(n, self.src));
                 return false;
             }
-            "," if v.closes_single_tuple() => {
+            "," if closes_single_tuple(v) => {
                 self.tokens.mark(",");
                 return false;
             }
@@ -98,11 +99,11 @@ impl<'a, F: FnMut(&str)> Walk<'a, '_, F> {
     /// of the same name never replaces them.
     fn identifier(&self, v: &Visit) -> Cow<'a, str> {
         let name = text(v.node, self.src);
-        let parent = v.parent.map(|p| p.kind());
-        let elsewhere = matches!(
-            (parent, v.field),
-            (Some("attribute"), Some("attribute")) | (Some("keyword_argument"), Some("name"))
-        );
+        let elsewhere = match v.parent.map(|p| p.kind()) {
+            Some("attribute") => v.fills("attribute"),
+            Some("keyword_argument") => v.fills("name"),
+            _ => false,
+        };
         match self.bound.get(name.as_ref()) {
             Some(i) if !elsewhere => Cow::Owned(format!("${i}")),
             _ if Some(name.as_ref()) == self.own_name => Cow::Borrowed("$fn"),

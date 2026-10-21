@@ -1,0 +1,203 @@
+{
+  "symbols": [
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/registry#fieldRegistry",
+      "line": 7,
+      "span": {
+        "start": 184,
+        "end": 197
+      },
+      "attrs": {
+        "kind": "const",
+        "value": {
+          "expr": "registry.category('fields')"
+        }
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/registry",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@demo/views/component#ThingField"
+          },
+          {
+            "ref": "@demo/views/component#thingField"
+          },
+          {
+            "ref": "@web/core/registry#registry"
+          },
+          {
+            "ref": "web.field_registry"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "actions:thing_debug_action@demo",
+      "line": 20,
+      "span": {
+        "start": 819,
+        "end": 837
+      },
+      "attrs": {
+        "value": {
+          "fn": "b814f2501b444c2c10d031671d5d7cfb"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "debug>form:thing_debug@demo",
+      "line": 11,
+      "span": {
+        "start": 382,
+        "end": 393
+      },
+      "attrs": {
+        "value": {
+          "fn": "d18d6cff8fce06f114a44f5ea6dec82d"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:[`thing_${\"dyn\"}`]@demo",
+      "line": 16,
+      "span": {
+        "start": 677,
+        "end": 693
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#thingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:kanban.thing@demo",
+      "line": 14,
+      "span": {
+        "start": 521,
+        "end": 533
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#thingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:list.thing@demo",
+      "line": 13,
+      "span": {
+        "start": 441,
+        "end": 451
+      },
+      "attrs": {
+        "value": {
+          "component": {
+            "ref": "@demo/views/component#ThingField"
+          },
+          "supportedTypes": [
+            "many2one"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:looped@demo",
+      "line": 29,
+      "span": {
+        "start": 1048,
+        "end": 1054
+      },
+      "attrs": {
+        "value": {
+          "expr": "thingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:thing@demo",
+      "line": 17,
+      "span": {
+        "start": 741,
+        "end": 746
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#ThingField"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "services:thing@demo",
+      "line": 45,
+      "span": {
+        "start": 1422,
+        "end": 1427
+      },
+      "attrs": {
+        "async": [
+          "load"
+        ],
+        "dependencies": [
+          "orm",
+          "notification"
+        ],
+        "value": {
+          "ref": "@demo/views/registry#thingService"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "views:thing_view@demo",
+      "line": 15,
+      "span": {
+        "start": 567,
+        "end": 577
+      },
+      "attrs": {
+        "force": true,
+        "options": {
+          "label": "Thing"
+        },
+        "sequence": 5,
+        "value": {
+          "type": "form"
+        }
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "web.field_registry:legacy_thing@demo",
+      "line": 32,
+      "span": {
+        "start": 1091,
+        "end": 1103
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/component#ThingField"
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Number, Value};
 use tree_sitter::Node;
 
-use super::{Tokens, Visit, named, text, visit};
+use super::closes_single_tuple;
+use crate::syntax::{Tokens, Visit, named, quoted, text, visit};
 
 /// Literals nested deeper than this read as expressions, which keeps `value` off the stack limit.
 const MAX_DEPTH: usize = 32;
@@ -191,23 +192,6 @@ fn code_point(s: &str, radix: u32, digits: usize) -> Option<(Option<char>, usize
     Some((Some(c), 1 + digits))
 }
 
-/// A plain string's decoded value in single quotes. Its `r` or `u` flag is left out: decoding
-/// already applied what it meant.
-fn quoted(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('\'');
-    for c in value.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\'' => out.push_str("\\'"),
-            '\n' => out.push_str("\\n"),
-            c => out.push(c),
-        }
-    }
-    out.push('\'');
-    out
-}
-
 /// The leaf tokens of `node` without comments or trailing commas, with one space between two
 /// word characters and after each comma. Plain strings read as their quoted value; bytes and
 /// f-strings keep their source text.
@@ -244,7 +228,7 @@ pub(crate) fn canonical(node: Node, src: &[u8]) -> String {
                 }
                 None => true,
             },
-            "," if v.closes_single_tuple() => {
+            "," if closes_single_tuple(v) => {
                 tokens.mark(",");
                 false
             }

@@ -1,0 +1,85 @@
+{
+  "symbols": [
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/syntax_error#Broken",
+      "line": 9,
+      "span": {
+        "start": 127,
+        "end": 133
+      },
+      "attrs": {
+        "kind": "class",
+        "members": {
+          "broken": {
+            "fn": "2fb96cda1e694926ee51bd6530796ac9"
+          },
+          "first": {
+            "fn": "5e3bae9fa382d2f4acfe1fd096fb6e89"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/syntax_error#after",
+      "line": 24,
+      "span": {
+        "start": 294,
+        "end": 299
+      },
+      "attrs": {
+        "kind": "const",
+        "value": 1
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/syntax_error#before",
+      "line": 5,
+      "span": {
+        "start": 86,
+        "end": 92
+      },
+      "attrs": {
+        "body": "80cd85e02594219d8d5db70a13e10a93",
+        "kind": "function",
+        "params": []
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/syntax_error",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@web/core/registry#registry"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_registry",
+      "qualname": "fields:after@demo",
+      "line": 25,
+      "span": {
+        "start": 338,
+        "end": 343
+      },
+      "attrs": {
+        "value": {
+          "ref": "@demo/views/syntax_error#after"
+        }
+      }
+    }
+  ],
+  "warnings": [
+    "line 19: syntax error"
+  ]
+}

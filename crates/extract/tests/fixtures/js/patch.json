@@ -1,0 +1,133 @@
+{
+  "symbols": [
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/patch",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@demo/views/component#ThingField"
+          },
+          {
+            "ref": "@web/core/utils/patch#patch"
+          },
+          {
+            "ref": "@web/views/list/list_renderer#ListRenderer"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "@demo/views/component#ThingField.prototype@demo",
+      "line": 7,
+      "span": {
+        "start": 190,
+        "end": 210
+      },
+      "attrs": {
+        "declared": "patch",
+        "members": {
+          "get displayName": {
+            "fn": "619b40ace25726d75b95e630065865a0"
+          },
+          "setup": {
+            "fn": "fea8a84e0b7cda4dd57a8ba52d196955"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "@demo/views/component#ThingField@demo",
+      "line": 28,
+      "span": {
+        "start": 590,
+        "end": 600
+      },
+      "attrs": {
+        "declared": "patch",
+        "members": {
+          "extraProps": {
+            "optional": true,
+            "type": {
+              "expr": "Object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "@demo/views/component#ThingField[2]@demo",
+      "line": 29,
+      "span": {
+        "start": 659,
+        "end": 669
+      },
+      "attrs": {
+        "declared": "patch",
+        "members": {
+          "more": 1
+        }
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "@demo/views/patch#LocalThing.prototype@demo",
+      "line": 26,
+      "span": {
+        "start": 535,
+        "end": 555
+      },
+      "attrs": {
+        "declared": "patch",
+        "members": {
+          "run": {
+            "fn": "5e3bae9fa382d2f4acfe1fd096fb6e89"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "@web/views/list/list_renderer#ListRenderer.prototype@demo",
+      "line": 17,
+      "span": {
+        "start": 365,
+        "end": 387
+      },
+      "attrs": {
+        "declared": "patch",
+        "members": {
+          "onCellClicked": {
+            "fn": "11535a86f00984e214250c595df842d6"
+          }
+        },
+        "name": "demo.ListRenderer"
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "@web/views/list/list_renderer#ListRenderer@demo",
+      "line": 32,
+      "span": {
+        "start": 718,
+        "end": 730
+      },
+      "attrs": {
+        "declared": "patch",
+        "value": {
+          "ref": "@demo/views/patch#mixin"
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

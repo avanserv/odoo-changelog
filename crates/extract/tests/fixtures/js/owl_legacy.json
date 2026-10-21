@@ -1,0 +1,70 @@
+{
+  "symbols": [
+    {
+      "kind": "js_component",
+      "qualname": "demo.ThingOwl#ThingOwl",
+      "line": 8,
+      "span": {
+        "start": 184,
+        "end": 192
+      },
+      "attrs": {
+        "components": {
+          "Bar": {
+            "ref": "demo.Bar"
+          }
+        },
+        "extends": {
+          "expr": "owl.Component"
+        },
+        "props": [
+          "onChange",
+          "value"
+        ],
+        "static": {
+          "defaultProps": {
+            "value": 0
+          }
+        },
+        "template": "demo.ThingOwl"
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "demo.ThingOwl#default",
+      "line": 19,
+      "span": {
+        "start": 502,
+        "end": 508
+      },
+      "attrs": {
+        "extends": {
+          "expr": "owl.Component"
+        },
+        "kind": "class",
+        "local": "ThingOwl",
+        "members": {
+          "constructor": {
+            "fn": "34e1c36af00a4cae92526cfdad6d275a"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "demo.ThingOwl",
+      "line": 1,
+      "span": {
+        "start": 13,
+        "end": 26
+      },
+      "attrs": {
+        "declared": "define",
+        "requires": [
+          "demo.Bar"
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

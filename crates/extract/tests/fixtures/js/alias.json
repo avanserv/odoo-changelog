@@ -1,0 +1,68 @@
+{
+  "symbols": [
+    {
+      "kind": "js_component",
+      "qualname": "@demo/views/alias#Thing",
+      "line": 5,
+      "span": {
+        "start": 113,
+        "end": 118
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@odoo/owl#Component"
+        },
+        "template": "demo.Thing"
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/views/alias#default",
+      "line": 5,
+      "span": {
+        "start": 99,
+        "end": 106
+      },
+      "attrs": {
+        "extends": {
+          "ref": "@odoo/owl#Component"
+        },
+        "kind": "class",
+        "local": "Thing"
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/alias",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@odoo/owl#Component"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "demo.Thing",
+      "line": 1,
+      "span": {
+        "start": 23,
+        "end": 33
+      },
+      "attrs": {
+        "declared": "alias",
+        "of": {
+          "ref": "@demo/views/alias#*"
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -14,7 +14,7 @@ use common::{Fixture, config, dump, git, init, odoo_changelog, rev_parse, setup,
 use gix::ObjectId;
 use odoo_changelog::extract::{Options, Timings, run};
 use odoo_changelog_core::{Config, Version};
-use odoo_changelog_extract::{Data, Extractor, Manifest, Python, Registry, Span, Symbol, SymbolTable};
+use odoo_changelog_extract::{Data, Extractor, Js, Manifest, Python, Registry, Span, Symbol, SymbolTable};
 use odoo_changelog_git::{FileChange, FileSide, Repo};
 use odoo_changelog_store::Store;
 use rusqlite::Connection;
@@ -276,8 +276,8 @@ fn version_bump_invalidates_only_that_extractor() {
 
 /// About 30 commits across 16.0, 17.0 and master: forward-port merges, renames, deletions,
 /// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, a manifest per
-/// module for `Manifest`, a model file for `Python` that gains a field and renames a method, and
-/// a view and an access CSV per module for `Data`.
+/// module for `Manifest`, a model file for `Python` that gains a field and renames a method, a
+/// view and an access CSV per module for `Data`, and a registry entry per module for `Js`.
 fn busy(name: &str) -> (PathBuf, PathBuf) {
     let (dir, mut fx, clone) = setup(name);
     for round in 0..3 {
@@ -293,11 +293,15 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
                 branch.replace('.', "")
             );
             let access = "id,name,model_id:id,group_id:id,perm_read\naccess_m,m,model_m,base.group_user,1\n";
+            let app = format!(
+                "/** @odoo-module **/\nimport {{ registry }} from \"@web/core/registry\";\nregistry.category(\"fields\").add(\"f{branch}_{round}\", {{}});\n"
+            );
             fx.commit_files(
                 &[
                     (&format!("{module}/__manifest__.py"), &manifest),
                     (&format!("{m}/views/data.xml"), &view),
                     (&format!("{m}/security/ir.model.access.csv"), access),
+                    (&format!("{module}/static/src/app.js"), &app),
                     (&format!("{m}/__init__.py"), "def init: shared\n"),
                     (&format!("{m}/models.py"), &body),
                     (&format!("{m}/views.xml"), &format!("def v: {branch}\n")),
@@ -351,7 +355,14 @@ fn thread_count_does_not_change_the_database() {
         };
         extract(
             &cfg,
-            vec![py, xml, Box::new(Data), Box::new(Manifest), Box::new(Python)],
+            vec![
+                py,
+                xml,
+                Box::new(Data),
+                Box::new(Js),
+                Box::new(Manifest),
+                Box::new(Python),
+            ],
             &opts,
         );
         dumps.push(dump(&dir.join(format!("t{threads}.db"))));
@@ -365,7 +376,7 @@ fn thread_count_does_not_change_the_database() {
         EXISTS (SELECT 1 FROM extracted e WHERE e.sha = c.sha) OR EXISTS (SELECT 1 FROM events e WHERE e.sha = c.sha))";
     assert_eq!(count(&db, merges, []), 0, "a merge was extracted");
     let unmarked = "SELECT COUNT(*) FROM commits c WHERE is_merge = 0
-        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 5";
+        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 6";
     assert_eq!(
         count(&db, unmarked, []),
         0,
@@ -383,6 +394,11 @@ fn thread_count_does_not_change_the_database() {
             added,
             "{kind}: {added} over the 9 [ADD] commits"
         );
+    }
+    let js = "SELECT COUNT(*) FROM events e JOIN symbols s ON s.id = e.symbol_id
+        WHERE e.extractor = 'js' AND e.op = 'added' AND s.kind = ?1";
+    for kind in ["js_module", "js_registry"] {
+        assert_eq!(count(&db, js, [kind]), 9, "{kind}: one per [ADD] commit");
     }
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
@@ -948,6 +964,178 @@ fn builtin_data_extractor_records_view_events() {
         broken[0].starts_with("line 1: ") && broken[0].contains("</record>"),
         "{broken:?}"
     );
+}
+
+/// `(op, kind, qualname, old_path, attrs_after)` of the js events of `sha`.
+type JsEvent = (String, String, String, Option<String>, Option<String>);
+
+fn js_events(db: &Path, sha: &str) -> Vec<JsEvent> {
+    let conn = Connection::open(db).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.op, s.kind, s.qualname, e.old_path, e.attrs_after FROM events e JOIN symbols s ON s.id = e.symbol_id
+              WHERE e.sha = ?1 AND e.extractor = 'js' ORDER BY s.kind, s.qualname, e.op",
+        )
+        .unwrap();
+    stmt.query_map([sha], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+const THING_FIELD: &str = r#"/** @odoo-module **/
+
+import { Component } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+import { helper } from "./utils";
+
+export class ThingField extends Component {
+    static template = "demo.ThingField";
+
+    setup() {
+        this.value = helper(this.props.value);
+    }
+}
+
+export const thingField = { component: ThingField };
+
+registry.category("fields").add("thing", thingField);
+"#;
+
+const LEGACY_THING: &str = r#"odoo.define('demo.thing_legacy', function (require) {
+"use strict";
+
+var FormController = require('web.FormController');
+var fieldRegistry = require('web.field_registry');
+var AbstractField = require('web.AbstractField');
+
+var LegacyThing = AbstractField.extend({
+    template: 'demo.LegacyThing',
+    _render: function () {},
+});
+
+FormController.include({
+    _onThing: function () {},
+});
+
+fieldRegistry.add('legacy_thing', LegacyThing);
+
+return LegacyThing;
+});
+"#;
+
+#[test]
+fn builtin_js_extractor_records_registry_events() {
+    let (dir, mut fx, clone) = setup("extract-js");
+    let field = "addons/demo/static/src/fields/thing_field.js";
+    let moved = "addons/demo/static/src/fields/thing/thing_field.js";
+    fx.commit_files(
+        &[
+            (field, THING_FIELD),
+            ("addons/demo/static/tests/t.js", THING_FIELD),
+            ("addons/demo/static/lib/l.js", THING_FIELD),
+        ],
+        "[ADD] demo: thing field",
+    );
+    let reformatted = THING_FIELD
+        .replace("    ", "\t")
+        .replace(';', "")
+        .replace('"', "'")
+        .replace("{ component: ThingField }", "{\n\tcomponent: ThingField,\n}");
+    fx.commit_files(&[(field, &reformatted)], "[REF] demo: reformat");
+    let retemplated = reformatted.replace("demo.ThingField", "demo.ThingFieldV2");
+    fx.commit_files(&[(field, &retemplated)], "[IMP] demo: new template");
+    fx.mv(field, moved, "[MOV] demo: thing field");
+    fx.commit_files(
+        &[("addons/demo/static/src/legacy/thing.js", LEGACY_THING)],
+        "[ADD] demo: legacy thing",
+    );
+    fx.commit_files(
+        &[("addons/demo/static/src/broken.js", "export class Broken {\n    m() {\n")],
+        "[ADD] demo: broken",
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+
+    let out = odoo_changelog(&cfg, &["extract"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(output.contains("gave warnings"), "{output}");
+
+    let db = dir.join("walk.db");
+    let at = |rev: &str| js_events(&db, &rev_parse(&clone, rev));
+    let ops = |events: &[JsEvent]| -> Vec<(String, String, String)> {
+        events
+            .iter()
+            .map(|(op, kind, q, _, _)| (op.clone(), kind.clone(), q.clone()))
+            .collect()
+    };
+    let row = |op: &str, kind: &str, qualname: &str| (op.to_string(), kind.to_string(), qualname.to_string());
+
+    let added = at("origin/master~5");
+    assert_eq!(
+        ops(&added),
+        [
+            row("added", "js_component", "@demo/fields/thing_field#ThingField"),
+            row("added", "js_export", "@demo/fields/thing_field#ThingField"),
+            row("added", "js_export", "@demo/fields/thing_field#thingField"),
+            row("added", "js_module", "@demo/fields/thing_field"),
+            row("added", "js_registry", "fields:thing@demo"),
+        ]
+    );
+    let module = added.iter().find(|e| e.1 == "js_module").unwrap();
+    let imports = module.4.as_deref().unwrap();
+    assert!(imports.contains(r#"{"ref":"@demo/fields/utils#helper"}"#), "{imports}");
+    let elsewhere = "SELECT COUNT(*) FROM events WHERE path IN (?1, ?2)";
+    let unclaimed = ["addons/demo/static/tests/t.js", "addons/demo/static/lib/l.js"];
+    assert_eq!(count(&db, elsewhere, unclaimed), 0);
+
+    assert_eq!(at("origin/master~4"), []);
+    assert_eq!(
+        ops(&at("origin/master~3")),
+        [row("changed", "js_component", "@demo/fields/thing_field#ThingField")]
+    );
+
+    let renamed = at("origin/master~2");
+    let registry = renamed.iter().find(|e| e.1 == "js_registry").unwrap();
+    assert_eq!(
+        (registry.0.as_str(), registry.2.as_str(), registry.3.as_deref()),
+        ("changed", "fields:thing@demo", Some(field))
+    );
+    let (new, old) = ("@demo/fields/thing/thing_field", "@demo/fields/thing_field");
+    assert_eq!(
+        ops(&renamed),
+        [
+            row("added", "js_component", &format!("{new}#ThingField")),
+            row("removed", "js_component", &format!("{old}#ThingField")),
+            row("added", "js_export", &format!("{new}#ThingField")),
+            row("added", "js_export", &format!("{new}#thingField")),
+            row("removed", "js_export", &format!("{old}#ThingField")),
+            row("removed", "js_export", &format!("{old}#thingField")),
+            row("added", "js_module", new),
+            row("removed", "js_module", old),
+            row("changed", "js_registry", "fields:thing@demo"),
+        ]
+    );
+
+    assert_eq!(
+        ops(&at("origin/master~1")),
+        [
+            row("added", "js_export", "demo.thing_legacy#default"),
+            row("added", "js_module", "demo.thing_legacy"),
+            row("added", "js_patch", "web.FormController@demo"),
+            row("added", "js_registry", "web.field_registry:legacy_thing@demo"),
+            row("added", "js_widget", "demo.thing_legacy#LegacyThing"),
+        ]
+    );
+
+    let broken = cached_warnings(&db, &clone, "js", "origin/master:addons/demo/static/src/broken.js");
+    assert!(!broken.is_empty());
 }
 
 #[test]

@@ -5,10 +5,12 @@ mod access_csv;
 mod data;
 mod delta;
 mod hash;
+mod js;
 mod manifest;
 mod path;
 mod python;
 mod symbol;
+mod syntax;
 mod xml;
 
 use std::borrow::Cow;
@@ -19,6 +21,7 @@ use serde_json::Value;
 
 pub use data::Data;
 pub use delta::{Delta, Op, delta};
+pub use js::Js;
 pub use manifest::Manifest;
 pub use path::module_of;
 pub use python::Python;
@@ -60,7 +63,7 @@ impl Registry {
 
     /// The extractors the binary ships with.
     pub fn builtin() -> Self {
-        Registry::new(vec![Box::new(Data), Box::new(Manifest), Box::new(Python)])
+        Registry::new(vec![Box::new(Data), Box::new(Js), Box::new(Manifest), Box::new(Python)])
             .expect("builtin extractor names are unique")
     }
 
