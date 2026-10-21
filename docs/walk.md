@@ -16,9 +16,9 @@ same refs produce identical databases, and an incremental walk equals a full reb
 ## How versions are assigned
 
 Each version branch's fork is where its first-parent chain meets master's. `git merge-base`
-is not used: before 14.0 stable branches were merged forward into master, which moves the
-merge-base to the last merged stable commit. When a shallow clone cuts the chain before the
-fork, the community repo falls back to the parent of the master commit that bumped
+is not used: up to and including 13.0, stable branches were merged forward into master, which
+moves the merge-base to the last merged stable commit. When a shallow clone cuts the chain
+before the fork, the community repo falls back to the parent of the master commit that bumped
 `odoo/release.py` to the next series; `[fork_overrides]` in the config pins a fork by hand.
 
 A commit on a version branch belongs to that version. A master commit belongs to the first

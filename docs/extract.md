@@ -14,8 +14,9 @@ Each extractor leaves a warning on the file's table for input it could read only
 page says, and `extract` reports how many file sides (the old or new version of a changed file)
 carry one.
 
-On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) with every builtin
-extractor takes 207 s with an empty cache and 45 s with a warm one (2026-10-21).
+On 8 idle cores, extracting community from 17.0 to 18.0 (about 53,000 commits) with the
+`python`, `manifest`, `data`, `js`, `owl` and `scss` extractors takes 167 s with an empty cache
+and 51 s with a warm one (2026-10-21).
 
 ## Extractors
 
