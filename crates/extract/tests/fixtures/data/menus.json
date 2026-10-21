@@ -1,0 +1,117 @@
+{
+  "symbols": [
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_config@demo",
+      "line": 10,
+      "span": {
+        "start": 546,
+        "end": 562
+      },
+      "attrs": {
+        "declared": "menuitem",
+        "groups": [
+          "base.group_system"
+        ],
+        "name": "Configuration",
+        "parent": "demo.menu_demo_root",
+        "sequence": "90"
+      }
+    },
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_order_list@demo",
+      "line": 5,
+      "span": {
+        "start": 260,
+        "end": 280
+      },
+      "attrs": {
+        "action": "demo.action_demo_orders",
+        "declared": "menuitem",
+        "groups": [
+          "demo.group_demo_user",
+          "-base.group_portal"
+        ],
+        "name": "Orders",
+        "parent": "demo.menu_demo_orders"
+      }
+    },
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_orders@demo",
+      "line": 4,
+      "span": {
+        "start": 187,
+        "end": 203
+      },
+      "attrs": {
+        "declared": "menuitem",
+        "name": "Orders",
+        "parent": "demo.menu_demo_root",
+        "sequence": "10"
+      }
+    },
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_quotes@demo",
+      "line": 6,
+      "span": {
+        "start": 396,
+        "end": 412
+      },
+      "attrs": {
+        "action": "demo_base.action_quotes",
+        "declared": "menuitem",
+        "name": "Quotations",
+        "parent": "demo.menu_demo_orders"
+      }
+    },
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_reports@demo",
+      "line": 13,
+      "span": {
+        "start": 781,
+        "end": 798
+      },
+      "attrs": {
+        "declared": "record",
+        "name": "Reports",
+        "record_model": "ir.ui.menu",
+        "values": "b5f523581dad895d37f9c7ca13fb658d"
+      }
+    },
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_root@demo",
+      "line": 3,
+      "span": {
+        "start": 64,
+        "end": 78
+      },
+      "attrs": {
+        "active": "False",
+        "declared": "menuitem",
+        "name": "Demo",
+        "sequence": "5",
+        "web_icon": "demo,static/description/icon.png"
+      }
+    },
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_settings@demo",
+      "line": 11,
+      "span": {
+        "start": 670,
+        "end": 688
+      },
+      "attrs": {
+        "action": "base.action_settings",
+        "declared": "menuitem",
+        "sequence": "99"
+      }
+    }
+  ],
+  "warnings": []
+}

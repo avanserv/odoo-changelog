@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="demo_order_form_inherit" model="ir.ui.view">
+        <field name="name">demo.order.form.inherit</field>
+        <field name="model">demo.order</field>
+        <field name="inherit_id" ref="demo_base.demo_order_form"/>
+        <field name="arch" type="xml">
+            <data>
+                <xpath expr="//button[@name='action_confirm']" position="before">
+                    <button name="action_check" string="Check" type="object"/>
+                </xpath>
+                <xpath expr="//group[@name='partner_details']" position="after">
+                    <group name="delivery"><field name="carrier_id"/></group>
+                </xpath>
+                <xpath expr="//page[@name='lines']" position="inside">
+                    <field name="note" position="move"/>
+                    <div name="totals"><field name="amount_total"/></div>
+                </xpath>
+                <xpath expr="//field[@name='quantity']" position="replace" mode="inner"/>
+                <xpath expr="//field[@name='customer_id']" position="attributes">
+                    <attribute name="readonly">state != 'draft'</attribute>
+                </xpath>
+                <field name="order_date" string="Ignored" position="after">
+                    <field name="validity_date"/>
+                </field>
+                <div id="hint" position="replace"/>
+                <data>
+                    <field name="ref" position="before"><field name="origin"/></field>
+                </data>
+                <sheet position="inside">
+                    <field name="extra_id"/>
+                </sheet>
+            </data>
+        </field>
+    </record>
+
+    <record id="demo_order_form_local" model="ir.ui.view">
+        <field name="model">demo.order</field>
+        <field name="inherit_id" ref="demo_order_form_inherit"/>
+        <field name="arch" type="xml">
+            <field name="carrier_id" position="after"><field name="weight"/></field>
+        </field>
+    </record>
+
+    <template id="portal_layout" inherit_id="portal.portal_layout" priority="40" name="Demo layout">
+        <xpath expr="//div[@id='wrap']" position="inside">
+            <t t-call="demo.portal_breadcrumbs"/>
+        </xpath>
+    </template>
+
+    <template id="portal_layout_primary" inherit_id="portal.portal_layout" primary="True">
+        <xpath expr="." position="attributes">
+            <attribute name="class">demo</attribute>
+        </xpath>
+    </template>
+
+    <template id="portal_breadcrumbs" name="Breadcrumbs" customize_show="True" active="False" groups="base.group_user,-base.group_portal">
+        <ol class="breadcrumb">
+            <li t-name="crumb" class="breadcrumb-item"><a name="home" href="/my">Home</a></li>
+            <t t-name="tail"><span id="last" t-esc="title"/></t>
+        </ol>
+    </template>
+</odoo>

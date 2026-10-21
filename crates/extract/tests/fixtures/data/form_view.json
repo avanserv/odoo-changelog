@@ -1,0 +1,267 @@
+{
+  "symbols": [
+    {
+      "kind": "view",
+      "qualname": "demo.demo_order_form@demo",
+      "line": 4,
+      "span": {
+        "start": 113,
+        "end": 128
+      },
+      "attrs": {
+        "arch": "b1cb07930c20d57fcd3dc5349b9e0798",
+        "declared": "record",
+        "mode": "primary",
+        "model": "demo.order",
+        "name": "demo.order.form",
+        "priority": "20",
+        "record_model": "ir.ui.view",
+        "type": "form",
+        "values": "3b0aee71b793ff5e477da1d8b5a1efbb"
+      }
+    },
+    {
+      "kind": "view",
+      "qualname": "demo.demo_order_search@demo",
+      "line": 41,
+      "span": {
+        "start": 1759,
+        "end": 1776
+      },
+      "attrs": {
+        "arch": "a67f2a930812ba16494bc763e6094f28",
+        "declared": "record",
+        "mode": "primary",
+        "model": "demo.order",
+        "name": "demo.order.search",
+        "record_model": "ir.ui.view",
+        "type": "search",
+        "values": "89ce6bfad59c58884f43a79697fa3267"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#button[@id='action_confirm']@demo",
+      "line": 11,
+      "span": {
+        "start": 461,
+        "end": 475
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#button[@name='action_confirm']@demo",
+      "line": 10,
+      "span": {
+        "start": 380,
+        "end": 394
+      },
+      "attrs": {
+        "count": 2
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#div[@name='title_div']@demo",
+      "line": 15,
+      "span": {
+        "start": 700,
+        "end": 709
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#field[@name='customer_id']@demo",
+      "line": 20,
+      "span": {
+        "start": 931,
+        "end": 942
+      },
+      "attrs": {
+        "count": 1,
+        "path": "group[@name='header']/group[@name='partner_details']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#field[@name='line_ids']@demo",
+      "line": 26,
+      "span": {
+        "start": 1205,
+        "end": 1213
+      },
+      "attrs": {
+        "count": 1,
+        "path": "page[@name='lines']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#field[@name='name']@demo",
+      "line": 16,
+      "span": {
+        "start": 753,
+        "end": 757
+      },
+      "attrs": {
+        "count": 1,
+        "path": "div[@name='title_div']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#field[@name='order_date']@demo",
+      "line": 21,
+      "span": {
+        "start": 992,
+        "end": 1002
+      },
+      "attrs": {
+        "count": 2,
+        "path": "group[@name='header']/group[@name='partner_details']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#field[@name='product_id']@demo",
+      "line": 28,
+      "span": {
+        "start": 1322,
+        "end": 1332
+      },
+      "attrs": {
+        "count": 1,
+        "path": "page[@name='lines']/field[@name='line_ids']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#field[@name='quantity']@demo",
+      "line": 29,
+      "span": {
+        "start": 1385,
+        "end": 1393
+      },
+      "attrs": {
+        "count": 1,
+        "path": "page[@name='lines']/field[@name='line_ids']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#field[@name='state']@demo",
+      "line": 12,
+      "span": {
+        "start": 574,
+        "end": 579
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#group[@name='header']@demo",
+      "line": 18,
+      "span": {
+        "start": 826,
+        "end": 832
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#group[@name='partner_details']@demo",
+      "line": 19,
+      "span": {
+        "start": 872,
+        "end": 887
+      },
+      "attrs": {
+        "count": 1,
+        "path": "group[@name='header']"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#page[@name='lines']@demo",
+      "line": 25,
+      "span": {
+        "start": 1141,
+        "end": 1146
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form#span[@id='hint']@demo",
+      "line": 35,
+      "span": {
+        "start": 1644,
+        "end": 1648
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_search#field[@name='customer_id']@demo",
+      "line": 46,
+      "span": {
+        "start": 1987,
+        "end": 1998
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_search#filter[@name='draft']@demo",
+      "line": 47,
+      "span": {
+        "start": 2032,
+        "end": 2037
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_search#filter[@name='group_customer']@demo",
+      "line": 50,
+      "span": {
+        "start": 2281,
+        "end": 2295
+      },
+      "attrs": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_search#filter[@name='late']@demo",
+      "line": 48,
+      "span": {
+        "start": 2121,
+        "end": 2125
+      },
+      "attrs": {
+        "count": 1
+      }
+    }
+  ],
+  "warnings": []
+}

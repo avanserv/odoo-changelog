@@ -1,0 +1,61 @@
+{
+  "symbols": [
+    {
+      "kind": "access",
+      "qualname": "demo.access_demo_line_user@demo",
+      "line": 4,
+      "span": {
+        "start": 228,
+        "end": 249
+      },
+      "attrs": {
+        "declared": "csv",
+        "group_id": "base.group_user",
+        "model_id": "demo_base.model_demo_order_line",
+        "name": "demo.order.line.user",
+        "perm_create": "1",
+        "perm_read": "1",
+        "perm_unlink": "1",
+        "perm_write": "1"
+      }
+    },
+    {
+      "kind": "access",
+      "qualname": "demo.access_demo_order_all@demo",
+      "line": 3,
+      "span": {
+        "start": 157,
+        "end": 178
+      },
+      "attrs": {
+        "declared": "csv",
+        "model_id": "demo.model_demo_order",
+        "name": "demo.order, everyone",
+        "perm_create": "0",
+        "perm_read": "1",
+        "perm_unlink": "0",
+        "perm_write": "0"
+      }
+    },
+    {
+      "kind": "access",
+      "qualname": "demo.access_demo_order_user@demo",
+      "line": 2,
+      "span": {
+        "start": 77,
+        "end": 99
+      },
+      "attrs": {
+        "declared": "csv",
+        "group_id": "demo.group_demo_user",
+        "model_id": "demo.model_demo_order",
+        "name": "demo.order.user",
+        "perm_create": "1",
+        "perm_read": "1",
+        "perm_unlink": "0",
+        "perm_write": "1"
+      }
+    }
+  ],
+  "warnings": []
+}

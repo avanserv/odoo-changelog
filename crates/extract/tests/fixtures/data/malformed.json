@@ -1,0 +1,35 @@
+{
+  "symbols": [
+    {
+      "kind": "menu",
+      "qualname": "demo.menu_demo_kept@demo",
+      "line": 6,
+      "span": {
+        "start": 165,
+        "end": 179
+      },
+      "attrs": {
+        "declared": "menuitem",
+        "name": "Kept"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.demo_first@demo",
+      "line": 3,
+      "span": {
+        "start": 62,
+        "end": 72
+      },
+      "attrs": {
+        "declared": "record",
+        "name": "First",
+        "record_model": "demo.tag",
+        "values": "1d644578baff9e0d5229b63799b5b381"
+      }
+    }
+  ],
+  "warnings": [
+    "line 12: ill-formed document: expected `</field>`, but `</fieldd>` was found"
+  ]
+}

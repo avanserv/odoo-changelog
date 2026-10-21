@@ -14,7 +14,7 @@ use common::{Fixture, config, dump, git, init, odoo_changelog, rev_parse, setup,
 use gix::ObjectId;
 use odoo_changelog::extract::{Options, Timings, run};
 use odoo_changelog_core::{Config, Version};
-use odoo_changelog_extract::{Extractor, Manifest, Python, Registry, Span, Symbol, SymbolTable};
+use odoo_changelog_extract::{Data, Extractor, Manifest, Python, Registry, Span, Symbol, SymbolTable};
 use odoo_changelog_git::{FileChange, FileSide, Repo};
 use odoo_changelog_store::Store;
 use rusqlite::Connection;
@@ -109,6 +109,20 @@ fn count(db: &Path, sql: &str, params: impl rusqlite::Params) -> i64 {
         .unwrap()
         .query_row(sql, params, |r| r.get(0))
         .unwrap()
+}
+
+/// The warnings `extractor` cached for the blob at `rev:path`.
+fn cached_warnings(db: &Path, clone: &Path, extractor: &str, at: &str) -> Vec<String> {
+    let blob = rev_parse(clone, at);
+    let symbols: Vec<u8> = Connection::open(db)
+        .unwrap()
+        .query_row(
+            "SELECT symbols FROM blob_cache WHERE blob_oid = ?1 AND extractor = ?2",
+            [&blob, extractor],
+            |r| r.get(0),
+        )
+        .unwrap();
+    SymbolTable::from_bytes(&symbols).unwrap().warnings().to_vec()
 }
 
 /// `(path, op, qualname, old_path)` of every event of `sha`, in that order.
@@ -262,7 +276,8 @@ fn version_bump_invalidates_only_that_extractor() {
 
 /// About 30 commits across 16.0, 17.0 and master: forward-port merges, renames, deletions,
 /// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, a manifest per
-/// module for `Manifest`, and a model file for `Python` that gains a field and renames a method.
+/// module for `Manifest`, a model file for `Python` that gains a field and renames a method, and
+/// a view and an access CSV per module for `Data`.
 fn busy(name: &str) -> (PathBuf, PathBuf) {
     let (dir, mut fx, clone) = setup(name);
     for round in 0..3 {
@@ -273,9 +288,16 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
             // A directory with a dot is no module name, so the manifest goes in a sibling.
             let module = format!("addons/m{}_{round}", branch.replace('.', ""));
             let manifest = format!("{{'name': 'M', 'depends': ['base', 'm{branch}_{round}']}}\n");
+            let view = format!(
+                "<odoo><record id=\"view_form\" model=\"ir.ui.view\"><field name=\"arch\" type=\"xml\"><form><field name=\"f{round}\"/><field name=\"b{}\"/></form></field></record></odoo>\n",
+                branch.replace('.', "")
+            );
+            let access = "id,name,model_id:id,group_id:id,perm_read\naccess_m,m,model_m,base.group_user,1\n";
             fx.commit_files(
                 &[
                     (&format!("{module}/__manifest__.py"), &manifest),
+                    (&format!("{m}/views/data.xml"), &view),
+                    (&format!("{m}/security/ir.model.access.csv"), access),
                     (&format!("{m}/__init__.py"), "def init: shared\n"),
                     (&format!("{m}/models.py"), &body),
                     (&format!("{m}/views.xml"), &format!("def v: {branch}\n")),
@@ -327,7 +349,11 @@ fn thread_count_does_not_change_the_database() {
             threads: NonZeroUsize::new(threads),
             ..options()
         };
-        extract(&cfg, vec![py, xml, Box::new(Manifest), Box::new(Python)], &opts);
+        extract(
+            &cfg,
+            vec![py, xml, Box::new(Data), Box::new(Manifest), Box::new(Python)],
+            &opts,
+        );
         dumps.push(dump(&dir.join(format!("t{threads}.db"))));
     }
     let n = dumps[0].iter().filter(|r| r.starts_with("events: ")).count();
@@ -339,7 +365,7 @@ fn thread_count_does_not_change_the_database() {
         EXISTS (SELECT 1 FROM extracted e WHERE e.sha = c.sha) OR EXISTS (SELECT 1 FROM events e WHERE e.sha = c.sha))";
     assert_eq!(count(&db, merges, []), 0, "a merge was extracted");
     let unmarked = "SELECT COUNT(*) FROM commits c WHERE is_merge = 0
-        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 4";
+        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 5";
     assert_eq!(
         count(&db, unmarked, []),
         0,
@@ -349,6 +375,15 @@ fn thread_count_does_not_change_the_database() {
     assert!(count(&db, python, [SALE_EXT]) >= 4, "python gave too few events");
     let modules = "SELECT COUNT(*) FROM events WHERE extractor = 'manifest' AND op = 'added'";
     assert_eq!(count(&db, modules, []), 9, "one module per [ADD] commit");
+    let views = "SELECT COUNT(*) FROM events e JOIN symbols s ON s.id = e.symbol_id
+        WHERE e.extractor = 'data' AND e.op = 'added' AND s.kind = ?1";
+    for (kind, added) in [("view", 9), ("view_node", 18), ("access", 9)] {
+        assert_eq!(
+            count(&db, views, [kind]),
+            added,
+            "{kind}: {added} over the 9 [ADD] commits"
+        );
+    }
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
     let broken = rev_parse(&clone, "origin/master~3");
@@ -692,6 +727,8 @@ fn builtin_python_extractor_records_model_events() {
     );
     assert_eq!(at("origin/master~2"), []);
     assert_eq!(at("origin/master~1"), [field("changed")]);
+    let broken = cached_warnings(&db, &clone, "python", "origin/master:addons/sale_ext/models/broken.py");
+    assert!(!broken.is_empty());
 }
 
 /// `(op, qualname, old_path, attrs_after)` of the manifest events of `sha`.
@@ -769,6 +806,148 @@ fn builtin_manifest_extractor_records_module_events() {
     assert!(after.contains(bundle), "{after}");
 
     assert_eq!(at("origin/master~1"), []);
+    let broken = cached_warnings(&db, &clone, "manifest", &format!("origin/master:{manifest}"));
+    assert!(!broken.is_empty());
+}
+
+/// `(op, kind, qualname, attrs_after)` of the data events of `sha`.
+fn data_events(db: &Path, sha: &str) -> Vec<(String, String, String, Option<String>)> {
+    let conn = Connection::open(db).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.op, s.kind, s.qualname, e.attrs_after FROM events e JOIN symbols s ON s.id = e.symbol_id
+              WHERE e.sha = ?1 AND e.extractor = 'data' ORDER BY e.path, s.kind, s.qualname",
+        )
+        .unwrap();
+    stmt.query_map([sha], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn builtin_data_extractor_records_view_events() {
+    let (dir, mut fx, clone) = setup("extract-data");
+    let views = "addons/sale/views/sale_views.xml";
+    let access = "addons/sale/security/ir.model.access.csv";
+    let form = r#"<odoo>
+    <record id="view_order_form" model="ir.ui.view">
+        <field name="model">sale.order</field>
+        <field name="arch" type="xml">
+            <form><sheet><group name="partner"><field name="partner_id"/><field name="date_order"/></group></sheet></form>
+        </field>
+    </record>
+    <menuitem id="menu_sale_root" name="Sales">
+        <menuitem id="menu_sale_orders" name="Orders" action="action_orders"/>
+    </menuitem>
+</odoo>
+"#;
+    let csv =
+        "id,name,model_id:id,group_id:id,perm_read\naccess_sale_order,sale.order,model_sale_order,base.group_user,1\n";
+    fx.commit_files(&[(views, form), (access, csv)], "[ADD] sale: views");
+    let ext = r#"<odoo>
+    <record id="view_order_form_ext" model="ir.ui.view">
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after"><field name="ext_id"/></xpath>
+        </field>
+    </record>
+</odoo>
+"#;
+    fx.commit_files(&[("addons/sale_ext/views/views.xml", ext)], "[ADD] sale_ext: views");
+    let reindented = form
+        .replace("<form><sheet>", "\n<form>\n  <!-- the order -->\n  <sheet>\n")
+        .replace("    ", "\t");
+    fx.commit_files(&[(views, &reindented)], "[REF] sale: reindent");
+    let removed = reindented.replace(r#"<field name="partner_id"/>"#, "");
+    fx.commit_files(&[(views, &removed)], "[IMP] sale: no partner");
+    fx.commit_files(
+        &[(
+            "addons/sale/views/broken.xml",
+            "<odoo><record id=\"x\" model=\"m\"></odoo>\n",
+        )],
+        "[ADD] sale: broken",
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+
+    let out = odoo_changelog(&cfg, &["extract"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(output.contains("gave warnings"), "{output}");
+
+    let db = dir.join("walk.db");
+    let at = |rev: &str| data_events(&db, &rev_parse(&clone, rev));
+    let ops = |events: &[(String, String, String, Option<String>)]| -> Vec<(String, String, String)> {
+        events
+            .iter()
+            .map(|(op, kind, q, _)| (op.clone(), kind.clone(), q.clone()))
+            .collect()
+    };
+    let added = at("origin/master~4");
+    let row = |op: &str, kind: &str, qualname: &str| (op.to_string(), kind.to_string(), qualname.to_string());
+    assert_eq!(
+        ops(&added),
+        [
+            row("added", "access", "sale.access_sale_order@sale"),
+            row("added", "menu", "sale.menu_sale_orders@sale"),
+            row("added", "menu", "sale.menu_sale_root@sale"),
+            row("added", "view", "sale.view_order_form@sale"),
+            row(
+                "added",
+                "view_node",
+                "sale.view_order_form#field[@name='date_order']@sale"
+            ),
+            row(
+                "added",
+                "view_node",
+                "sale.view_order_form#field[@name='partner_id']@sale"
+            ),
+            row("added", "view_node", "sale.view_order_form#group[@name='partner']@sale"),
+        ]
+    );
+    let menu = added[1].3.as_deref().unwrap();
+    assert!(menu.contains(r#""action":"sale.action_orders""#), "{menu}");
+    assert!(menu.contains(r#""parent":"sale.menu_sale_root""#), "{menu}");
+    let rights = added[0].3.as_deref().unwrap();
+    assert!(rights.contains(r#""model_id":"sale.model_sale_order""#), "{rights}");
+    let on_data = "SELECT COUNT(*) FROM events WHERE path IN (?1, ?2) AND extractor != 'data'";
+    assert_eq!(count(&db, on_data, [views, access]), 0);
+
+    let inherit = at("origin/master~3");
+    let view = inherit.iter().find(|e| e.1 == "view").unwrap();
+    assert_eq!(view.2, "sale_ext.view_order_form_ext@sale_ext");
+    let after = view.3.as_deref().unwrap();
+    assert!(after.contains(r#""inherit_id":"sale.view_order_form""#), "{after}");
+    let spec = r#""specs":[{"expr":"//field[@name='partner_id']","position":"after"}]"#;
+    assert!(after.contains(spec), "{after}");
+
+    assert_eq!(at("origin/master~2"), []);
+    assert_eq!(
+        ops(&at("origin/master~1")),
+        [
+            row("changed", "view", "sale.view_order_form@sale"),
+            row(
+                "removed",
+                "view_node",
+                "sale.view_order_form#field[@name='partner_id']@sale"
+            ),
+        ]
+    );
+
+    assert_eq!(at("origin/master"), []);
+    let broken = cached_warnings(&db, &clone, "data", "origin/master:addons/sale/views/broken.xml");
+    assert_eq!(broken.len(), 1, "{broken:?}");
+    assert!(
+        broken[0].starts_with("line 1: ") && broken[0].contains("</record>"),
+        "{broken:?}"
+    );
 }
 
 #[test]

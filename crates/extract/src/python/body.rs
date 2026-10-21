@@ -8,6 +8,7 @@ use tree_sitter::Node;
 
 use super::value::{delimiters, prefix};
 use super::{Tokens, Visit, Visitor, named, text, visit};
+use crate::hash::digest;
 
 /// The first 16 bytes of blake3 over the body's tokens, each followed by a 0x00 byte, as hex.
 /// The whole def is one scope: a name bound anywhere in it, nested defs and lambdas included,
@@ -31,10 +32,7 @@ pub(super) fn body_hash(def: Node, src: &[u8]) -> String {
         visit(body, &mut walk);
         walk.tokens.finish();
     }
-    hasher.finalize().as_bytes()[..16]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    digest(&hasher)
 }
 
 fn is_docstring(statement: Node) -> bool {

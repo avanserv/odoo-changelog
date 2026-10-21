@@ -1,0 +1,38 @@
+{
+  "symbols": [
+    {
+      "kind": "access",
+      "qualname": "demo.demo_order_portal@demo",
+      "line": 3,
+      "span": {
+        "start": 114,
+        "end": 131
+      },
+      "attrs": {
+        "declared": "csv",
+        "domain": "[('customer_id', 'child_of', [user.commercial_partner_id.id])]",
+        "group_id": "base.group_portal",
+        "model": "demo.order",
+        "name": "Portal orders",
+        "operation": "r"
+      }
+    },
+    {
+      "kind": "access",
+      "qualname": "demo.demo_order_user@demo",
+      "line": 2,
+      "span": {
+        "start": 46,
+        "end": 61
+      },
+      "attrs": {
+        "declared": "csv",
+        "group_id": "demo.group_demo_user",
+        "model": "demo.order",
+        "name": "Orders of the user",
+        "operation": "rwcd"
+      }
+    }
+  ],
+  "warnings": []
+}
