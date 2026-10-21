@@ -1,0 +1,29 @@
+{
+  "symbols": [
+    {
+      "kind": "module",
+      "qualname": "syntax_error",
+      "line": 1,
+      "span": {
+        "start": 0,
+        "end": 190
+      },
+      "attrs": {
+        "data": [
+          "views/hedge_views.xml",
+          "views/trim_views.xmlinstallable",
+          "LGPL-3"
+        ],
+        "depends": [
+          "hedge_base"
+        ],
+        "name": "Broken Hedge"
+      }
+    }
+  ],
+  "warnings": [
+    "line 7: syntax error",
+    "line 8: syntax error",
+    "line 8: missing ]"
+  ]
+}

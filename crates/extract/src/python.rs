@@ -3,14 +3,14 @@
 //! the others after their import path.
 
 mod body;
-mod value;
+pub(crate) mod value;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
 use serde_json::{Map, Value};
-use tree_sitter::{Node, Parser};
+use tree_sitter::{Node, Parser, Tree};
 
 use crate::path::module_of;
 use crate::{Extractor, Span, Symbol, SymbolTable};
@@ -54,11 +54,7 @@ impl Extractor for Python {
     }
 
     fn extract(&self, blob: &[u8]) -> Result<SymbolTable> {
-        let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
-        let tree = parser
-            .parse(blob, None)
-            .ok_or_else(|| anyhow!("tree-sitter returned no tree"))?;
+        let tree = parse(blob)?;
         let root = tree.root_node();
         let mut reader = Reader {
             src: blob,
@@ -78,6 +74,15 @@ impl Extractor for Python {
             _ => format!("{}@{}", symbol.name, module_of(path).unwrap_or_default()),
         }
     }
+}
+
+/// A tree whenever tree-sitter gives one, with ERROR and MISSING nodes where the source is broken.
+pub(crate) fn parse(blob: &[u8]) -> Result<Tree> {
+    let mut parser = Parser::new();
+    parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
+    parser
+        .parse(blob, None)
+        .ok_or_else(|| anyhow!("tree-sitter returned no tree"))
 }
 
 fn is_identifier(s: &str) -> bool {
@@ -354,7 +359,8 @@ fn symbol(kind: &str, name: String, at: Node, attrs: BTreeMap<String, Value>) ->
 /// `line N: ...` for ERROR and MISSING nodes and Python 2 syntax, the outermost ERROR only,
 /// keyed by byte offset. tree-sitter accepts `print x`, `exec x`, `except E, e`, backticks and
 /// `<>`, but each is an import error under Python 3, which loses the whole file.
-fn syntax_warnings(root: Node, src: &[u8]) -> Vec<(usize, String)> {
+/// The manifest extractor shares it: a change to its output bumps both extractors' `version()`.
+pub(crate) fn syntax_warnings(root: Node, src: &[u8]) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     visit(root, &mut |v: &Visit| {
         let n = v.node;

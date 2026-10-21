@@ -3,11 +3,7 @@
 
 mod common;
 
-use std::path::Path;
-use std::process::Command;
-
-use common::find;
-use odoo_changelog_core::Config;
+use common::{find, odoo_blob};
 use odoo_changelog_extract::{Extractor, Python};
 use serde_json::json;
 
@@ -17,17 +13,7 @@ const BLOB: &str = "1f6a8290846b4fe5668333b0b96fcb2394c1a289";
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]
 fn sale_order_17() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/odoo-changelog.toml");
-    let cfg = Config::load(&path).unwrap();
-    let clone = &cfg.repos.iter().find(|r| r.name == "odoo").unwrap().path;
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(clone)
-        .args(["cat-file", "blob", BLOB])
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let blob = out.stdout;
+    let blob = odoo_blob("odoo", BLOB);
     let table = Python.extract(&blob).unwrap();
 
     assert!(table.warnings().is_empty(), "{:?}", table.warnings());

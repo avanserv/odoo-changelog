@@ -5,7 +5,9 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
+use odoo_changelog_core::Config;
 use odoo_changelog_extract::{Extractor, Span, Symbol, SymbolTable};
 use serde::Serialize;
 use serde_json::Value;
@@ -69,6 +71,30 @@ pub fn find<'a>(table: &'a SymbolTable, kind: &str, name: &str) -> &'a Symbol {
                 table.iter().map(|s| &s.name).collect::<Vec<_>>()
             )
         })
+}
+
+/// The clones in `config/odoo-changelog.toml`, by repo name, for the ignored tests that read them.
+pub fn clones() -> Vec<(String, PathBuf)> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/odoo-changelog.toml");
+    let cfg = Config::load(&path).unwrap();
+    cfg.repos.into_iter().map(|r| (r.name, r.path)).collect()
+}
+
+/// The stdout of a read-only `git -C <clone> <args>`.
+pub fn git(clone: &Path, args: &[&str]) -> Vec<u8> {
+    let out = Command::new("git").arg("-C").arg(clone).args(args).output().unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out.stdout
+}
+
+/// The blob `oid` of the clone of `repo`.
+pub fn odoo_blob(repo: &str, oid: &str) -> Vec<u8> {
+    let (_, clone) = clones().into_iter().find(|(name, _)| name == repo).unwrap();
+    git(&clone, &["cat-file", "blob", oid])
 }
 
 /// With `ODOO_CHANGELOG_BLESS=1`, writes `actual` to `expected` instead of comparing them.

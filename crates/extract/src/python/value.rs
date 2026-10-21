@@ -11,8 +11,9 @@ use super::{Tokens, Visit, named, text, visit};
 /// Literals nested deeper than this read as expressions, which keeps `value` off the stack limit.
 const MAX_DEPTH: usize = 32;
 
-/// The JSON value of a literal, or `{"expr": <canonical text>}` for anything else.
-pub(super) fn value(node: Node, src: &[u8]) -> Value {
+/// The JSON value of a literal, or `{"expr": <canonical text>}` for anything else. The manifest
+/// extractor shares it: a change to its output bumps both extractors' `version()`.
+pub(crate) fn value(node: Node, src: &[u8]) -> Value {
     value_at(node, src, 0)
 }
 
@@ -210,7 +211,7 @@ fn quoted(value: &str) -> String {
 /// The leaf tokens of `node` without comments or trailing commas, with one space between two
 /// word characters and after each comma. Plain strings read as their quoted value; bytes and
 /// f-strings keep their source text.
-pub(super) fn canonical(node: Node, src: &[u8]) -> String {
+pub(crate) fn canonical(node: Node, src: &[u8]) -> String {
     let mut out = String::new();
     let mut tokens = Tokens::new(|token: &str| {
         if token.is_empty() {

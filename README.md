@@ -84,8 +84,19 @@ the error. Such a file, Python 2 syntax, a class whose model name cannot be read
 duplicate each leave a warning on the file's table, and `extract` reports how many file sides
 (the old or new version of a changed file) carry one.
 
-On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) takes 109 s with an
-empty cache and 28 s with a warm one (2026-10-20).
+### Manifest symbols
+
+The `manifest` extractor gives each `__manifest__.py` and `__openerp__.py` one `module` symbol
+named after its directory, the name `depends` lists, such as `sale`. The file is read as a Python
+literal and never run, as Odoo reads it. Every key is kept as written, without Odoo's defaults,
+and values follow the literal rules above: lists keep their order, so asset entries keep their
+order within a bundle and a directive such as `('include', 'web._assets_helpers')` is an array;
+dict keys are sorted; anything JSON cannot hold as a literal, a set among them, is kept as
+`{"expr": "<source>"}`. A repeated key keeps its last value, as in Python. A manifest with a
+syntax error keeps the keys that parse and leaves a warning.
+
+On 8 cores, extracting community from 17.0 to 18.0 (about 50,000 commits) with both extractors
+takes 123 s with an empty cache and 31 s with a warm one (2026-10-20).
 
 ## Contributing
 

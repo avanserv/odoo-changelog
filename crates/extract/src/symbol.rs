@@ -15,7 +15,8 @@ pub struct Symbol {
     pub name: String,
     /// Informational only: change detection ignores it, so code moving above a symbol is no event.
     pub line: u32,
-    /// Byte range of the name in the blob, for codemods; ignored by change detection like `line`.
+    /// Byte range of the name in the blob, or of the whole definition when the name comes from the
+    /// path (a manifest), for codemods; ignored by change detection like `line`.
     pub span: Span,
     pub attrs: BTreeMap<String, Value>,
 }

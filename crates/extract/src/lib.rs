@@ -2,6 +2,7 @@
 //! or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
 
 mod delta;
+mod manifest;
 mod path;
 mod python;
 mod symbol;
@@ -9,6 +10,7 @@ mod symbol;
 use anyhow::Result;
 
 pub use delta::{Delta, Op, delta};
+pub use manifest::Manifest;
 pub use path::module_of;
 pub use python::Python;
 pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
@@ -44,7 +46,7 @@ impl Registry {
 
     /// The extractors the binary ships with.
     pub fn builtin() -> Self {
-        Registry::new(vec![Box::new(Python)]).expect("builtin extractor names are unique")
+        Registry::new(vec![Box::new(Manifest), Box::new(Python)]).expect("builtin extractor names are unique")
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &dyn Extractor> {
