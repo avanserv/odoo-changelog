@@ -102,6 +102,7 @@ jobs:
           mkdir "$name"
           cp target/release/odoo-changelog LICENSE README.md "$name/"
           cp config/odoo-changelog.example.toml "$name/"
+          cp -r docs "$name/"
           tar -czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
           gh release upload --clobber "$TAG" "$name.tar.gz" "$name.tar.gz.sha256"
