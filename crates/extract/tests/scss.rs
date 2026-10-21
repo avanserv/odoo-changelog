@@ -125,7 +125,7 @@ fn reformatting_scss_gives_no_event() {
             new.warnings()
         );
         assert_eq!(
-            delta(&Scss, Some((PATH, &old)), Some((PATH, &new))),
+            delta(&Scss, &[(Some((PATH, &old)), Some((PATH, &new)))]),
             [],
             "{reformatted}"
         );
@@ -135,7 +135,7 @@ fn reformatting_scss_gives_no_event() {
         &src,
         &[("@return ($px / $base) * 1rem;", "@return $px / $base * 1rem;")],
     ));
-    let changes = delta(&Scss, Some((PATH, &old)), Some((PATH, &edited)));
+    let changes = delta(&Scss, &[(Some((PATH, &old)), Some((PATH, &edited)))]);
     let ops: Vec<(&str, &str, Op)> = changes
         .iter()
         .map(|d| (d.kind.as_str(), d.qualname.as_str(), d.op))
@@ -150,7 +150,7 @@ fn reformatting_scss_gives_no_event() {
 
     let map = |src: &str| extract(src);
     let (a, b) = (map("$m: (a: 1, b: 2);"), map("$m: (\n  a: 1,\n  b: 2,\n);"));
-    assert_eq!(delta(&Scss, Some((PATH, &a)), Some((PATH, &b))), []);
+    assert_eq!(delta(&Scss, &[(Some((PATH, &a)), Some((PATH, &b)))]), []);
 }
 
 #[test]

@@ -1,5 +1,5 @@
-//! Turns one blob into symbols, and two symbol tables into symbol-level changes. Never sees git
-//! or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
+//! Turns one blob into symbols, and the symbol tables of a commit's changed files into symbol-level
+//! changes. Never sees git or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
 
 mod access_csv;
 mod bound;
@@ -24,7 +24,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 pub use data::Data;
-pub use delta::{Delta, Op, delta};
+pub use delta::{Delta, Op, Origin, Side, delta};
 pub use js::Js;
 pub use manifest::Manifest;
 pub use owl::Owl;
@@ -36,7 +36,8 @@ pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
 pub trait Extractor: Send + Sync {
     /// Stored in the database; never rename.
     fn name(&self) -> &'static str;
-    /// Bump on any change to what `extract`, `qualify` or `qualify_attrs` returns for some input.
+    /// Bump on any change to what `extract`, `qualify`, `qualify_attrs` or `module` returns for
+    /// some input.
     fn version(&self) -> u32;
     /// Decides from the path alone, before any blob is read.
     fn claims(&self, path: &str) -> bool;
@@ -50,6 +51,11 @@ pub trait Extractor: Send + Sync {
     /// meaning depends on the path, such as an xmlid written without its module.
     fn qualify_attrs<'a>(&self, _path: &str, symbol: &'a Symbol) -> Cow<'a, BTreeMap<String, Value>> {
         Cow::Borrowed(&symbol.attrs)
+    }
+    /// The module a file at `path` belongs to, as the `@<module>` suffix of `qualify` names it, so
+    /// a symbol moving between modules pairs with itself once the suffix is stripped.
+    fn module<'a>(&self, path: &'a str) -> Option<&'a str> {
+        module_of(path)
     }
     /// Whether a symbol found in the file at `path` counts there; uncached like `qualify`, for
     /// files whose path limits what they declare.

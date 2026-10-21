@@ -242,10 +242,10 @@ fn reformatting_gives_no_event() {
     let (old, new) = (extract(COMPONENT), extract(REFORMATTED));
     assert!(new.warnings().is_empty(), "{:?}", new.warnings());
     assert_ne!(old, new);
-    assert_eq!(delta(&Js, Some((path, &old)), Some((path, &new))), []);
+    assert_eq!(delta(&Js, &[(Some((path, &old)), Some((path, &new)))]), []);
 
     let edited = extract(&COMPONENT.replace("return [a, b];", "return [b, a];"));
-    let changes = delta(&Js, Some((path, &old)), Some((path, &edited)));
+    let changes = delta(&Js, &[(Some((path, &old)), Some((path, &edited)))]);
     let ops: Vec<(&str, &str, Op)> = changes
         .iter()
         .map(|d| (d.kind.as_str(), d.qualname.as_str(), d.op))
@@ -261,7 +261,7 @@ fn reformatting_gives_no_event() {
     assert_eq!(only_changed_key(&changes[0]), "members");
 
     let setup = extract(&COMPONENT.replace("|| \"none\"", "|| \"empty\""));
-    let changes = delta(&Js, Some((path, &old)), Some((path, &setup)));
+    let changes = delta(&Js, &[(Some((path, &old)), Some((path, &setup)))]);
     let ops: Vec<(&str, &str, Op)> = changes
         .iter()
         .map(|d| (d.kind.as_str(), d.qualname.as_str(), d.op))

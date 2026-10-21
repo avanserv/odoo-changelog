@@ -106,6 +106,10 @@ impl Extractor for Js {
         }
     }
 
+    fn module<'a>(&self, path: &'a str) -> Option<&'a str> {
+        Some(path::addon(path)).filter(|a| !a.is_empty())
+    }
+
     /// Every `{"ref": ...}` with an empty or relative module, completed like names.
     fn qualify_attrs<'a>(&self, path: &str, symbol: &'a Symbol) -> Cow<'a, BTreeMap<String, Value>> {
         let mut out: Option<BTreeMap<String, Value>> = None;

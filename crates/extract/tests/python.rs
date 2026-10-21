@@ -265,7 +265,7 @@ fn inserting_lines_above_gives_no_event() {
     let old = extract(INHERITED);
     let new = extract(&format!("# A comment.\nimport logging\n\n_logger = 1\n\n{INHERITED}"));
     assert_ne!(old, new);
-    assert!(delta(&Python, Some((path, &old)), Some((path, &new))).is_empty());
+    assert!(delta(&Python, &[(Some((path, &old)), Some((path, &new)))]).is_empty());
 }
 
 #[test]
@@ -279,8 +279,10 @@ fn module_decides_model_scope_ids_and_the_file_python_scope_ones() {
 
     let moved = delta(
         &Python,
-        Some(("addons/a/models/sale.py", &table)),
-        Some(("addons/a/models/order.py", &table)),
+        &[(
+            Some(("addons/a/models/sale.py", &table)),
+            Some(("addons/a/models/order.py", &table)),
+        )],
     );
     let ops: Vec<(&str, &str)> = moved.iter().map(|d| (d.qualname.as_str(), d.op.as_str())).collect();
     assert_eq!(
@@ -288,8 +290,8 @@ fn module_decides_model_scope_ids_and_the_file_python_scope_ones() {
         [
             ("sale.order#foo@a", "moved"),
             ("odoo.addons.a.models.order.helper", "added"),
-            ("odoo.addons.a.models.sale.helper", "removed"),
             ("sale.order@a", "moved"),
+            ("odoo.addons.a.models.sale.helper", "removed"),
         ]
     );
 }

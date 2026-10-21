@@ -62,6 +62,10 @@ impl Extractor for Owl {
     fn qualify(&self, path: &str, symbol: &Symbol) -> String {
         format!("{}@{}", symbol.name, static_addon(path).unwrap_or_default())
     }
+
+    fn module<'a>(&self, path: &'a str) -> Option<&'a str> {
+        static_addon(path)
+    }
 }
 
 fn read(blob: &[u8]) -> SymbolTable {

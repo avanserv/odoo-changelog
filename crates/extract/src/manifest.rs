@@ -79,7 +79,11 @@ impl Extractor for Manifest {
     /// The module is the manifest's directory, the name `depends` lists. `module_of` would give
     /// the outer module for a test module nested in another one's `tests/`.
     fn qualify(&self, path: &str, _: &Symbol) -> String {
-        path.rsplit('/').nth(1).unwrap_or_default().to_string()
+        self.module(path).unwrap_or_default().to_string()
+    }
+
+    fn module<'a>(&self, path: &'a str) -> Option<&'a str> {
+        path.rsplit('/').nth(1)
     }
 }
 
