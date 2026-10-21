@@ -1272,6 +1272,16 @@ fn builtin_owl_and_scss_extractors_record_events() {
             row("added", "owl_node", "demo.Form#div[@t-ref='root']@demo"),
             row("added", "owl_template", "demo.Form@demo"),
             row("added", "scss_mixin", "o-demo-mixin@demo"),
+            row(
+                "added",
+                "scss_stylesheet",
+                "demo/static/src/scss/primary_variables.scss"
+            ),
+            row(
+                "added",
+                "scss_stylesheet",
+                "theme_demo/static/src/scss/primary_variables.scss"
+            ),
             row("added", "scss_variable", "$o-demo-color@demo"),
             row("added", "scss_variable", "$o-demo-color@theme_demo"),
         ]
@@ -1280,8 +1290,8 @@ fn builtin_owl_and_scss_extractors_record_events() {
     for part in [r#""inherit":"demo.Form""#, r#""mode":"extension""#] {
         assert!(extension.contains(part), "{extension}");
     }
-    assert!(added[5].3.as_deref().unwrap().contains(r#""default":true"#));
-    assert!(!added[6].3.as_deref().unwrap().contains("default"));
+    assert!(added[7].3.as_deref().unwrap().contains(r#""default":true"#));
+    assert!(!added[8].3.as_deref().unwrap().contains("default"));
     let elsewhere = "SELECT COUNT(*) FROM events WHERE path IN (?1, ?2)";
     let unclaimed = ["addons/demo/static/tests/form.xml", "addons/demo/static/lib/x.xml"];
     assert_eq!(count(&db, elsewhere, unclaimed), 0);
@@ -1309,7 +1319,10 @@ fn builtin_owl_and_scss_extractors_record_events() {
     );
     assert_eq!(
         ops(&at("origin/master")),
-        [row("added", "scss_variable", "$o-demo-a@demo")]
+        [
+            row("added", "scss_stylesheet", "demo/static/src/scss/broken.scss"),
+            row("added", "scss_variable", "$o-demo-a@demo"),
+        ]
     );
 }
 

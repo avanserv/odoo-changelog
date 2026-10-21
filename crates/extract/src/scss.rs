@@ -1,10 +1,11 @@
-//! Stylesheets an addon serves: the variables, mixins, functions and placeholders a file
-//! declares at global scope, which themes and other addons override or use. Odoo compiles with
-//! libsass, so there is no `@use` or `@forward` to follow.
+//! Stylesheets an addon serves: the variables, map entries, mixins, functions, placeholders and
+//! `:root` custom properties a file declares at global scope, which themes and other addons
+//! override or use, and what the file includes, extends and imports. Odoo compiles with libsass,
+//! so there is no `@use` or `@forward` to follow.
 
 mod scan;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -20,6 +21,9 @@ const VARIABLE: &str = "scss_variable";
 const MIXIN: &str = "scss_mixin";
 const FUNCTION: &str = "scss_function";
 const PLACEHOLDER: &str = "scss_placeholder";
+const MAP_ENTRY: &str = "scss_map_entry";
+const STYLESHEET: &str = "scss_stylesheet";
+const PROPERTY: &str = "css_property";
 
 /// Blocks that run in the scope around them, so that a theme's `@if` assigns its globals.
 const CONTROL: [&str; 6] = ["@if", "@else", "@elseif", "@each", "@for", "@while"];
@@ -41,13 +45,13 @@ impl Extractor for Scss {
 
     /// Bump with any change to the output.
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     /// Every stylesheet an addon serves, vendored Bootstrap included: themes override its
     /// `!default` variables, so its defaults are half of every override.
     fn claims(&self, path: &str) -> bool {
-        path.ends_with(".scss")
+        (path.ends_with(".scss") || path.ends_with(".css"))
             && static_file(path).is_some_and(|(_, rest)| !rest.iter().any(|s| matches!(*s, "tests" | "test")))
     }
 
@@ -56,8 +60,14 @@ impl Extractor for Scss {
     }
 
     /// `<name>@<addon>`, names keeping their `$` or `%`: a theme's override of `$spacer` is
-    /// `$spacer@theme_x` beside `$spacer@web`.
+    /// `$spacer@theme_x` beside `$spacer@web`. A stylesheet is its path as manifests list it,
+    /// `<addon>/static/...`.
     fn qualify(&self, path: &str, symbol: &Symbol) -> String {
+        if symbol.kind == STYLESHEET {
+            return static_file(path).map_or_else(String::new, |(addon, rest)| {
+                format!("{addon}/static/{}", rest.join("/"))
+            });
+        }
         format!("{}@{}", symbol.name, static_addon(path).unwrap_or_default())
     }
 }
@@ -75,6 +85,11 @@ fn read(blob: &[u8]) -> SymbolTable {
         open: Vec::new(),
         top: Rc::new(Within::default()),
         variables: BTreeMap::new(),
+        entries: BTreeMap::new(),
+        properties: BTreeMap::new(),
+        imports: Vec::new(),
+        includes: BTreeSet::new(),
+        extends: BTreeSet::new(),
         table: SymbolTable::default(),
         budget: Budget::new(blob, OUTPUT_PER_BYTE, OUTPUT_SLACK),
         warnings,
@@ -153,15 +168,59 @@ struct Def {
 struct Block {
     /// Whether statements directly inside it are at global scope.
     global: bool,
+    /// Whether it is a global `:root` rule, whose custom properties are symbols.
+    root: bool,
     within: Rc<Within>,
     def: Option<Def>,
 }
 
-/// The first global assignment of a variable, and the later ones.
+/// The first global assignment of a variable, a map entry or a custom property, and the later
+/// ones.
 struct Variable {
     span: Span,
     first: BTreeMap<String, Value>,
     reassigned: Vec<Value>,
+}
+
+/// Records `entry` as the first assignment of `name` in `store`, or as a later one, within the
+/// budget.
+fn assign(
+    store: &mut BTreeMap<String, Variable>,
+    budget: &mut Budget,
+    name: String,
+    span: Span,
+    entry: BTreeMap<String, Value>,
+) {
+    let entry_size = serde_json::to_vec(&entry).map_or(usize::MAX, |b| b.len());
+    let at = span.start as usize;
+    match store.get_mut(&name) {
+        Some(variable) => {
+            if budget.afford(entry_size, at) {
+                variable.reassigned.push(Value::from_iter(entry));
+            }
+        }
+        None => {
+            if budget.afford(entry_size + json_len(&name) + ENVELOPE, at) {
+                let variable = Variable {
+                    span,
+                    first: entry,
+                    reassigned: Vec::new(),
+                };
+                store.insert(name, variable);
+            }
+        }
+    }
+}
+
+/// Sass reads `_` and `-` in a name as one, so `$o_brand_primary` is `$o-brand-primary`.
+fn fold(name: &str) -> String {
+    name.replace('_', "-")
+}
+
+/// A string's content without its quotes, or the text of any other key.
+fn unquoted(text: &str) -> &str {
+    let quoted = text.len() >= 2 && matches!(text.as_bytes()[0], b'"' | b'\'') && text.ends_with(&text[..1]);
+    if quoted { &text[1..text.len() - 1] } else { text }
 }
 
 struct Reader<'t> {
@@ -172,6 +231,12 @@ struct Reader<'t> {
     /// The `within` of the top level: none.
     top: Rc<Within>,
     variables: BTreeMap<String, Variable>,
+    entries: BTreeMap<String, Variable>,
+    properties: BTreeMap<String, Variable>,
+    /// What `@import`, `@include` and `@extend` name, anywhere in the file.
+    imports: Vec<String>,
+    includes: BTreeSet<String>,
+    extends: BTreeSet<String>,
     table: SymbolTable,
     /// Spent in document order, by assignments and definitions.
     budget: Budget,
@@ -213,10 +278,23 @@ impl Reader<'_> {
         }
     }
 
-    /// A variable assignment: `$name:` then a value, with trailing `!default` and `!global`
-    /// flags in any order. One with `!global` assigns the global at any depth.
+    /// Reads a statement by its head: `@include`, `@extend` and `@import` anywhere, `--name:` in
+    /// a global `:root` rule, and a variable assignment, `$name:` then a value with trailing
+    /// `!default` and `!global` flags in any order. One with `!global` assigns the global at any
+    /// depth. A global map literal, or a `map-merge` of literals, also assigns its entries, which
+    /// keep the `default` flag.
     fn statement(&mut self, range: std::ops::Range<usize>) {
         let solid = self.solid(range.clone());
+        let Some(&head) = solid.first() else { return };
+        match &self.src[self.tokens[head].start..self.tokens[head].end] {
+            b"@include" => return self.include(&solid[1..]),
+            b"@extend" => return self.extend(&solid[1..]),
+            b"@import" => return self.import(&solid[1..]),
+            _ => {}
+        }
+        if self.open.last().is_some_and(|b| b.root) && self.src[self.tokens[head].start..].starts_with(b"--") {
+            return self.property(&solid);
+        }
         let [name, colon, ..] = solid[..] else { return };
         let name_token = self.tokens[name];
         if name_token.kind != Kind::Word
@@ -240,37 +318,184 @@ impl Reader<'_> {
         if !global && !flags.contains_key("global") {
             return;
         }
-        let name = self.text(name_token);
+        let name = fold(&self.text(name_token));
         let Some((&first, &last)) = value.first().zip(value.last()) else {
             return self.warn(name_token.start, format!("{name} without a value ignored"));
         };
+        let within = within.value();
+        for (key, at, entry) in self.map_entries(value) {
+            let mut attrs = BTreeMap::from([("value".to_string(), Value::from(self.render(entry)))]);
+            if let Some(default) = flags.get("default") {
+                attrs.insert("default".into(), default.clone());
+            }
+            if let Some(within) = &within {
+                attrs.insert("within".into(), within.clone());
+            }
+            let key = format!("{name}#{}", bounded(key));
+            assign(&mut self.entries, &mut self.budget, key, Self::span(at), attrs);
+        }
         let mut entry = flags;
         entry.insert("value".into(), self.render(first..last + 1).into());
-        if let Some(within) = within.value() {
+        if let Some(within) = within {
             entry.insert("within".into(), within);
         }
-        let entry_size = serde_json::to_vec(&entry).map_or(usize::MAX, |b| b.len());
-        match self.variables.get_mut(&name) {
-            Some(variable) => {
-                if self.budget.afford(entry_size, name_token.start) {
-                    variable.reassigned.push(Value::from_iter(entry));
+        assign(
+            &mut self.variables,
+            &mut self.budget,
+            name,
+            Self::span(name_token),
+            entry,
+        );
+    }
+
+    /// The index in `solid` of the bracket closing the one at `open`, if any.
+    fn closing(&self, solid: &[usize], open: usize) -> Option<usize> {
+        let mut depth = 0usize;
+        for (i, &t) in solid.iter().enumerate().skip(open) {
+            match self.tokens[t].kind {
+                Kind::Punct(b'(' | b'[') => depth += 1,
+                Kind::Punct(b')' | b']') => {
+                    depth = depth.checked_sub(1)?;
+                    if depth == 0 {
+                        return Some(i);
+                    }
                 }
-            }
-            None => {
-                if self
-                    .budget
-                    .afford(entry_size + json_len(&name) + ENVELOPE, name_token.start)
-                {
-                    let span = Self::span(name_token);
-                    let variable = Variable {
-                        span,
-                        first: entry,
-                        reassigned: Vec::new(),
-                    };
-                    self.variables.insert(name, variable);
-                }
+                _ => {}
             }
         }
+        None
+    }
+
+    /// The parts of `solid` between top-level commas, empty ones dropped.
+    fn commas<'s>(&self, solid: &'s [usize]) -> Vec<&'s [usize]> {
+        let (mut parts, mut depth, mut from) = (Vec::new(), 0usize, 0);
+        for (i, &t) in solid.iter().enumerate() {
+            match self.tokens[t].kind {
+                Kind::Punct(b'(' | b'[') => depth += 1,
+                Kind::Punct(b')' | b']') => depth = depth.saturating_sub(1),
+                Kind::Punct(b',') if depth == 0 => {
+                    parts.push(&solid[from..i]);
+                    from = i + 1;
+                }
+                _ => {}
+            }
+        }
+        parts.push(&solid[from..]);
+        parts.retain(|p| !p.is_empty());
+        parts
+    }
+
+    /// The tokens inside the brackets `solid` is wholly wrapped in.
+    fn wrapped<'s>(&self, solid: &'s [usize]) -> Option<&'s [usize]> {
+        let open = *solid.first()?;
+        (self.tokens[open].kind == Kind::Punct(b'(') && self.closing(solid, 0) == Some(solid.len() - 1))
+            .then(|| &solid[1..solid.len() - 1])
+    }
+
+    /// The top-level entries of a map literal `(k: v, ...)`, or of the literal maps a
+    /// `map-merge(a, b)` merges, in order: each key, unquoted, its token, and the token range of
+    /// its value. A list gives none, and neither does a key that is no literal text, such as the
+    /// `$k` of a loop.
+    fn map_entries(&self, value: &[usize]) -> Vec<(String, Token, std::ops::Range<usize>)> {
+        let maps = match value {
+            [call, rest @ ..] if &self.src[self.tokens[*call].start..self.tokens[*call].end] == b"map-merge" => {
+                match self.wrapped(rest).map(|args| self.commas(args)).as_deref() {
+                    Some([a, b]) => [self.wrapped(a), self.wrapped(b)].into_iter().flatten().collect(),
+                    _ => Vec::new(),
+                }
+            }
+            _ => self.wrapped(value).into_iter().collect(),
+        };
+        let mut out = Vec::new();
+        for map in maps {
+            let mut entries = Vec::new();
+            for entry in self.commas(map) {
+                let [key, colon, ref value @ ..] = entry[..] else {
+                    entries.clear();
+                    break;
+                };
+                let (Some(&first), Some(&last)) = (value.first(), value.last()) else {
+                    entries.clear();
+                    break;
+                };
+                if self.tokens[colon].kind != Kind::Punct(b':') {
+                    entries.clear();
+                    break;
+                }
+                let token = self.tokens[key];
+                let text = self.text(token);
+                let literal = match token.kind {
+                    Kind::Str => !text.contains("#{"),
+                    Kind::Word => !text.starts_with('$'),
+                    _ => false,
+                };
+                if literal {
+                    entries.push((unquoted(&text).to_string(), token, first..last + 1));
+                }
+            }
+            out.extend(entries);
+        }
+        out
+    }
+
+    /// `@include <mixin>`, the name folded like a mixin's.
+    fn include(&mut self, rest: &[usize]) {
+        if let Some(&name) = rest.first().filter(|&&t| self.tokens[t].kind == Kind::Word) {
+            self.includes.insert(bounded(fold(&self.text(self.tokens[name]))));
+        }
+    }
+
+    /// `@extend <selector>`, without `!optional`.
+    fn extend(&mut self, mut rest: &[usize]) {
+        if let [head @ .., bang, flag] = rest
+            && self.tokens[*bang].kind == Kind::Punct(b'!')
+            && self.text(self.tokens[*flag]) == "optional"
+        {
+            rest = head;
+        }
+        if let Some((&first, &last)) = rest.first().zip(rest.last()) {
+            self.extends.insert(bounded(self.render(first..last + 1)));
+        }
+    }
+
+    /// `@import a, b`: each a string's content, or the text of a `url(...)`.
+    fn import(&mut self, rest: &[usize]) {
+        for part in self.commas(rest) {
+            let import = match part {
+                [one] if self.tokens[*one].kind == Kind::Str => unquoted(&self.text(self.tokens[*one])).to_string(),
+                _ => self.render(part[0]..part[part.len() - 1] + 1),
+            };
+            self.imports.push(bounded(import));
+        }
+    }
+
+    /// `--name: value` in a global `:root` rule.
+    fn property(&mut self, solid: &[usize]) {
+        let [name, colon, ref value @ ..] = solid[..] else {
+            return;
+        };
+        let (Some(&first), Some(&last)) = (value.first(), value.last()) else {
+            return;
+        };
+        let name_token = self.tokens[name];
+        if name_token.kind != Kind::Word
+            || !self.src[name_token.start..].starts_with(b"--")
+            || self.tokens[colon].kind != Kind::Punct(b':')
+        {
+            return;
+        }
+        let mut entry = BTreeMap::from([("value".to_string(), Value::from(self.render(first..last + 1)))]);
+        if let Some(within) = self.open.last().and_then(|b| b.within.value()) {
+            entry.insert("within".into(), within);
+        }
+        let name = self.text(name_token);
+        assign(
+            &mut self.properties,
+            &mut self.budget,
+            name,
+            Self::span(name_token),
+            entry,
+        );
     }
 
     /// A block: control flow keeps the scope global, a mixin, function or placeholder at
@@ -278,6 +503,9 @@ impl Reader<'_> {
     fn open(&mut self, header: std::ops::Range<usize>) {
         let (global, within) = self.scope();
         let solid = self.solid(header.clone());
+        if solid.first().is_some_and(|&t| self.text(self.tokens[t]) == "@include") {
+            self.include(&solid[1..]);
+        }
         let word = |i: usize| -> Option<String> {
             let token = self.tokens[*solid.get(i)?];
             (token.kind == Kind::Word).then(|| self.text(token))
@@ -285,19 +513,22 @@ impl Reader<'_> {
         let first = word(0).unwrap_or_default();
         if CONTROL.contains(&first.as_str()) {
             let within = Rc::new(within.nest(self.render(header)));
+            let root = self.open.last().is_some_and(|b| b.root);
             return self.open.push(Block {
                 global,
+                root,
                 within,
                 def: None,
             });
         }
+        let root = global && self.render(header) == ":root";
         let def = match (global, first.as_str()) {
             (true, "@mixin" | "@function") => word(1).map(|name| {
                 let kind = if first == "@mixin" { MIXIN } else { FUNCTION };
                 let params = self.params(&solid[2..]);
                 Def {
                     kind,
-                    name,
+                    name: fold(&name),
                     span: Self::span(self.tokens[solid[1]]),
                     params,
                     within: within.clone(),
@@ -314,6 +545,7 @@ impl Reader<'_> {
         };
         self.open.push(Block {
             global: false,
+            root,
             within,
             def,
         });
@@ -379,18 +611,47 @@ impl Reader<'_> {
     }
 
     fn finish(mut self) -> SymbolTable {
-        for (name, variable) in std::mem::take(&mut self.variables) {
-            let mut attrs = variable.first;
-            if !variable.reassigned.is_empty() {
-                attrs.insert("reassigned".into(), variable.reassigned.into());
+        let stores = [
+            (VARIABLE, std::mem::take(&mut self.variables)),
+            (MAP_ENTRY, std::mem::take(&mut self.entries)),
+            (PROPERTY, std::mem::take(&mut self.properties)),
+        ];
+        for (kind, store) in stores {
+            for (name, variable) in store {
+                let mut attrs = variable.first;
+                if !variable.reassigned.is_empty() {
+                    attrs.insert("reassigned".into(), variable.reassigned.into());
+                }
+                self.table.insert(Symbol {
+                    kind: kind.into(),
+                    name,
+                    line: self.lines.line(variable.span.start as usize),
+                    span: variable.span,
+                    attrs,
+                });
             }
-            self.table.insert(Symbol {
-                kind: VARIABLE.into(),
-                name,
-                line: self.lines.line(variable.span.start as usize),
-                span: variable.span,
-                attrs,
-            });
+        }
+        let mut attrs = BTreeMap::new();
+        if !self.imports.is_empty() {
+            attrs.insert(
+                "imports".to_string(),
+                Value::from_iter(std::mem::take(&mut self.imports)),
+            );
+        }
+        for (key, set) in [("includes", &mut self.includes), ("extends", &mut self.extends)] {
+            if !set.is_empty() {
+                attrs.insert(key.to_string(), Value::from_iter(std::mem::take(set)));
+            }
+        }
+        let stylesheet = Symbol {
+            kind: STYLESHEET.into(),
+            name: String::new(),
+            line: 1,
+            span: Span::default(),
+            attrs,
+        };
+        if self.budget.symbol(&stylesheet) {
+            self.table.insert(stylesheet);
         }
         warn_capped(&mut self.table, self.warnings, &self.budget, "declarations");
         self.table
@@ -408,12 +669,14 @@ mod tests {
             "addons/web/static/lib/bootstrap/scss/_variables.scss",
             "theme_bistro/static/src/scss/bootstrap_overridden.scss",
             "addons/web/static/fonts/fonts.scss",
+            "addons/web/static/src/x.css",
+            "addons/web/static/lib/pdfjs/web/viewer.css",
         ] {
             assert!(Scss.claims(path), "{path}");
         }
         for path in [
             "addons/point_of_sale/static/tests/unit/qunit_tests.scss",
-            "addons/web/static/src/x.css",
+            "addons/web/static/tests/x.css",
             "scss/x.scss",
         ] {
             assert!(!Scss.claims(path), "{path}");
@@ -431,6 +694,7 @@ mod tests {
                 (FUNCTION, "f@theme_x".to_string()),
                 (MIXIN, "m@theme_x".to_string()),
                 (PLACEHOLDER, "%p@theme_x".to_string()),
+                (STYLESHEET, "theme_x/static/src/scss/a.scss".to_string()),
                 (VARIABLE, "$a@theme_x".to_string()),
             ]
         );

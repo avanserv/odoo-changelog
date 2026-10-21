@@ -1,6 +1,16 @@
 {
   "symbols": [
     {
+      "kind": "scss_stylesheet",
+      "qualname": "theme_demo/static/src/scss/theme.scss",
+      "line": 1,
+      "span": {
+        "start": 0,
+        "end": 0
+      },
+      "attrs": {}
+    },
+    {
       "kind": "scss_variable",
       "qualname": "$enable-shadows@theme_demo",
       "line": 8,
