@@ -1,0 +1,59 @@
+{
+  "symbols": [
+    {
+      "kind": "js_export",
+      "qualname": "@demo/../tests/helpers/test_helpers#makeTestEnv",
+      "line": 7,
+      "span": {
+        "start": 171,
+        "end": 182
+      },
+      "attrs": {
+        "body": "388bd25ade62068eb089c08413de9483",
+        "kind": "function",
+        "params": [
+          "config={}"
+        ]
+      }
+    },
+    {
+      "kind": "js_export",
+      "qualname": "@demo/../tests/helpers/test_helpers#nextTick",
+      "line": 11,
+      "span": {
+        "start": 260,
+        "end": 268
+      },
+      "attrs": {
+        "kind": "const",
+        "value": {
+          "fn": "c76f160713653def8c097dc3b8034c52"
+        }
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "@demo/../tests/helpers/test_helpers",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@demo/../tests/helpers/utils#getFixture"
+          },
+          {
+            "ref": "@web/core/registry#registry"
+          },
+          {
+            "ref": "@web/core/utils/patch#patch"
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

@@ -28,12 +28,13 @@ struct Rendered<'a> {
     warnings: &'a [String],
 }
 
-/// The symbols `ex` finds in `blob`, qualified at `path` with their attrs, in `(kind, qualname)`
-/// order, and its warnings, as pretty JSON with a final newline.
+/// The symbols `ex` finds in `blob` and keeps at `path`, qualified there with their attrs, in
+/// `(kind, qualname)` order, and its warnings, as pretty JSON with a final newline.
 pub fn render(ex: &dyn Extractor, path: &str, blob: &[u8]) -> String {
     let table = ex.extract(blob).unwrap();
     let mut symbols: Vec<Row> = table
         .iter()
+        .filter(|s| ex.keeps(path, s))
         .map(|s| Row {
             kind: &s.kind,
             qualname: ex.qualify(path, s),

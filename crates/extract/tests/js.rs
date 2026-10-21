@@ -10,12 +10,12 @@ use common::{batch, check, clones, find, fixtures, git, odoo_blob, render};
 use odoo_changelog_extract::{Extractor, Js, Op, Registry, Symbol, SymbolTable, delta};
 use serde_json::{Value, json};
 
-/// Where a fixture is qualified: the `views` directory of the `demo` addon.
+/// Where a fixture is qualified: the `views` directory of the `demo` addon, or its test helpers.
 fn fixture_path(file: &Path) -> String {
-    format!(
-        "addons/demo/static/src/views/{}",
-        file.file_name().unwrap().to_str().unwrap()
-    )
+    match file.file_name().unwrap().to_str().unwrap() {
+        "test_helpers.js" => "addons/demo/static/tests/helpers/test_helpers.js".into(),
+        name => format!("addons/demo/static/src/views/{name}"),
+    }
 }
 
 #[test]
@@ -516,6 +516,7 @@ fn every_symbol_spans_its_name() {
                 }
                 "js_export" if member == "default" => matches!(spanned.as_str(), "default" | "return"),
                 "js_export" | "js_component" => member == spanned,
+                "js_mail_model" => name == spanned,
                 "js_widget" => member.rsplit('.').next() == Some(spanned.as_str()),
                 "js_module" => name == spanned || (name.is_empty() && matches!(spanned.as_str(), "@odoo-module" | "")),
                 "js_patch" => {
@@ -541,10 +542,27 @@ fn builtin_registry_gives_js_files_one_claimant() {
     let registry = Registry::builtin();
     let claimants =
         |path: &str| -> Vec<&str> { registry.iter().filter(|e| e.claims(path)).map(|e| e.name()).collect() };
-    assert_eq!(claimants("addons/sale/static/src/x.js"), ["js"]);
-    for path in ["addons/sale/static/tests/x.js", "addons/sale/static/lib/x.js"] {
+    for path in ["addons/sale/static/src/x.js", "addons/sale/static/tests/helpers/x.js"] {
+        assert_eq!(claimants(path), ["js"], "{path}");
+    }
+    for path in ["addons/sale/static/tests/x_tests.js", "addons/sale/static/lib/x.js"] {
         assert!(claimants(path).is_empty(), "{path}");
     }
+}
+
+#[test]
+fn test_helpers_keep_their_modules_and_exports_only() {
+    let src = "export const a = 1;\nregistry.category('services').add('x', {});\npatch(Foo, {});\n";
+    let table = extract(src);
+    let kinds = |path: &str| -> Vec<&str> {
+        let kept = table.iter().filter(|s| Js.keeps(path, s));
+        kept.map(|s| s.kind.as_str()).collect()
+    };
+    assert_eq!(
+        kinds("addons/x/static/src/a.js"),
+        ["js_export", "js_module", "js_patch", "js_registry"]
+    );
+    assert_eq!(kinds("addons/x/static/tests/a.js"), ["js_export", "js_module"]);
 }
 
 /// Blobs of the community clone, pinned so that the facts hold as the branches move: 17.0 and
@@ -555,6 +573,8 @@ const FIELD_REGISTRY_12: &str = "4406231868f2243f2d1f4fb004534cd5840be074";
 const BARCODE_FORM_VIEW_12: &str = "15e27498f943761ec7051778ef77d8d38a8db98a";
 const SALE_PRODUCT_FIELD_17: &str = "dd5eb33a8b58c514ea9a394795b278306395ef97";
 const SALE_PRODUCT_FIELD_16: &str = "55afecd224c1fd30d4011471a55e24e8c5d9649b";
+const MAIL_THREAD_16: &str = "5013146917488234d44a7ff739dafa76767a19c4";
+const WEB_TEST_UTILS_16: &str = "28732493f6c6b64918f39cf2ed3ed93a6f045ad2";
 
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]
@@ -686,6 +706,31 @@ fn real_js_files() {
         (p16.attrs.get("name"), p17.attrs.get("name")),
         (Some(&json!("sale_product_configurator")), None)
     );
+
+    let path = "addons/mail/static/src/models/thread.js";
+    let (_, thread) = read(MAIL_THREAD_16);
+    let model = find(&thread, "js_mail_model", "Thread");
+    assert_eq!(Js.qualify(path, model), "Thread@mail");
+    let fields = model.attrs["fields"].as_object().unwrap();
+    assert_eq!(fields["activities"]["type"], "many");
+    assert!(fields.len() > 100, "{}", fields.len());
+    assert!(
+        model.attrs["recordMethods"]
+            .as_object()
+            .unwrap()
+            .contains_key("changeDescription")
+    );
+
+    let path = "addons/web/static/tests/helpers/utils.js";
+    let (_, utils) = read(WEB_TEST_UTILS_16);
+    let kept: Vec<&Symbol> = utils.iter().filter(|s| Js.keeps(path, s)).collect();
+    assert!(
+        kept.iter()
+            .all(|s| matches!(s.kind.as_str(), "js_module" | "js_export"))
+    );
+    let fixture = find(&utils, "js_export", "#getFixture");
+    assert_eq!(Js.qualify(path, fixture), "@web/../tests/helpers/utils#getFixture");
+    assert_eq!(kept.iter().filter(|s| s.kind == "js_export").count(), 40);
 }
 
 /// Every claimed JS file at the tips reads, deterministically and with spans inside the blob.
@@ -701,7 +746,7 @@ fn every_claimed_js_file_at_the_tips_reads() {
         );
         let refs = String::from_utf8(refs).unwrap();
         let mut blobs = BTreeMap::new();
-        for branch in ["12.0", "14.0", "16.0", "17.0", "master"] {
+        for branch in ["12.0", "14.0", "15.0", "16.0", "17.0", "master"] {
             let rev = format!("origin/{branch}");
             if !refs.lines().any(|r| r == rev) {
                 continue;
@@ -720,8 +765,11 @@ fn every_claimed_js_file_at_the_tips_reads() {
         for (blob, (oid, at)) in batch(&clone, &oids).into_iter().zip(&blobs) {
             let table = Js.extract(&blob).unwrap();
             assert_eq!(table.to_bytes(), Js.extract(&blob).unwrap().to_bytes(), "{repo} {at}");
+            let path = at.split_once(':').unwrap().1;
             for symbol in table.iter() {
-                *kinds.entry(symbol.kind.clone()).or_default() += 1;
+                if Js.keeps(path, symbol) {
+                    *kinds.entry(symbol.kind.clone()).or_default() += 1;
+                }
                 assert!(
                     symbol.span.start <= symbol.span.end && symbol.span.end as usize <= blob.len(),
                     "{repo} {at} {oid}"

@@ -1,5 +1,6 @@
-//! JS modules, their exports, OWL components, legacy widgets, registry entries and patches from
-//! the web client's `static/src` files, read with tree-sitter. Only code that runs when a module
+//! JS modules, their exports, OWL components, legacy widgets, registry entries, patches and mail's
+//! 14.0 to 16.0 models from the web client's `static/src` files, and the modules and exports of
+//! the test helpers under `static/tests`, read with tree-sitter. Only code that runs when a module
 //! loads declares something, so function bodies are skipped, `odoo.define` bodies aside. Names
 //! and attrs hold references written `<module>#<member>`, where an empty or relative module is
 //! the path's to complete.
@@ -30,6 +31,19 @@ const COMPONENT: &str = "js_component";
 const WIDGET: &str = "js_widget";
 const REGISTRY: &str = "js_registry";
 const PATCH: &str = "js_patch";
+const MAIL_MODEL: &str = "js_mail_model";
+
+/// The calls of mail's model system, 14.0 to 16.0, and the section of a model each patch fills.
+const MAIL_PATCHES: [(&str, &str); 4] = [
+    ("registerInstancePatchModel", "recordMethods"),
+    ("registerClassPatchModel", "modelMethods"),
+    ("registerFieldPatchModel", "fields"),
+    ("registerIdentifyingFieldsPatch", "identifyingFields"),
+];
+
+/// The statics of a 14.0 or 15.0 model class kept apart from its model methods; `modelName`
+/// repeats the registered name.
+const MAIL_STATICS: [&str; 4] = ["fields", "identifyingFields", "onChanges", "modelName"];
 
 /// The serialized symbols one file may give, per byte of it plus a constant: a backstop for
 /// any path that would make the output grow faster than the input, past which the reader drops
@@ -56,11 +70,15 @@ impl Extractor for Js {
     /// Bump with any change to the output, including a tree-sitter or tree-sitter-javascript
     /// upgrade and changes to `syntax`.
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     fn claims(&self, path: &str) -> bool {
         path::claims(path)
+    }
+
+    fn keeps(&self, path: &str, symbol: &Symbol) -> bool {
+        !path::is_test(path) || matches!(symbol.kind.as_str(), MODULE | EXPORT)
     }
 
     fn extract(&self, blob: &[u8]) -> Result<SymbolTable> {
@@ -73,7 +91,8 @@ impl Extractor for Js {
     }
 
     /// The path completes a reference: `@<addon>/<path>` for an empty or relative module. A
-    /// registry entry or a patch fills a slot every addon shares, so it also takes `@<addon>`.
+    /// registry entry, a patch or a mail model fills a slot every addon shares, so it also takes
+    /// `@<addon>`.
     fn qualify(&self, path: &str, symbol: &Symbol) -> String {
         let addon = path::addon(path);
         match symbol.kind.as_str() {
@@ -82,6 +101,7 @@ impl Extractor for Js {
                 format!("{}:{key}@{addon}", qualify_ref(path, category))
             }
             PATCH => format!("{}@{addon}", qualify_ref(path, &symbol.name)),
+            MAIL_MODEL => format!("{}@{addon}", symbol.name),
             _ => qualify_ref(path, &symbol.name).into_owned(),
         }
     }
@@ -242,6 +262,8 @@ struct Reader<'t> {
     more_duplicates_at: Option<usize>,
     /// How often each target was patched so far.
     patches: BTreeMap<String, usize>,
+    /// Mail model patches by name, each merging every call of the file that patches its model.
+    mail_patches: BTreeMap<String, Symbol>,
     /// By byte offset, so that they end up in document order.
     warnings: Vec<(usize, String)>,
 }
@@ -253,6 +275,7 @@ impl<'t> Reader<'t> {
             table: SymbolTable::default(),
             registry: BTreeMap::new(),
             patches: BTreeMap::new(),
+            mail_patches: BTreeMap::new(),
             exports: BTreeMap::new(),
             services: BTreeSet::new(),
             budget,
@@ -729,6 +752,224 @@ impl<'t> Reader<'t> {
             n => format!("{name}[{n}]"),
         };
         self.insert(symbol(PATCH, name, target, attrs));
+    }
+
+    /// Mail's model system, 14.0 to 16.0: `model_core`'s `registerModel` and `registerNewModel`
+    /// give a model, its other register calls a patch of `mail:<model>`.
+    fn mail(&mut self, call: Node<'t>, scope: &Scope, decls: &Decls<'t>) -> bool {
+        let Some(callee) = call.child_by_field_name("function") else {
+            return false;
+        };
+        let Some(Resolved::Ref(r)) = scope.resolve(callee, self.src) else {
+            return false;
+        };
+        let Some((module, function)) = r.rsplit_once('#') else {
+            return false;
+        };
+        let module = module.strip_suffix(".js").unwrap_or(module);
+        if module != "@mail/model/model_core" && !module.ends_with("/model/model_core") {
+            return false;
+        }
+        let args = call.child_by_field_name("arguments").map(named).unwrap_or_default();
+        match (function, &args[..]) {
+            ("registerModel" | "registerPatch", [definition]) if definition.kind() == "object" => {
+                self.mail_definition(call, function, *definition, scope)
+            }
+            ("registerNewModel", [name, factory, ..]) => self.mail_factory(call, *name, *factory, scope, decls),
+            (_, [model, name, patch]) => match MAIL_PATCHES.iter().find(|(f, _)| *f == function) {
+                Some((_, section)) => self.mail_patch(call, function, section, [*model, *name, *patch], scope),
+                None => return false,
+            },
+            _ => return false,
+        }
+        true
+    }
+
+    fn unnamed(&mut self, call: Node, function: &str) {
+        let line = call.start_position().row + 1;
+        let warning = format!("line {line}: {function} without a literal model name; ignored");
+        self.warnings.push((call.start_byte(), warning));
+    }
+
+    /// 16.0's `registerModel({ name, ... })` and `registerPatch({ name, ... })`: each other key
+    /// is a section, such as `fields`, `recordMethods` or `lifecycleHooks`.
+    fn mail_definition(&mut self, call: Node<'t>, function: &str, definition: Node<'t>, scope: &Scope) {
+        let mut name = None;
+        let mut attrs = BTreeMap::new();
+        for pair in named(definition) {
+            let (Some(key), Some(v)) = (pair.child_by_field_name("key"), pair.child_by_field_name("value")) else {
+                continue;
+            };
+            let key = key_text(key, self.src);
+            let v = match key.as_str() {
+                "name" => {
+                    name = string_value(v, self.src).map(|n| (bounded(n), v));
+                    continue;
+                }
+                "fields" if v.kind() == "object" => self.mail_fields(v, scope),
+                _ => self.value(v, scope),
+            };
+            attrs.insert(key, v);
+        }
+        match (name, function) {
+            (None, _) => self.unnamed(call, function),
+            (Some((model, at)), "registerModel") => {
+                attrs.insert("declared".into(), function.into());
+                self.insert(symbol(MAIL_MODEL, model, at, attrs));
+            }
+            (Some((model, at)), _) => self.mail_patch_add(model, at, function, None, attrs),
+        }
+    }
+
+    /// Adds a call's sections to the file's patch of `model`, so that one symbol holds them
+    /// whatever their order: objects merge, a later member winning, and `declared` and `names`
+    /// list the calls and the 14.0 and 15.0 patch names, sorted.
+    fn mail_patch_add(
+        &mut self,
+        model: String,
+        at: Node<'t>,
+        function: &str,
+        name: Option<Value>,
+        sections: BTreeMap<String, Value>,
+    ) {
+        let key = format!("mail:{model}");
+        let patch = self
+            .mail_patches
+            .entry(key.clone())
+            .or_insert_with(|| symbol(PATCH, key, at, BTreeMap::new()));
+        let mut add = |list: &str, item: Value| {
+            if let Value::Array(items) = patch
+                .attrs
+                .entry(list.into())
+                .or_insert_with(|| Value::Array(Vec::new()))
+                && !items.contains(&item)
+            {
+                items.push(item);
+                items.sort_by_cached_key(|i| i.to_string());
+            }
+        };
+        add("declared", function.into());
+        if let Some(name) = name {
+            add("names", name);
+        }
+        for (key, value) in sections {
+            match (patch.attrs.get_mut(&key), value) {
+                (Some(Value::Object(old)), Value::Object(new)) => old.extend(new),
+                (_, value) => {
+                    patch.attrs.insert(key, value);
+                }
+            }
+        }
+    }
+
+    /// 14.0 and 15.0's `registerNewModel(name, factory)`: the class the factory declares, its
+    /// instance members as `recordMethods` and its statics, declared in the class or assigned
+    /// after it, as `fields`, `identifyingFields`, `onChanges` and the other `modelMethods`.
+    fn mail_factory(&mut self, call: Node<'t>, name: Node<'t>, factory: Node<'t>, scope: &Scope, decls: &Decls<'t>) {
+        let Some(model) = string_value(name, self.src) else {
+            return self.unnamed(call, "registerNewModel");
+        };
+        let function = match decls.by_name.get(self.text(factory).as_ref()) {
+            Some(Decl::Function(f)) if factory.kind() == "identifier" => Some(*f),
+            _ => Some(factory).filter(|f| is_function_kind(f.kind())),
+        };
+        let body = function
+            .and_then(|f| f.child_by_field_name("body"))
+            .filter(|b| b.kind() == "statement_block");
+        let mut attrs = BTreeMap::from([("declared".to_string(), Value::from("registerNewModel"))]);
+        if let Some(class) = body.and_then(|b| self.factory_class(b)) {
+            let (members, statics) = self.class_members(&class);
+            if !members.is_empty() {
+                attrs.insert("recordMethods".into(), self.members(members, scope));
+            }
+            let (kept, methods): (Entries, Entries) = statics
+                .into_iter()
+                .partition(|(k, _)| MAIL_STATICS.contains(&k.as_str()));
+            if !methods.is_empty() {
+                attrs.insert("modelMethods".into(), self.members(methods, scope));
+            }
+            for (key, node) in kept.into_iter().filter(|(k, _)| k != "modelName") {
+                let v = match node {
+                    Some(n) if key == "fields" && n.kind() == "object" => self.mail_fields(n, scope),
+                    Some(n) => self.value(n, scope),
+                    None => Value::Null,
+                };
+                attrs.insert(key, v);
+            }
+        }
+        self.insert(symbol(MAIL_MODEL, bounded(model), name, attrs));
+    }
+
+    /// The first class a factory body declares, with the statics the body assigns to it.
+    fn factory_class(&self, body: Node<'t>) -> Option<Class<'t>> {
+        let statements = named(body);
+        let node = *statements.iter().find(|s| s.kind() == "class_declaration")?;
+        let name = node.child_by_field_name("name")?;
+        let mut assigned = Vec::new();
+        for statement in statements.iter().filter(|s| s.kind() == "expression_statement") {
+            let Some(a) = named(*statement)
+                .first()
+                .copied()
+                .filter(|a| a.kind() == "assignment_expression")
+            else {
+                continue;
+            };
+            let (Some(left), Some(right)) = (a.child_by_field_name("left"), a.child_by_field_name("right")) else {
+                continue;
+            };
+            let (Some(object), Some(property)) =
+                (left.child_by_field_name("object"), left.child_by_field_name("property"))
+            else {
+                continue;
+            };
+            if left.kind() == "member_expression"
+                && object.kind() == "identifier"
+                && self.text(object) == self.text(name)
+            {
+                assigned.push((self.text(property).into_owned(), right));
+            }
+        }
+        Some(Class { node, name, assigned })
+    }
+
+    /// A 14.0 or 15.0 `register<X>Patch<Y>(model, name, patch)`, whose patch fills `section`. The
+    /// patch name is free text naming the patching file, kept as written.
+    fn mail_patch(&mut self, call: Node<'t>, function: &str, section: &str, args: [Node<'t>; 3], scope: &Scope) {
+        let [model, name, patch] = args;
+        let Some(m) = string_value(model, self.src) else {
+            return self.unnamed(call, function);
+        };
+        let v = match (section, patch.kind()) {
+            ("fields", "object") => self.mail_fields(patch, scope),
+            _ => self.value(patch, scope),
+        };
+        let sections = BTreeMap::from([(section.to_string(), v)]);
+        let name = self.value(name, scope);
+        self.mail_patch_add(bounded(m), model, function, Some(name), sections);
+    }
+
+    /// Fields by name, a field helper's call such as `many('Activity', {...})` as its `type` and
+    /// `args`, so that a compute written inline hashes like a method rather than reading as text.
+    fn mail_fields(&self, fields: Node<'t>, scope: &Scope) -> Value {
+        let mut out = object(fields, self.src, scope, 0);
+        for pair in named(fields).into_iter().filter(|p| p.kind() == "pair") {
+            let (Some(key), Some(v)) = (pair.child_by_field_name("key"), pair.child_by_field_name("value")) else {
+                continue;
+            };
+            let Some(callee) = v
+                .child_by_field_name("function")
+                .filter(|_| v.kind() == "call_expression")
+            else {
+                continue;
+            };
+            let Some(args) = v.child_by_field_name("arguments").filter(|a| a.kind() == "arguments") else {
+                continue;
+            };
+            let args = named(args).into_iter().map(|a| self.value(a, scope));
+            let field = serde_json::json!({"type": canonical(callee, self.src), "args": Value::from_iter(args)});
+            out.insert(key_text(key, self.src), field);
+        }
+        tagless(out)
     }
 
     /// `Foo.<x> = ...` on a scope class, or `<target> = X.extend(...)`.
@@ -1243,6 +1484,11 @@ impl<'t> Reader<'t> {
         for symbol in std::mem::take(&mut self.registry).into_values() {
             self.table.insert(symbol);
         }
+        for symbol in std::mem::take(&mut self.mail_patches).into_values() {
+            if self.budget.symbol(&symbol) {
+                self.table.insert(symbol);
+            }
+        }
         if let Some(at) = self.more_duplicates_at {
             let more = self.duplicates - MAX_DUPLICATE_WARNINGS;
             self.warnings.push((at, format!("{more} more duplicates")));
@@ -1279,6 +1525,7 @@ impl<'t> Visitor<'t> for Walker<'_, 't> {
             k if is_function_kind(k) => false,
             "call_expression" => {
                 let read = (self.program && reader.define(n))
+                    || reader.mail(n, scope, decls)
                     || reader.registry_adds(v, scope, decls)
                     || reader.patch(n, scope)
                     || reader.include(n, scope);

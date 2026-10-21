@@ -1,0 +1,145 @@
+{
+  "symbols": [
+    {
+      "kind": "js_mail_model",
+      "qualname": "Thread@demo",
+      "line": 8,
+      "span": {
+        "start": 237,
+        "end": 243
+      },
+      "attrs": {
+        "declared": "registerModel",
+        "fields": {
+          "activities": {
+            "args": [
+              "Activity",
+              {
+                "inverse": "thread"
+              }
+            ],
+            "type": "many"
+          },
+          "hasActivities": {
+            "args": [
+              {
+                "compute": "_computeHasActivities",
+                "default": false
+              }
+            ],
+            "type": "attr"
+          },
+          "id": {
+            "args": [
+              {
+                "identifying": true
+              }
+            ],
+            "type": "attr"
+          },
+          "name": {
+            "args": [
+              {
+                "compute": {
+                  "fn": "229206f9a85dcd9a823abaf514c90695"
+                }
+              }
+            ],
+            "type": "attr"
+          },
+          "partner": {
+            "args": [
+              "Partner"
+            ],
+            "type": "one"
+          }
+        },
+        "identifyingMode": "xor",
+        "lifecycleHooks": {
+          "_willDelete": {
+            "fn": "f4c712678180c867c2cfc64444709287"
+          }
+        },
+        "modelMethods": {
+          "convertData": {
+            "fn": "9a691a2ab123a78e0f5bc9d5680e3705"
+          }
+        },
+        "onChanges": [
+          {
+            "dependencies": [
+              "activities"
+            ],
+            "methodName": "_onChangeActivities"
+          }
+        ],
+        "recordMethods": {
+          "_computeHasActivities": {
+            "fn": "b6fd843f5cd8418e3b08f654d2ac1d3d"
+          },
+          "markAllAsRead": {
+            "fn": "0d04c0e8b0dad83a0fe3f2724deb771e"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "@demo/views/mail_16",
+      "line": 1,
+      "span": {
+        "start": 4,
+        "end": 16
+      },
+      "attrs": {
+        "header": true,
+        "imports": [
+          {
+            "ref": "@mail/model/model_core#registerModel"
+          },
+          {
+            "ref": "@mail/model/model_core#registerPatch"
+          },
+          {
+            "ref": "@mail/model/model_field#attr"
+          },
+          {
+            "ref": "@mail/model/model_field#many"
+          },
+          {
+            "ref": "@mail/model/model_field#one"
+          },
+          {
+            "ref": "@mail/model/model_field_command#clear"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "mail:Activity@demo",
+      "line": 45,
+      "span": {
+        "start": 1272,
+        "end": 1280
+      },
+      "attrs": {
+        "declared": [
+          "registerPatch"
+        ],
+        "fields": {
+          "calendarEventId": {
+            "args": [],
+            "type": "attr"
+          }
+        },
+        "recordMethods": {
+          "deleteServerRecord": {
+            "fn": "cbe534b5deb4635bf295091464e0eba3"
+          }
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

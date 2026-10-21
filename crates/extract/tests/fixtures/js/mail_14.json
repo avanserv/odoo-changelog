@@ -1,0 +1,81 @@
+{
+  "symbols": [
+    {
+      "kind": "js_mail_model",
+      "qualname": "mail.activity@demo",
+      "line": 26,
+      "span": {
+        "start": 766,
+        "end": 779
+      },
+      "attrs": {
+        "declared": "registerNewModel",
+        "fields": {
+          "assignee": {
+            "args": [
+              "mail.partner"
+            ],
+            "type": "many2one"
+          },
+          "isCurrentPartnerAssignee": {
+            "args": [
+              {
+                "compute": "_computeIsCurrentPartnerAssignee",
+                "dependencies": [
+                  "assignee"
+                ]
+              }
+            ],
+            "type": "attr"
+          }
+        },
+        "recordMethods": {
+          "_computeIsCurrentPartnerAssignee": {
+            "fn": "c951bbe01a6ede717113b88ff0f23d0b"
+          }
+        }
+      }
+    },
+    {
+      "kind": "js_module",
+      "qualname": "demo/static/src/models/activity/activity.js",
+      "line": 1,
+      "span": {
+        "start": 13,
+        "end": 56
+      },
+      "attrs": {
+        "declared": "define",
+        "requires": [
+          "mail/static/src/model/model_core.js",
+          "mail/static/src/model/model_field.js"
+        ]
+      }
+    },
+    {
+      "kind": "js_patch",
+      "qualname": "mail:mail.activity@demo",
+      "line": 28,
+      "span": {
+        "start": 818,
+        "end": 831
+      },
+      "attrs": {
+        "declared": [
+          "registerClassPatchModel"
+        ],
+        "modelMethods": {
+          "convertData": {
+            "fn": "68778318ebc10c00bc32a04b80033a04"
+          }
+        },
+        "names": [
+          "demo/static/src/models/activity/activity.js"
+        ]
+      }
+    }
+  ],
+  "warnings": [
+    "line 34: registerNewModel without a literal model name; ignored"
+  ]
+}
