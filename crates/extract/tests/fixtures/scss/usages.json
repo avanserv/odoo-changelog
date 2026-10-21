@@ -1,0 +1,280 @@
+{
+  "symbols": [
+    {
+      "kind": "css_property",
+      "qualname": "--o-demo-color@demo",
+      "line": 44,
+      "span": {
+        "start": 1016,
+        "end": 1030
+      },
+      "attrs": {
+        "value": "#{$o-brand-primary}"
+      }
+    },
+    {
+      "kind": "css_property",
+      "qualname": "--o-demo-conditional@demo",
+      "line": 48,
+      "span": {
+        "start": 1139,
+        "end": 1159
+      },
+      "attrs": {
+        "value": "2px",
+        "within": [
+          "@if $o-demo-enabled"
+        ]
+      }
+    },
+    {
+      "kind": "css_property",
+      "qualname": "--o-demo-gap@demo",
+      "line": 45,
+      "span": {
+        "start": 1057,
+        "end": 1069
+      },
+      "attrs": {
+        "value": "4px"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-grays#100@demo",
+      "line": 24,
+      "span": {
+        "start": 611,
+        "end": 616
+      },
+      "attrs": {
+        "value": "#f8f9fa"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-palettes#demo-1@demo",
+      "line": 8,
+      "span": {
+        "start": 178,
+        "end": 186
+      },
+      "attrs": {
+        "default": true,
+        "reassigned": [
+          {
+            "value": "('o-color-1': #000)"
+          }
+        ],
+        "value": "('o-color-1': #bedb39, 'o-color-2': #2c3e50)"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-palettes#demo-3@demo",
+      "line": 16,
+      "span": {
+        "start": 358,
+        "end": 366
+      },
+      "attrs": {
+        "value": "('o-color-1': $o_brand_primary)"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-palettes#demo-4@demo",
+      "line": 31,
+      "span": {
+        "start": 846,
+        "end": 854
+      },
+      "attrs": {
+        "value": "null",
+        "within": [
+          "@if $o-demo-enabled"
+        ]
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-palettes#demo_2@demo",
+      "line": 12,
+      "span": {
+        "start": 261,
+        "end": 267
+      },
+      "attrs": {
+        "default": true,
+        "value": "('o-color-1': #ff0000)"
+      }
+    },
+    {
+      "kind": "scss_mixin",
+      "qualname": "o-demo-box@demo",
+      "line": 34,
+      "span": {
+        "start": 882,
+        "end": 892
+      },
+      "attrs": {
+        "body": "9434416102b9822b444ce4d7bc8a08ed",
+        "params": [
+          "$size"
+        ]
+      }
+    },
+    {
+      "kind": "scss_placeholder",
+      "qualname": "%o-demo-card@demo",
+      "line": 39,
+      "span": {
+        "start": 963,
+        "end": 975
+      },
+      "attrs": {
+        "body": "827b9e62f396859eac4e45de0edcfa53"
+      }
+    },
+    {
+      "kind": "scss_stylesheet",
+      "qualname": "demo/static/src/scss/usages.scss",
+      "line": 1,
+      "span": {
+        "start": 0,
+        "end": 0
+      },
+      "attrs": {
+        "extends": [
+          "%o-demo-card",
+          ".btn"
+        ],
+        "imports": [
+          "variables",
+          "mixins",
+          "url(\"https://fonts.example.com/css?family=Demo\")"
+        ],
+        "includes": [
+          "media-breakpoint-up",
+          "o-demo-box",
+          "o-position-absolute"
+        ]
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-brand-primary@demo",
+      "line": 4,
+      "span": {
+        "start": 90,
+        "end": 106
+      },
+      "attrs": {
+        "default": true,
+        "reassigned": [
+          {
+            "value": "#017e84"
+          }
+        ],
+        "value": "#714B67"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-empty@demo",
+      "line": 21,
+      "span": {
+        "start": 472,
+        "end": 485
+      },
+      "attrs": {
+        "value": "()"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-grays@demo",
+      "line": 24,
+      "span": {
+        "start": 585,
+        "end": 598
+      },
+      "attrs": {
+        "value": "map-merge(('100': #f8f9fa, \"#{$x}\": 1), $o-demo-grays)"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-list@demo",
+      "line": 20,
+      "span": {
+        "start": 441,
+        "end": 453
+      },
+      "attrs": {
+        "value": "(1px, 2px, 3px)"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-maps@demo",
+      "line": 22,
+      "span": {
+        "start": 491,
+        "end": 503
+      },
+      "attrs": {
+        "value": "((a: 1), (b: 2))"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-palettes@demo",
+      "line": 7,
+      "span": {
+        "start": 154,
+        "end": 170
+      },
+      "attrs": {
+        "default": true,
+        "reassigned": [
+          {
+            "value": "map-merge($o-demo-palettes, ('demo-3': ('o-color-1': $o_brand_primary), 'demo-1': ('o-color-1': #000)))"
+          },
+          {
+            "value": "map-merge($o-demo-palettes, $o-demo-extra)"
+          },
+          {
+            "global": true,
+            "value": "map-merge($o-demo-palettes, ($key: $value))",
+            "within": [
+              "@each $key, $value in $o-demo-extra"
+            ]
+          },
+          {
+            "global": true,
+            "value": "map-merge($o-demo-palettes, ('demo-4': null))",
+            "within": [
+              "@if $o-demo-enabled"
+            ]
+          }
+        ],
+        "value": "('demo-1': ('o-color-1': #bedb39, 'o-color-2': #2c3e50), demo_2: ('o-color-1': #ff0000))"
+      }
+    },
+    {
+      "kind": "scss_variable",
+      "qualname": "$o-demo-root@demo",
+      "line": 46,
+      "span": {
+        "start": 1080,
+        "end": 1092
+      },
+      "attrs": {
+        "global": true,
+        "value": "1"
+      }
+    }
+  ],
+  "warnings": []
+}

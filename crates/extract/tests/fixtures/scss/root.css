@@ -1,0 +1,8 @@
+@import url("fonts.css");
+
+:root {
+    --o-demo-radius: 2px;
+    --o-demo-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.o_demo { color: var(--o-demo-radius); }

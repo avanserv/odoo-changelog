@@ -57,6 +57,26 @@
       "attrs": {
         "body": "b5977d994ff8064b170f07039b047664"
       }
+    },
+    {
+      "kind": "scss_stylesheet",
+      "qualname": "demo/static/src/scss/mixins.scss",
+      "line": 1,
+      "span": {
+        "start": 0,
+        "end": 0
+      },
+      "attrs": {
+        "extends": [
+          "%o-demo-reset"
+        ],
+        "imports": [
+          "demo_variables"
+        ],
+        "includes": [
+          "o-demo-hover"
+        ]
+      }
     }
   ],
   "warnings": [

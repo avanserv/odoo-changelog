@@ -1,0 +1,66 @@
+@import "variables", 'mixins';
+@import url("https://fonts.example.com/css?family=Demo");
+
+$o_brand_primary: #714B67 !default;
+$o-brand-primary: #017e84;
+
+$o-demo-palettes: (
+    'demo-1': (
+        'o-color-1': #bedb39,
+        'o-color-2': #2c3e50,
+    ),
+    demo_2: ('o-color-1': #ff0000),
+) !default;
+
+$o-demo-palettes: map-merge($o-demo-palettes, (
+    'demo-3': ('o-color-1': $o_brand_primary),
+    'demo-1': ('o-color-1': #000),
+));
+
+$o-demo-list: (1px, 2px, 3px);
+$o-demo-empty: ();
+$o-demo-maps: ((a: 1), (b: 2));
+$o-demo-palettes: map-merge($o-demo-palettes, $o-demo-extra);
+$o-demo-grays: map-merge(('100': #f8f9fa, "#{$x}": 1), $o-demo-grays);
+
+@each $key, $value in $o-demo-extra {
+    $o-demo-palettes: map-merge($o-demo-palettes, ($key: $value)) !global;
+}
+
+@if $o-demo-enabled {
+    $o-demo-palettes: map-merge($o-demo-palettes, ('demo-4': null)) !global;
+}
+
+@mixin o_demo_box($size) {
+    @include o-position-absolute(0, 0);
+    width: $size;
+}
+
+%o-demo-card {
+    border: 1px solid;
+}
+
+:root {
+    --o-demo-color: #{$o-brand-primary};
+    --o-demo-gap: 4px;
+    $o-demo-root: 1 !global;
+    @if $o-demo-enabled {
+        --o-demo-conditional: 2px;
+    }
+}
+
+@media (min-width: 768px) {
+    :root {
+        --o-demo-hidden: 1;
+    }
+}
+
+.o_demo {
+    @extend %o-demo-card;
+    @extend .btn !optional;
+    @include o_demo_box(2rem);
+    @include media-breakpoint-up(md) {
+        display: none;
+    }
+    --o-demo-local: 1;
+}

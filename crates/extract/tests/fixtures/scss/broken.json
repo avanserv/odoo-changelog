@@ -1,6 +1,16 @@
 {
   "symbols": [
     {
+      "kind": "scss_stylesheet",
+      "qualname": "demo/static/src/scss/broken.scss",
+      "line": 1,
+      "span": {
+        "start": 0,
+        "end": 0
+      },
+      "attrs": {}
+    },
+    {
       "kind": "scss_variable",
       "qualname": "$o-demo-after@demo",
       "line": 3,

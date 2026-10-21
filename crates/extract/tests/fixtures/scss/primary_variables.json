@@ -1,6 +1,105 @@
 {
   "symbols": [
     {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-buttons#primary@demo",
+      "line": 17,
+      "span": {
+        "start": 589,
+        "end": 596
+      },
+      "attrs": {
+        "value": "$o-demo-brand"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-buttons#secondary@demo",
+      "line": 18,
+      "span": {
+        "start": 659,
+        "end": 668
+      },
+      "attrs": {
+        "value": "$o-demo-text"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-grays#100@demo",
+      "line": 9,
+      "span": {
+        "start": 283,
+        "end": 286
+      },
+      "attrs": {
+        "default": true,
+        "value": "$o-demo-gray-100"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-grays#200@demo",
+      "line": 11,
+      "span": {
+        "start": 333,
+        "end": 336
+      },
+      "attrs": {
+        "default": true,
+        "value": "$o-demo-gray-200"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-grays#300@demo",
+      "line": 12,
+      "span": {
+        "start": 378,
+        "end": 381
+      },
+      "attrs": {
+        "default": true,
+        "value": "$o-demo-gray-300"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-margins#a@demo",
+      "line": 7,
+      "span": {
+        "start": 238,
+        "end": 239
+      },
+      "attrs": {
+        "default": true,
+        "value": "1"
+      }
+    },
+    {
+      "kind": "scss_map_entry",
+      "qualname": "$o-demo-margins#b@demo",
+      "line": 7,
+      "span": {
+        "start": 246,
+        "end": 247
+      },
+      "attrs": {
+        "default": true,
+        "value": "2"
+      }
+    },
+    {
+      "kind": "scss_stylesheet",
+      "qualname": "demo/static/src/scss/primary_variables.scss",
+      "line": 1,
+      "span": {
+        "start": 0,
+        "end": 0
+      },
+      "attrs": {}
+    },
+    {
       "kind": "scss_variable",
       "qualname": "$o-demo-bg@demo",
       "line": 15,

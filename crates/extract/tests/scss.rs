@@ -39,8 +39,8 @@ fn attrs(symbol: &Symbol) -> Value {
 
 #[test]
 fn fixtures_match_expected_output() {
-    let files = fixtures("scss", "scss");
-    assert!(files.len() >= 4, "fixtures missing: {files:?}");
+    let files = [fixtures("scss", "scss"), fixtures("scss", "css")].concat();
+    assert!(files.len() >= 6, "fixtures missing: {files:?}");
     for file in files {
         let blob = std::fs::read(&file).unwrap();
         check(
@@ -154,10 +154,21 @@ fn reformatting_scss_gives_no_event() {
 }
 
 #[test]
+fn sass_names_fold_underscores_into_dashes() {
+    let table = extract("$o_brand_primary: red;\n@mixin o_box { a: b; }\n.x { @include o_box; }\n");
+    let other = extract("$o-brand-primary: red;\n@mixin o-box { a: b; }\n.x { @include o-box; }\n");
+    let path = "theme_x/static/src/scss/a.scss";
+    let qualnames = |t: &SymbolTable| -> Vec<String> { t.iter().map(|s| Scss.qualify(path, s)).collect() };
+    assert_eq!(qualnames(&table), qualnames(&other));
+    assert!(qualnames(&table).contains(&"$o-brand-primary@theme_x".to_string()));
+    assert_eq!(find(&table, "scss_stylesheet", "").attrs["includes"], json!(["o-box"]));
+}
+
+#[test]
 fn broken_scss_gives_a_partial_table_and_a_warning() {
     let table = Scss.extract(&fixture("broken")).unwrap();
     let names: Vec<&str> = table.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["$o-demo-after", "$o-demo-kept"]);
+    assert_eq!(names, ["", "$o-demo-after", "$o-demo-kept"]);
     assert_eq!(
         table.warnings(),
         ["line 2: unmatched }", "line 4: unclosed {", "line 6: unclosed comment"]
@@ -178,15 +189,17 @@ fn broken_scss_gives_a_partial_table_and_a_warning() {
 
 #[test]
 fn every_symbol_spans_its_name() {
-    for file in fixtures("scss", "scss") {
+    for file in [fixtures("scss", "scss"), fixtures("scss", "css")].concat() {
         let blob = std::fs::read(&file).unwrap();
         for symbol in Scss.extract(&blob).unwrap().iter() {
-            assert_eq!(
-                &blob[symbol.span.range()],
-                symbol.name.as_bytes(),
-                "{}: {symbol:?}",
-                file.display()
-            );
+            let spanned = String::from_utf8_lossy(&blob[symbol.span.range()]);
+            let name = symbol.name.as_str();
+            let ok = match symbol.kind.as_str() {
+                "scss_map_entry" => name.split_once('#').unwrap().1 == spanned.trim_matches(['\'', '"']),
+                "scss_variable" | "scss_mixin" | "scss_function" => spanned.replace('_', "-") == name,
+                _ => spanned == name,
+            };
+            assert!(ok, "{}: {spanned:?} for {symbol:?}", file.display());
             let line = blob[..symbol.span.start as usize]
                 .iter()
                 .filter(|&&b| b == b'\n')

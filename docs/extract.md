@@ -26,4 +26,5 @@ extractor takes 207 s with an empty cache and 45 s with a warm one (2026-10-21).
   nodes.
 - [`js`](extractors/js.md): JavaScript modules, exports, components, registry entries and patches.
 - [`owl`](extractors/owl.md): client templates and their extensions.
-- [`scss`](extractors/scss.md): SCSS variables, mixins, functions and placeholders.
+- [`scss`](extractors/scss.md): SCSS variables, map entries, mixins, functions, placeholders and
+  `:root` custom properties, and what each stylesheet includes, extends and imports.
