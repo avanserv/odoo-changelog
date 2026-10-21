@@ -1,0 +1,35 @@
+{
+  "symbols": [
+    {
+      "kind": "record",
+      "qualname": "demo.tax_demo_0@demo",
+      "line": 5,
+      "span": {
+        "start": 300,
+        "end": 310
+      },
+      "attrs": {
+        "declared": "csv",
+        "name": "0%",
+        "record_model": "account.tax",
+        "values": "f34ec510f7175d7be067e124bf3dcc00"
+      }
+    },
+    {
+      "kind": "record",
+      "qualname": "demo.tax_demo_21@demo",
+      "line": 2,
+      "span": {
+        "start": 156,
+        "end": 167
+      },
+      "attrs": {
+        "declared": "csv",
+        "name": "21%",
+        "record_model": "account.tax",
+        "values": "7956908a09314495dbe2010f5e049223"
+      }
+    }
+  ],
+  "warnings": []
+}

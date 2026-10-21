@@ -1,9 +1,11 @@
 # Data extractor
 
 The `data` extractor reads every `.xml` file of a module outside `static/`, wherever it sits,
-since Odoo loads any file a manifest lists, and the `ir.model.access.csv` and `ir.access.csv`
-files. A file whose root is not `<odoo>`, `<openerp>` or `<data>`, such as an e-invoice sample,
-gives no symbol. Symbols are named by xmlid, and an id written without a module gets the file's
+since Odoo loads any file a manifest lists, and every `.csv` file there whose name up to the first
+`-` is a model, as Odoo derives it: `res.country.state.csv`, `ir.model.access.csv`, a chart
+template's `account.tax-be.csv`. A file whose root is not `<odoo>`, `<openerp>` or `<data>`, such
+as an e-invoice sample, gives no symbol, and neither does a CSV whose first row is one cell, such
+as the `|`-separated codes an install hook reads. Symbols are named by xmlid, and an id written without a module gets the file's
 module, as Odoo's `make_xml_id` does: in qualnames, and in the references `inherit_id`, `parent`,
 `action`, `groups`, `model_id` and `group_id`.
 
@@ -14,7 +16,7 @@ module, as Odoo's `make_xml_id` does: in qualnames, and in the references `inher
 | `menu` | a `<menuitem>`, an `ir.ui.menu` record | `sale.menu_sale_quotations@sale` |
 | `action` | an `ir.actions.*` record, `<report>`, `<act_window>` | `sale.action_orders@sale` |
 | `group`, `rule`, `access` | `res.groups`, `ir.rule`, an access record or CSV row | `sale.access_sale_order@sale` |
-| `record` | any other record, `<asset>` | `sale.mail_template_sale_confirmation@sale` |
+| `record` | any other record or CSV row, `<asset>` | `base.state_au_1@base` |
 | `data_function` | `<function>`, `[2]` from its second call in the file | `res.partner#write[2]@sale` |
 | `delete` | `<delete>`, by id or by search | `account.tax#search@l10n_fr` |
 
@@ -35,5 +37,17 @@ own. Other records keep `name`, `model`, `res_model` and a `model_id` reference 
 everything else into `values`. Arch and markup hashes ignore whitespace runs, comments, attribute
 order and how a character is escaped; plain field text is hashed as written, since Odoo stores it
 verbatim. Menuitems and access rows keep every attribute or cell in clear.
+
+A CSV row is a record named by its `id` column, with `declared: "csv"` and the file's model as
+`record_model`. It keeps the same attributes in clear as an XML record and hashes its non-empty
+cells into `values` as the XML fields setting them would hash, a `country_id:id` cell as a `ref`,
+so a record of text and single-reference fields moving between the two formats is no change; a
+`tag_ids/id` cell is hashed as a `ref` of its text too, which XML would write as an `eval`. Later
+rows of an id add to it,
+and a row without an id continues the one above, as a chart template's repartition lines do. The
+reader sees the file's bytes alone, so the header tells the kind: permission columns, or
+`operation` beside a bare `model_id`, give `access` rows with every cell in clear, and
+`domain_force` gives `rule` rows. Chart template ids are named as the file writes them, without
+the company prefix Odoo adds when it loads them.
 
 A file with a syntax error keeps the declarations closed before it, and leaves a warning.

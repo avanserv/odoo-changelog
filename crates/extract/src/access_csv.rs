@@ -6,109 +6,47 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::data::ACCESS;
-use crate::{Span, Symbol, SymbolTable};
-
-const BOM: &[u8] = b"\xEF\xBB\xBF";
+use crate::data_csv::{Sheet, Warnings, field};
+use crate::{Symbol, SymbolTable};
 
 /// The header names a column as Odoo's import does: `model_id:id` and `model_id/id` both give
 /// `model_id`, while a bare `model_id`, which in `ir.access.csv` holds a model name rather than an
 /// xmlid, gives `model`. A later row of an id replaces the earlier one.
-pub(crate) fn extract(blob: &[u8]) -> SymbolTable {
-    let offset = if blob.starts_with(BOM) { BOM.len() } else { 0 };
-    let body = &blob[offset..];
-    let mut reader = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .from_reader(body);
-    let mut table = SymbolTable::default();
-    let mut header: Option<(Vec<String>, usize)> = None;
-    let mut rows: BTreeMap<String, Symbol> = BTreeMap::new();
-    let mut record = csv::ByteRecord::new();
-    loop {
-        match reader.read_byte_record(&mut record) {
-            Ok(true) => {}
-            Ok(false) => break,
-            Err(e) => {
-                let line = e.position().map_or(1, |p| p.line());
-                table.warn(format!("line {line}: {e}"));
-                break;
-            }
-        }
-        if record.iter().all(<[u8]>::is_empty) {
-            continue;
-        }
-        let position = record.position().expect("a record read from a reader has a position");
-        // The reader positions a record at the end of the one before, ahead of line breaks.
-        let at = position.byte() as usize;
-        let at = at + body[at..].iter().take_while(|b| matches!(b, b'\r' | b'\n')).count();
-        let line = body[..at].iter().filter(|&&b| b == b'\n').count() as u32 + 1;
-        let cells: Vec<String> = record.iter().map(|c| String::from_utf8_lossy(c).into_owned()).collect();
-        let Some((columns, id_column)) = &header else {
-            let columns: Vec<String> = cells.iter().map(|c| column(c)).collect();
-            match columns.iter().position(|c| c == "id") {
-                Some(id_column) => header = Some((columns, id_column)),
-                None => {
-                    table.warn(format!("line {line}: no id column; rows ignored"));
-                    return table;
-                }
-            }
-            continue;
-        };
-        // Odoo drops empty trailing cells, which a stray comma at the end of a row gives.
-        if cells.iter().skip(columns.len()).any(|c| !c.is_empty()) {
-            table.warn(format!(
-                "line {line}: {} fields for {} columns",
-                cells.len(),
-                columns.len()
-            ));
-        }
-        let Some(id) = cells.get(*id_column).filter(|id| !id.is_empty()) else {
-            table.warn(format!("line {line}: row without id ignored"));
+pub(crate) fn symbols(sheet: &Sheet, table: &mut SymbolTable, warnings: &mut Warnings) {
+    let columns: Vec<&str> = sheet.header.iter().map(|h| column(h)).collect();
+    let mut rows: BTreeMap<&str, Symbol> = BTreeMap::new();
+    for row in &sheet.rows {
+        let Some(id) = sheet.id(row) else {
+            warnings.push((row.line.into(), format!("line {}: row without id ignored", row.line)));
             continue;
         };
         let mut attrs: BTreeMap<String, Value> = columns
             .iter()
-            .zip(&cells)
-            .filter(|(c, v)| *c != "id" && !v.is_empty())
-            .map(|(c, v)| (c.clone(), Value::from(v.as_str())))
+            .zip(&row.cells)
+            .filter(|(c, v)| **c != "id" && !v.is_empty())
+            .map(|(c, v)| ((*c).to_string(), Value::from(v.as_str())))
             .collect();
         attrs.insert("declared".into(), "csv".into());
-        let span = id_span(body, at, id.as_bytes());
-        let span = Span {
-            start: (span.start + offset) as u32,
-            end: (span.end + offset) as u32,
-        };
-        rows.entry(id.clone())
+        rows.entry(id)
             .and_modify(|first| first.attrs = attrs.clone())
             .or_insert_with(|| Symbol {
                 kind: ACCESS.into(),
-                name: id.clone(),
-                line,
-                span,
+                name: id.into(),
+                line: row.line,
+                span: sheet.span(row, id),
                 attrs,
             });
     }
     for symbol in rows.into_values() {
         table.insert(symbol);
     }
-    table
 }
 
-fn column(header: &str) -> String {
-    match header.strip_suffix(":id").or_else(|| header.strip_suffix("/id")) {
-        Some(name) => name.to_string(),
-        None if header == "model_id" => "model".to_string(),
-        None => header.to_string(),
-    }
-}
-
-/// The first occurrence of `id` on the record's first line, or an empty span at its start.
-fn id_span(body: &[u8], at: usize, id: &[u8]) -> std::ops::Range<usize> {
-    let line = &body[at..];
-    let line = &line[..line.iter().position(|&b| b == b'\n').unwrap_or(line.len())];
-    match line.windows(id.len()).position(|w| w == id) {
-        Some(i) => at + i..at + i + id.len(),
-        None => at..at,
+fn column(header: &str) -> &str {
+    match field(header) {
+        (name, true) => name,
+        ("model_id", false) => "model",
+        (name, false) => name,
     }
 }
 
@@ -116,14 +54,16 @@ fn id_span(body: &[u8], at: usize, id: &[u8]) -> std::ops::Range<usize> {
 mod tests {
     use serde_json::json;
 
-    use super::*;
+    use crate::data_csv::extract;
+    use crate::{Symbol, SymbolTable};
+    use serde_json::Value;
 
     const HEADER: &str = "id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink";
 
     fn rows(table: &SymbolTable) -> Vec<(&str, u32, Value)> {
         table
             .iter()
-            .map(|s| (s.name.as_str(), s.line, Value::from_iter(s.attrs.clone())))
+            .map(|s: &Symbol| (s.name.as_str(), s.line, Value::from_iter(s.attrs.clone())))
             .collect()
     }
 
@@ -171,12 +111,12 @@ mod tests {
     #[test]
     fn duplicates_extra_and_short_rows() {
         let src = format!(
-            "\u{FEFF}{HEADER}\nx,first,m,,1,0,0,0\nx,second,m,,1,1,0,0\ny,Y,m,,1,0,0,0,extra\nz,Z,m\nw,W,m,,1,0,0,0,\n,no id,m\n"
+            "\u{FEFF}{HEADER}\nx,first,m,,1,0,0,0\nx,second,m,,1,1,0,0\n,no id,m\ny,Y,m,,1,0,0,0,extra\nz,Z,m\nw,W,m,,1,0,0,0,\n"
         );
         let table = extract(src.as_bytes());
         assert_eq!(
             table.warnings(),
-            ["line 4: 9 fields for 8 columns", "line 7: row without id ignored"]
+            ["line 4: row without id ignored", "line 5: 9 fields for 8 columns"]
         );
         let rows = rows(&table);
         assert_eq!(rows.len(), 4);

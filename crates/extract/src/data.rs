@@ -1,6 +1,6 @@
-//! Odoo data files: the XML a module loads, by xmlid, with each view's named nodes and
-//! inheritance specs, and the access CSVs. One extractor reads both, so that an access right
-//! keeps its symbol whether a CSV row or an XML record declares it.
+//! Odoo data files: the XML and CSV a module loads, by xmlid, with each view's named nodes and
+//! inheritance specs. One extractor reads both, so that a record keeps its symbol whether a CSV
+//! row or an XML record declares it.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -9,7 +9,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::path::module_of;
-use crate::{Extractor, Symbol, SymbolTable, access_csv, xml};
+use crate::{Extractor, Symbol, SymbolTable, data_csv, xml};
 
 pub(crate) const VIEW: &str = "view";
 pub(crate) const VIEW_NODE: &str = "view_node";
@@ -55,17 +55,18 @@ impl Extractor for Data {
     /// Bump with any change to the output, including a quick-xml upgrade and changes to
     /// `xml::dom` or `xml::arch`, which `owl` shares.
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     /// Data files of a module, wherever they sit (views/, data/, template/, tests/, ...): Odoo
     /// loads any listed file. A foreign root such as an e-invoice sample gives an empty table.
-    /// Files under static/ are client assets, which Odoo never loads as data.
+    /// Files under static/ are client assets, which Odoo never loads as data. A CSV is data when
+    /// its name gives a model.
     fn claims(&self, path: &str) -> bool {
         let file = path.rsplit('/').next().unwrap_or(path);
         module_of(path).is_some()
             && !path.split('/').any(|segment| segment == "static")
-            && (file.ends_with(".xml") || matches!(file, "ir.model.access.csv" | "ir.access.csv"))
+            && (file.ends_with(".xml") || csv_model(path).is_some())
     }
 
     /// XML when the first byte past a BOM and whitespace is `<`, or there is none; CSV otherwise.
@@ -73,7 +74,7 @@ impl Extractor for Data {
         let body = blob.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(blob).trim_ascii_start();
         Ok(match body.first() {
             None | Some(b'<') => xml::extract(blob),
-            Some(_) => access_csv::extract(blob),
+            Some(_) => data_csv::extract(blob),
         })
     }
 
@@ -95,12 +96,18 @@ impl Extractor for Data {
         format!("{id}{rest}@{module}")
     }
 
-    /// The xmlids under `REF_KEYS`, with the file's module where they are written without one.
+    /// The xmlids under `REF_KEYS`, with the file's module where they are written without one,
+    /// and a CSV record's `record_model`, which its file name gives.
     fn qualify_attrs<'a>(&self, path: &str, symbol: &'a Symbol) -> Cow<'a, BTreeMap<String, Value>> {
         let Some(module) = module_of(path) else {
             return Cow::Borrowed(&symbol.attrs);
         };
         let mut out: Option<BTreeMap<String, Value>> = None;
+        let csv = symbol.attrs.get("declared").is_some_and(|d| d == "csv");
+        if let Some(model) = csv_model(path).filter(|_| csv && symbol.kind != ACCESS) {
+            out.get_or_insert_with(|| symbol.attrs.clone())
+                .insert("record_model".into(), model.into());
+        }
         for key in REF_KEYS {
             let qualified = match symbol.attrs.get(key) {
                 Some(Value::String(r)) => xml_id(module, r).map(Value::String),
@@ -124,6 +131,20 @@ impl Extractor for Data {
         }
         out.map_or(Cow::Borrowed(&symbol.attrs), Cow::Owned)
     }
+}
+
+/// The model a CSV data file loads into, as `convert_csv_import` reads it: its name up to the
+/// first `-`, which must be a model name, such as `res.country.state` for
+/// `res.country.state.csv` or `account.tax` for a chart template's `account.tax-be.csv`.
+fn csv_model(path: &str) -> Option<&str> {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let model = file.strip_suffix(".csv")?.split('-').next()?;
+    let part = |p: &str| {
+        !p.is_empty()
+            && p.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    };
+    (model.contains('.') && model.split('.').all(part)).then_some(model)
 }
 
 /// `make_xml_id`: `<module>.` before an id without a dot, after a `!` or `-` prefix. None when the
@@ -159,13 +180,21 @@ mod tests {
             "odoo/addons/base/security/ir.model.access.csv",
             "addons/sale/security/ir.access.csv",
             "addons/sale/tests/data/x.xml",
+            "odoo/addons/base/data/res.country.state.csv",
+            "addons/l10n_be/data/template/account.tax-be.csv",
+            "addons/web_tour/security/ir.rule.csv",
         ] {
             assert!(Data.claims(path), "{path}");
         }
         for path in [
             "addons/sale/static/src/x.xml",
             "odoo/tests/dummy.xml",
-            "addons/sale/data/res.country.csv",
+            "addons/sale/static/src/res.country.csv",
+            "addons/hr_holidays/data/public_holidays/public_holidays_be.csv",
+            "odoo/addons/base/tests/files/file.csv",
+            "addons/account/tests/data/SaleInvoice.csv",
+            "addons/sale/data/.csv",
+            "addons/sale/data/res..csv",
             "addons/sale/x.xmlx",
         ] {
             assert!(!Data.claims(path), "{path}");

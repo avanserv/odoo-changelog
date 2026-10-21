@@ -473,7 +473,11 @@ fn builtin_registry_gives_data_files_one_claimant() {
     let registry = Registry::builtin();
     let claimants =
         |path: &str| -> Vec<&str> { registry.iter().filter(|e| e.claims(path)).map(|e| e.name()).collect() };
-    for path in ["addons/sale/views/x.xml", "addons/sale/security/ir.model.access.csv"] {
+    for path in [
+        "addons/sale/views/x.xml",
+        "addons/sale/security/ir.model.access.csv",
+        "odoo/addons/base/data/res.country.state.csv",
+    ] {
         assert_eq!(claimants(path), ["data"], "{path}");
     }
     assert_eq!(claimants("addons/sale/static/src/x.xml"), ["owl"]);
@@ -487,6 +491,7 @@ const SALE_MENUS_17: &str = "68e3a920b7a7babd1e8b3d0ca89df6f61e19e30e";
 const SALE_ACCESS_17: &str = "58d8711886d59eff33d3fd4f4060aa25e215e5e4";
 const SALE_ACCESS_MASTER: &str = "6d3f3cb51004eb135bf380b4bde080f6c35aae68";
 const SALE_REPORT_12: &str = "9c9addca79b7c477d8a5c76e16ee6e8581125540";
+const COUNTRY_STATES_17: &str = "de12593a7e924b6809032a8dcdff90966a9a4e3d";
 
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]
@@ -591,11 +596,29 @@ fn real_sale_data_files() {
             .count(),
         2
     );
+
+    let states = read(COUNTRY_STATES_17);
+    let path = "odoo/addons/base/data/res.country.state.csv";
+    assert_eq!(states.iter().count(), 1749);
+    assert!(states.iter().all(|s| s.kind == "record"));
+    let nsw = find(&states, "record", "state_au_2");
+    assert_eq!(Data.qualify(path, nsw), "base.state_au_2@base");
+    let a = attrs(path, nsw);
+    assert_eq!(
+        (&a["record_model"], &a["name"], &a["declared"]),
+        (&json!("res.country.state"), &json!("New South Wales"), &json!("csv"))
+    );
 }
 
 /// Files whose warnings are right: enterprise 12.0's `mrp_account` access CSV has no header, so
-/// Odoo reads its first row as one.
-const KNOWN_WARNINGS: [&str; 1] = ["enterprise origin/12.0:mrp_account/security/ir.model.access.csv:"];
+/// Odoo reads its first row as one, `l10n_in`'s port codes leave commas in names unquoted, and
+/// 12.0's intrastat codes leave quotes inside quoted cells unescaped.
+const KNOWN_WARNINGS: [&str; 4] = [
+    "enterprise origin/12.0:mrp_account/security/ir.model.access.csv:",
+    "enterprise origin/12.0:account_intrastat/data/account.intrastat.code.csv:",
+    "odoo origin/17.0:addons/l10n_in/data/l10n_in.port.code.csv:",
+    "odoo origin/master:addons/l10n_in/data/l10n_in.port.code.csv:",
+];
 
 /// Every data file reads without a warning, and every spec has an `expr` or a `target`. An empty
 /// list of specs is legitimate: a template that only toggles with `active`, or a primary copy of
@@ -633,7 +656,14 @@ fn every_data_file_at_the_tips_reads_cleanly() {
             if !table.warnings().is_empty() {
                 warned.push(format!("{repo} {at}: {:?}", table.warnings()));
             }
+            let access_file = at.ends_with("/ir.model.access.csv") || at.ends_with("/ir.access.csv");
             for symbol in table.iter() {
+                assert_eq!(
+                    access_file,
+                    symbol.kind == "access" && at.ends_with(".csv"),
+                    "{repo} {at}: {}",
+                    symbol.name
+                );
                 *kinds.entry(symbol.kind.clone()).or_default() += 1;
                 let specs = symbol.attrs.get("specs").and_then(Value::as_array);
                 for spec in specs.into_iter().flatten() {
