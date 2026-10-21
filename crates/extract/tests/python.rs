@@ -30,6 +30,61 @@ fn fixtures_match_expected_output() {
     }
 }
 
+/// Every walk over the tree stays within a rayon worker's 2 MiB stack: a recursive one would
+/// overflow it at a few thousand levels in a debug build. Nested blocks repeat their depth as
+/// indentation on every line, so they stop at 2,000 levels, about 2 MB of source.
+#[test]
+fn deep_nesting_reads_within_a_worker_stack() {
+    let n = 20_000;
+    let deep = |open: &str, close: &str| format!("{}{}", open.repeat(n), close.repeat(n));
+    let model = |body: String| format!("class M(models.Model):\n    _name = 'demo.m'\n\n{body}\n");
+    let blocks = |indent: usize, head: &str| {
+        let depth = 2_000;
+        let src: String = (0..depth)
+            .map(|i| format!("{}{head}\n", " ".repeat(indent + i)))
+            .collect();
+        src + &" ".repeat(indent + depth) + "pass\n"
+    };
+    let sources = [
+        format!("A = {}", deep("[", "]")),
+        format!("A = {}1{}", "(".repeat(n), ")".repeat(n)),
+        format!("A = {}1{}", "{'a': ".repeat(n), "}".repeat(n)),
+        format!("a = {}1{}", "f(".repeat(n), ")".repeat(n)),
+        format!("a = x{}", ".b".repeat(n)),
+        format!("a = 1{}", " + 1".repeat(n)),
+        format!("a = {}1", "lambda: ".repeat(n)),
+        model(format!(
+            "    name = fields.Char(default={}1{})",
+            "f(".repeat(n),
+            ")".repeat(n)
+        )),
+        model(format!("    _sql_constraints = {}", deep("[", "]"))),
+        model(format!(
+            "    @api.depends({}1{})\n    def f(self):\n        return {}1",
+            "f(".repeat(n),
+            ")".repeat(n),
+            "lambda: ".repeat(n),
+        )),
+        model(format!("    def f(self):\n        return {}", deep("[", "]"))),
+        model(format!("    def f(self):\n{}", blocks(8, "def g():"))),
+        blocks(0, "def f():"),
+        blocks(0, "class A:"),
+        blocks(0, "if a:"),
+        "[".repeat(n),
+        "(".repeat(n),
+        "{".repeat(n),
+    ];
+    let tables = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || sources.map(|src| Python.extract(src.as_bytes()).map(|t| t.to_bytes().len())))
+        .unwrap()
+        .join()
+        .unwrap();
+    for table in tables {
+        assert!(table.is_ok());
+    }
+}
+
 fn extract(src: &str) -> SymbolTable {
     Python.extract(src.as_bytes()).unwrap()
 }

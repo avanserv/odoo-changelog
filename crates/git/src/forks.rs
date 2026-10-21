@@ -1,11 +1,11 @@
 //! Where each version branch left master.
 //!
 //! A version branch's first-parent chain runs back into master's first-parent chain at the
-//! fork. `git merge-base` is not usable: until 13.0 stable branches were merged forward into
-//! master, so the merge-base is the last merged stable commit. On a shallow clone the chain can
-//! stop before the fork; the community repo then falls back to master's `release.py`, which
-//! bumps `version_info` to the next series right after a fork. The fallback searches master's
-//! whole chain, so an old branch it resolves moves master's base back.
+//! fork. `git merge-base` is not usable: up to and including 13.0, stable branches were merged
+//! forward into master, so the merge-base is the last merged stable commit. On a shallow clone
+//! the chain can stop before the fork; the community repo then falls back to master's
+//! `release.py`, which bumps `version_info` to the next series right after a fork. The fallback
+//! searches master's whole chain, so an old branch it resolves moves master's base back.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
