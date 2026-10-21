@@ -1,6 +1,27 @@
 {
   "symbols": [
     {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.selection.STATES",
+      "line": 8,
+      "span": {
+        "start": 93,
+        "end": 99
+      },
+      "attrs": {
+        "value": [
+          [
+            "draft",
+            "Quotation"
+          ],
+          [
+            "sale",
+            "Sales Order"
+          ]
+        ]
+      }
+    },
+    {
       "kind": "field",
       "qualname": "demo.order#inline@demo",
       "line": 19,

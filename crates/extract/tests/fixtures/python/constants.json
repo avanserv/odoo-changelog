@@ -1,0 +1,280 @@
+{
+  "symbols": [
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.ACCOUNT_REGEX",
+      "line": 19,
+      "span": {
+        "start": 418,
+        "end": 431
+      },
+      "attrs": {
+        "value": {
+          "expr": "re.compile('^[0-9]+$')"
+        }
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.DELIMITER",
+      "line": 18,
+      "span": {
+        "start": 401,
+        "end": 410
+      },
+      "attrs": {
+        "augmented": [
+          {
+            "op": "+=",
+            "value": "|"
+          }
+        ],
+        "value": "||"
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.EMPTY",
+      "line": 28,
+      "span": {
+        "start": 617,
+        "end": 622
+      },
+      "attrs": {
+        "value": {
+          "expr": "object()"
+        }
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.HEIGHT",
+      "line": 24,
+      "span": {
+        "start": 547,
+        "end": 553
+      },
+      "attrs": {
+        "value": 1024
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.INVOICE_STATUS",
+      "line": 9,
+      "span": {
+        "start": 122,
+        "end": 136
+      },
+      "attrs": {
+        "value": [
+          [
+            "upselling",
+            "Upselling Opportunity"
+          ],
+          [
+            "invoiced",
+            "Fully Invoiced"
+          ],
+          [
+            "to invoice",
+            "To Invoice"
+          ],
+          [
+            "no",
+            "Nothing to Invoice"
+          ]
+        ]
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.LIMIT",
+      "line": 21,
+      "span": {
+        "start": 502,
+        "end": 507
+      },
+      "attrs": {
+        "value": 80
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.LOWER",
+      "line": 25,
+      "span": {
+        "start": 561,
+        "end": 566
+      },
+      "attrs": {
+        "value": 1
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.MAX_HASH_VERSION",
+      "line": 17,
+      "span": {
+        "start": 380,
+        "end": 396
+      },
+      "attrs": {
+        "value": 4
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.STRATEGY",
+      "line": 38,
+      "span": {
+        "start": 697,
+        "end": 705
+      },
+      "attrs": {
+        "value": "lifo"
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.TEMPLATE_KEYS",
+      "line": 20,
+      "span": {
+        "start": 458,
+        "end": 471
+      },
+      "attrs": {
+        "value": {
+          "expr": "frozenset({'name', 'code'})"
+        }
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.TYPE_MAP",
+      "line": 15,
+      "span": {
+        "start": 291,
+        "end": 299
+      },
+      "attrs": {
+        "value": {
+          "in_invoice": "in_refund",
+          "out_invoice": "out_refund"
+        }
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.UPPER",
+      "line": 25,
+      "span": {
+        "start": 568,
+        "end": 573
+      },
+      "attrs": {
+        "value": 2
+      }
+    },
+    {
+      "kind": "constant",
+      "qualname": "odoo.addons.demo.models.constants.WIDTH",
+      "line": 24,
+      "span": {
+        "start": 539,
+        "end": 544
+      },
+      "attrs": {
+        "value": 1024
+      }
+    },
+    {
+      "kind": "field",
+      "qualname": "demo.order#invoice_status@demo",
+      "line": 46,
+      "span": {
+        "start": 818,
+        "end": 832
+      },
+      "attrs": {
+        "args": {
+          "selection": {
+            "expr": "INVOICE_STATUS"
+          },
+          "string": "Invoice Status"
+        },
+        "type": "Selection"
+      }
+    },
+    {
+      "kind": "model",
+      "qualname": "demo.order@demo",
+      "line": 42,
+      "span": {
+        "start": 761,
+        "end": 771
+      },
+      "attrs": {
+        "_description": "Order",
+        "_name": "demo.order",
+        "bases": [
+          "models.Model"
+        ],
+        "class": "DemoOrder"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#invoice_status:invoiced@demo",
+      "line": 11,
+      "span": {
+        "start": 191,
+        "end": 199
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Fully Invoiced"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#invoice_status:no@demo",
+      "line": 13,
+      "span": {
+        "start": 261,
+        "end": 263
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Nothing to Invoice"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#invoice_status:to invoice@demo",
+      "line": 12,
+      "span": {
+        "start": 227,
+        "end": 237
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "To Invoice"
+      }
+    },
+    {
+      "kind": "selection",
+      "qualname": "demo.order#invoice_status:upselling@demo",
+      "line": 10,
+      "span": {
+        "start": 147,
+        "end": 156
+      },
+      "attrs": {
+        "declared": "selection",
+        "label": "Upselling Opportunity"
+      }
+    }
+  ],
+  "warnings": []
+}
