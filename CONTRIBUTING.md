@@ -49,6 +49,18 @@ diff, and bump the extractor's `version()`.
 Tests never read the real Odoo clones. A test that needs them is `#[ignore]` and says so. Nothing
 from the private `odoo/upgrade` repository is copied into a fixture: write fixtures by hand.
 
+## Documentation
+
+`README.md` says what the tool is, how to install and run it, and links to the rest. Everything
+else is a page under `docs/`: one for each command whose behaviour needs explaining, such as
+`docs/walk.md`, and one per extractor at
+`docs/extractors/<name>.md`, named after its `name()`. A new page gets a link from `README.md`, and
+an extractor's page one from `docs/extract.md` as well.
+
+A change to what a user of the binary or its database sees updates its page in the same pull
+request. A page past 200 lines of prose splits in two, and a measured figure such as a timing
+carries the date it was measured.
+
 ## Commits and pull requests
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org):
