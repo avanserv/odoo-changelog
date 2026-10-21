@@ -11,8 +11,10 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+blake3 = "1"
 clap = { version = "4", features = ["derive"] }
 gix = { version = "0.89", default-features = false, features = ["sha1", "revision", "max-performance-safe", "blob-diff", "index", "parallel"] }
+rayon = "1"
 regex = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -22,6 +24,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 odoo-changelog-core = { path = "crates/core" }
+odoo-changelog-extract = { path = "crates/extract" }
 odoo-changelog-git = { path = "crates/git" }
 odoo-changelog-store = { path = "crates/store" }
 

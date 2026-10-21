@@ -7,20 +7,7 @@ use odoo_changelog_store::{CommitRow, Store, VersionRow};
 use tracing::{info, warn};
 
 pub fn run(cfg: &Config, store: &Store, only: &[String]) -> Result<()> {
-    let unknown: Vec<&str> = only
-        .iter()
-        .filter(|n| !cfg.repos.iter().any(|r| &r.name == *n))
-        .map(String::as_str)
-        .collect();
-    if !unknown.is_empty() {
-        let known: Vec<&str> = cfg.repos.iter().map(|r| r.name.as_str()).collect();
-        anyhow::bail!(
-            "no repo named {} in the config; configured: {}",
-            unknown.join(", "),
-            known.join(", ")
-        );
-    }
-    for rc in cfg.repos.iter().filter(|r| only.is_empty() || only.contains(&r.name)) {
+    for rc in cfg.select_repos(only)? {
         let start = Instant::now();
         walk_repo(cfg, store, rc)?;
         info!("{}: walked in {:.1?}", rc.name, start.elapsed());

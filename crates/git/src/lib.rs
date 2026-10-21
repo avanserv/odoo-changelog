@@ -1,5 +1,7 @@
-//! Read-only access to an Odoo clone: version branches, fork points and commit walks.
+//! Read-only access to an Odoo clone: version branches, fork points, commit walks and the files
+//! each commit changed.
 
+mod diff;
 mod forks;
 
 use std::cmp::Reverse;
@@ -11,6 +13,7 @@ use gix::bstr::ByteSlice;
 use gix::revision::walk::Sorting;
 use odoo_changelog_core::Version;
 
+pub use diff::{FileChange, FileSide, SharedRepo, Worker};
 pub use forks::{Fork, ForkSource, resolve_forks};
 
 pub struct Repo {
