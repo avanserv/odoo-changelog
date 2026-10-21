@@ -50,6 +50,11 @@ pub trait Extractor: Send + Sync {
     fn qualify_attrs<'a>(&self, _path: &str, symbol: &'a Symbol) -> Cow<'a, BTreeMap<String, Value>> {
         Cow::Borrowed(&symbol.attrs)
     }
+    /// Whether a symbol found in the file at `path` counts there; uncached like `qualify`, for
+    /// files whose path limits what they declare.
+    fn keeps(&self, _path: &str, _symbol: &Symbol) -> bool {
+        true
+    }
 }
 
 /// Extractors in name order, which is the order their events are written in.

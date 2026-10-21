@@ -24,6 +24,7 @@ extractor takes 207 s with an empty cache and 45 s with a warm one (2026-10-21).
   assets.
 - [`data`](extractors/data.md): XML and CSV data files by xmlid, and views down to their named
   nodes.
-- [`js`](extractors/js.md): JavaScript modules, exports, components, registry entries and patches.
+- [`js`](extractors/js.md): JavaScript modules, exports, components, registry entries, patches
+  and mail models.
 - [`owl`](extractors/owl.md): client templates and their extensions.
 - [`scss`](extractors/scss.md): SCSS variables, mixins, functions and placeholders.

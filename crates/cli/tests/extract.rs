@@ -1046,6 +1046,7 @@ fn builtin_js_extractor_records_registry_events() {
         &[
             (field, THING_FIELD),
             ("addons/demo/static/tests/t.js", THING_FIELD),
+            ("addons/demo/static/tests/t_tests.js", THING_FIELD),
             ("addons/demo/static/lib/l.js", THING_FIELD),
         ],
         "[ADD] demo: thing field",
@@ -1095,17 +1096,20 @@ fn builtin_js_extractor_records_registry_events() {
         ops(&added),
         [
             row("added", "js_component", "@demo/fields/thing_field#ThingField"),
+            row("added", "js_export", "@demo/../tests/t#ThingField"),
+            row("added", "js_export", "@demo/../tests/t#thingField"),
             row("added", "js_export", "@demo/fields/thing_field#ThingField"),
             row("added", "js_export", "@demo/fields/thing_field#thingField"),
+            row("added", "js_module", "@demo/../tests/t"),
             row("added", "js_module", "@demo/fields/thing_field"),
             row("added", "js_registry", "fields:thing@demo"),
         ]
     );
-    let module = added.iter().find(|e| e.1 == "js_module").unwrap();
+    let module = added.iter().find(|e| e.2 == "@demo/fields/thing_field").unwrap();
     let imports = module.4.as_deref().unwrap();
     assert!(imports.contains(r#"{"ref":"@demo/fields/utils#helper"}"#), "{imports}");
     let elsewhere = "SELECT COUNT(*) FROM events WHERE path IN (?1, ?2)";
-    let unclaimed = ["addons/demo/static/tests/t.js", "addons/demo/static/lib/l.js"];
+    let unclaimed = ["addons/demo/static/tests/t_tests.js", "addons/demo/static/lib/l.js"];
     assert_eq!(count(&db, elsewhere, unclaimed), 0);
 
     assert_eq!(at("origin/master~4"), []);

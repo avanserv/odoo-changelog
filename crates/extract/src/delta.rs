@@ -79,11 +79,11 @@ pub fn delta(ex: &dyn Extractor, old: Option<(&str, &SymbolTable)>, new: Option<
 
 type Qualified<'a> = BTreeMap<(String, String), (&'a Symbol, Cow<'a, BTreeMap<String, Value>>)>;
 
-/// Keeps the first symbol when `qualify` gives two the same name.
+/// The symbols `keeps` lets through, keeping the first when `qualify` gives two the same name.
 fn qualified<'a>(ex: &dyn Extractor, side: Option<(&str, &'a SymbolTable)>) -> Qualified<'a> {
     let mut out = Qualified::new();
     if let Some((path, table)) = side {
-        for symbol in table.iter() {
+        for symbol in table.iter().filter(|s| ex.keeps(path, s)) {
             out.entry((symbol.kind.clone(), ex.qualify(path, symbol)))
                 .or_insert_with(|| (symbol, ex.qualify_attrs(path, symbol)));
         }
@@ -219,6 +219,38 @@ mod tests {
         assert_eq!(ops(&d), [("f", "moved")]);
         let removed = delta(&RefByDir, Some(("a/f.py", &t)), None);
         assert_eq!(removed[0].attrs_before.as_deref(), Some(r#"{"body":"x","ref":"a"}"#));
+    }
+
+    /// Keeps only `kept` under `t/`.
+    struct KeepsUnderT;
+
+    impl Extractor for KeepsUnderT {
+        fn name(&self) -> &'static str {
+            "keeps-under-t"
+        }
+        fn version(&self) -> u32 {
+            1
+        }
+        fn claims(&self, _: &str) -> bool {
+            true
+        }
+        fn extract(&self, _: &[u8]) -> anyhow::Result<SymbolTable> {
+            unreachable!("the tests build tables by hand")
+        }
+        fn keeps(&self, path: &str, symbol: &Symbol) -> bool {
+            !path.starts_with("t/") || symbol.name == "kept"
+        }
+    }
+
+    #[test]
+    fn keeps_filters_each_side_by_its_path() {
+        let t = table(&[("kept", 1, "x"), ("other", 2, "x")]);
+        let d = delta(&KeepsUnderT, Some(("s/f.js", &t)), Some(("t/f.js", &t)));
+        assert_eq!(ops(&d), [("kept", "moved"), ("other", "removed")]);
+        assert_eq!(
+            ops(&delta(&KeepsUnderT, None, Some(("t/f.js", &t)))),
+            [("kept", "added")]
+        );
     }
 
     #[test]

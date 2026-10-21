@@ -5,35 +5,49 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-/// The addon and the segments after `static/src` of `path`, when its first `static` segment is
-/// followed by `src`. Odoo would name a file under a second `static/src` after the last one, but
-/// such a file sits under another directory of `static`.
-fn static_src(path: &str) -> Option<(&str, Vec<&str>)> {
+/// The addon, `src` or `tests`, and the segments after it of `path`, when its first `static`
+/// segment is followed by one of those. Odoo would name a file under a second `static/src` after
+/// the last one, but such a file sits under another directory of `static`.
+fn static_dir(path: &str) -> Option<(&str, &str, Vec<&str>)> {
     let (addon, rest) = crate::path::static_file(path)?;
-    (rest.first() == Some(&"src")).then(|| (addon, rest[1..].to_vec()))
+    let (&dir, rest) = rest.split_first()?;
+    matches!(dir, "src" | "tests").then(|| (addon, dir, rest.to_vec()))
 }
 
-/// Web client sources Odoo serves from `static/src`; tests and third-party libraries under
-/// `static/tests` and `static/lib` are not claimed, nor test directories inside `static/src`.
+/// Web client sources Odoo serves from `static/src`, test directories inside it aside, and the
+/// files under `static/tests` that may be helpers tests import: tours, `*.test.js` and
+/// `*_tests.js` files are not, nor are third-party libraries under `static/lib`.
 pub(super) fn claims(path: &str) -> bool {
-    let Some((_, rest)) = static_src(path) else {
+    let Some((_, dir, rest)) = static_dir(path) else {
         return false;
     };
     let Some((file, dirs)) = rest.split_last() else {
         return false;
     };
-    file.ends_with(".js") && !file.ends_with(".test.js") && !dirs.iter().any(|d| matches!(*d, "tests" | "test"))
+    let test_dir = dirs.iter().any(|d| matches!(*d, "tests" | "test"));
+    file.ends_with(".js")
+        && !file.ends_with(".test.js")
+        && match dir {
+            "src" => !test_dir,
+            _ => !file.ends_with("_tests.js") && !dirs.contains(&"tours"),
+        }
 }
 
-/// The addon whose `static/src` holds the file.
+/// Whether the file sits under `static/tests`, where only modules and exports count: tests
+/// import helpers from there, while its registries and patches never ship.
+pub(super) fn is_test(path: &str) -> bool {
+    static_dir(path).is_some_and(|(_, dir, _)| dir == "tests")
+}
+
+/// The addon whose `static/src` or `static/tests` holds the file.
 pub(super) fn addon(path: &str) -> &str {
-    static_src(path).map_or("", |(addon, _)| addon)
+    static_dir(path).map_or("", |(addon, _, _)| addon)
 }
 
-/// The URL Odoo serves the file at, `/<addon>/static/src/<rest>`.
+/// The URL Odoo serves the file at, `/<addon>/static/<src or tests>/<rest>`.
 fn url(path: &str) -> Option<String> {
-    let (addon, rest) = static_src(path)?;
-    Some(format!("/{addon}/static/src/{}", rest.join("/")))
+    let (addon, dir, rest) = static_dir(path)?;
+    Some(format!("/{addon}/static/{dir}/{}", rest.join("/")))
 }
 
 /// The name Odoo defines the file's module under, such as `@web/core/registry`.
@@ -161,9 +175,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claims_static_src_js_only() {
+    fn claims_static_src_js_and_test_helpers() {
         for path in [
             "addons/web/static/src/core/registry.js",
+            "addons/web/static/tests/helpers/utils.js",
+            "addons/web/static/tests/web_test_helpers.js",
+            "addons/web/static/tests/legacy/helpers/test_utils.js",
+            "addons/mail/static/tests/helpers/test_utils.js",
             "odoo/addons/base/static/src/x.js",
             "web_studio/static/src/a/index.js",
             "addons/web/static/src/libs/fullcalendar.js",
@@ -173,6 +191,9 @@ mod tests {
         }
         for path in [
             "addons/web/static/tests/core/registry_tests.js",
+            "addons/web/static/tests/core/registry.test.js",
+            "addons/web/static/tests/helpers/x.xml",
+            "addons/sale/static/tests/tours/sale_tour.js",
             "addons/web/static/lib/jquery/jquery.js",
             "addons/web/static/src/core/registry.test.js",
             "addons/mail/static/src/components/thread/tests/thread_tests.js",
@@ -203,6 +224,14 @@ mod tests {
                 "@test_module/js/test",
             ),
             ("addons/sign/static/src/fields/ many2many/x.js", "@sign/fields/"),
+            (
+                "addons/web/static/tests/helpers/utils.js",
+                "@web/../tests/helpers/utils",
+            ),
+            (
+                "addons/web/static/tests/web_test_helpers.js",
+                "@web/../tests/web_test_helpers",
+            ),
         ] {
             assert_eq!(module_path(path), module, "{path}");
             assert_eq!(addon(path), module.trim_start_matches('@').split('/').next().unwrap());
