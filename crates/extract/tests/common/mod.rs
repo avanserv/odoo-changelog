@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use odoo_changelog_core::Config;
-use odoo_changelog_extract::{Extractor, Span, Symbol, SymbolTable};
+use odoo_changelog_extract::{Delta, Extractor, Python, Side, Span, Symbol, SymbolTable, delta};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -170,4 +170,46 @@ pub fn check(expected: &Path, actual: &str) {
         around(&want_lines),
         around(&actual_lines),
     );
+}
+
+/// The Python deltas of `commit` against its parent in the community clone, each file read on
+/// both sides it exists on, for the ignored tests that read it.
+pub fn python_deltas(commit: &str) -> Vec<Delta> {
+    let (_, clone) = clones().into_iter().find(|(name, _)| name == "odoo").unwrap();
+    let parent = format!("{commit}^");
+    let listing = git(
+        &clone,
+        &["diff-tree", "-r", "--no-renames", "--name-status", &parent, commit],
+    );
+    let changed: Vec<(String, String)> = String::from_utf8(listing)
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(status, path)| (status.to_string(), path.to_string()))
+        .filter(|(_, path)| Python.claims(path))
+        .collect();
+    let table = |rev: &str, path: &str| {
+        Python
+            .extract(&git(&clone, &["show", &format!("{rev}:{path}")]))
+            .unwrap()
+    };
+    let tables: Vec<(Option<SymbolTable>, Option<SymbolTable>)> = changed
+        .iter()
+        .map(|(status, path)| {
+            let old = (status != "A").then(|| table(&parent, path));
+            let new = (status != "D").then(|| table(commit, path));
+            (old, new)
+        })
+        .collect();
+    let files: Vec<(Side, Side)> = changed
+        .iter()
+        .zip(&tables)
+        .map(|((_, path), (old, new))| {
+            (
+                old.as_ref().map(|t| (path.as_str(), t)),
+                new.as_ref().map(|t| (path.as_str(), t)),
+            )
+        })
+        .collect();
+    delta(&Python, &files)
 }

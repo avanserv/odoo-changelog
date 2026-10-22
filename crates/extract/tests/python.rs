@@ -289,9 +289,8 @@ fn module_decides_model_scope_ids_and_the_file_python_scope_ones() {
         ops,
         [
             ("sale.order#foo@a", "moved"),
-            ("odoo.addons.a.models.order.helper", "added"),
+            ("odoo.addons.a.models.order.helper", "renamed"),
             ("sale.order@a", "moved"),
-            ("odoo.addons.a.models.sale.helper", "removed"),
         ]
     );
 }

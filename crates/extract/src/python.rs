@@ -14,7 +14,7 @@ use tree_sitter::{Node, Tree};
 
 use crate::path::module_of;
 use crate::syntax::{self, Visit, named, named_with_errors, statements, text};
-use crate::{Extractor, Span, Symbol, SymbolTable};
+use crate::{Extractor, Parent, Span, Symbol, SymbolTable};
 use body::body_hash;
 use value::{canonical, expr, plain_string, value};
 
@@ -72,6 +72,24 @@ impl Extractor for Python {
         match symbol.kind.as_str() {
             CLASS | FUNCTION | ROUTE | CONSTANT => format!("{}.{}", import_path(path), symbol.name),
             _ => format!("{}@{}", symbol.name, module_of(path).unwrap_or_default()),
+        }
+    }
+
+    /// A model's members belong to it, and a selection value to its field.
+    fn parent<'q>(&self, kind: &str, qualname: &'q str) -> Option<Parent<'q>> {
+        match kind {
+            FIELD | METHOD | CONSTRAINT => Parent::member(MODEL, qualname),
+            SELECTION => {
+                let model = Parent::member(MODEL, qualname)?;
+                let (field, value) = model.local.split_once(':')?;
+                let (head, module) = model.qualname.rsplit_once('@')?;
+                Some(Parent {
+                    kind: FIELD,
+                    qualname: format!("{head}#{field}@{module}"),
+                    local: value,
+                })
+            }
+            _ => None,
         }
     }
 }

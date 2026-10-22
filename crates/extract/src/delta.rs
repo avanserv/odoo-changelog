@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
+use crate::rename::{self, Item, Rename};
 use crate::{Extractor, Symbol, SymbolId, SymbolTable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +15,8 @@ pub enum Op {
     /// At another path than before: across a renamed file, or removed from one file and added to
     /// another under the same qualname once each side's `@<module>` suffix is stripped.
     Moved,
+    /// Removed under one qualname and added under another, paired by `rename::pairs`.
+    Renamed,
 }
 
 impl Op {
@@ -23,6 +26,7 @@ impl Op {
             Op::Removed => "removed",
             Op::Changed => "changed",
             Op::Moved => "moved",
+            Op::Renamed => "renamed",
         }
     }
 }
@@ -42,8 +46,9 @@ pub struct Delta {
     pub module: Option<String>,
     /// The new side's line, or the old side's for a removal.
     pub line: u32,
-    /// Where a moved symbol was.
+    /// Where a moved or renamed symbol was.
     pub old: Option<Origin>,
+    pub rename: Option<Rename>,
     /// Canonical JSON attrs: the whole side for an addition or a removal, and for a change or a
     /// move only the entries whose value differs, down into nested objects; both `None` for a
     /// move with equal attrs.
@@ -62,7 +67,8 @@ pub struct Origin {
 /// The changes one commit makes to the files one extractor reads, each an `(old, new)` pair, in
 /// `(path, kind, qualname)` order. Each side is qualified with its own path, attrs included, and
 /// compared after that. A symbol removed from one file and added to another is one move only when
-/// it is alone in this commit to leave and to enter under its kind and unscoped name.
+/// it is alone in this commit to leave and to enter under its kind and unscoped name. The removals
+/// and additions left are then paired into renames where the evidence is strong enough.
 pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
     let mut out = Vec::new();
     let (mut removed, mut added) = (Vec::new(), Vec::new());
@@ -71,7 +77,7 @@ pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
         for (key, after) in qualified(ex, new) {
             match before.remove_entry(&key) {
                 None => added.push((key, after)),
-                Some(b) if b.1.path != after.path => out.push(moved(ex, b, (key, after))),
+                Some(b) if b.1.path != after.path => out.push(relocated(ex, Op::Moved, b, (key, after))),
                 Some((_, b)) if b.attrs != after.attrs => {
                     let (attrs_before, attrs_after) = changed_keys(&b.attrs, &after.attrs);
                     out.push(event(ex, Op::Changed, key, &after, attrs_before, attrs_after, None));
@@ -110,7 +116,30 @@ pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
     let mut added: Vec<_> = added.into_iter().map(Some).collect();
     for (r, a) in pairs {
         let (r, a) = (removed[r].take(), added[a].take());
-        out.push(moved(ex, r.expect("paired once"), a.expect("paired once")));
+        out.push(relocated(
+            ex,
+            Op::Moved,
+            r.expect("paired once"),
+            a.expect("paired once"),
+        ));
+    }
+
+    let removed: Vec<_> = removed.into_iter().flatten().collect();
+    let added: Vec<_> = added.into_iter().flatten().collect();
+    let renames = {
+        let refs: Vec<(&str, &str)> = out
+            .iter()
+            .filter_map(|d| Some((d.attrs_before.as_deref()?, d.attrs_after.as_deref()?)))
+            .collect();
+        rename::pairs(ex, &items(&removed), &items(&added), &refs)
+    };
+    let mut removed: Vec<_> = removed.into_iter().map(Some).collect();
+    let mut added: Vec<_> = added.into_iter().map(Some).collect();
+    for (r, a, rename) in renames {
+        let (r, a) = (removed[r].take(), added[a].take());
+        let mut d = relocated(ex, Op::Renamed, r.expect("paired once"), a.expect("paired once"));
+        d.rename = Some(rename);
+        out.push(d);
     }
     for (key, f) in added.into_iter().flatten() {
         let attrs = Some(json(&f.attrs));
@@ -122,6 +151,17 @@ pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
     }
     out.sort_by(|a, b| (&a.path, &a.kind, &a.qualname).cmp(&(&b.path, &b.kind, &b.qualname)));
     out
+}
+
+fn items<'s>(side: &'s [(Key, Found)]) -> Vec<Item<'s>> {
+    side.iter()
+        .map(|((kind, qualname), f)| Item {
+            kind,
+            qualname,
+            path: f.path,
+            attrs: &f.attrs,
+        })
+        .collect()
 }
 
 /// A symbol on one side of one file, under its `(kind, qualname)`.
@@ -157,7 +197,7 @@ fn found<'a>(ex: &dyn Extractor, path: &'a str, symbol: &'a Symbol) -> Found<'a>
 }
 
 /// `qualname` without the `@<module>` that `qualify` appends for the file at `path`.
-fn unscoped<'q>(ex: &dyn Extractor, path: &str, qualname: &'q str) -> &'q str {
+pub(crate) fn unscoped<'q>(ex: &dyn Extractor, path: &str, qualname: &'q str) -> &'q str {
     let module = ex.module(path).unwrap_or_default();
     qualname
         .strip_suffix(module)
@@ -165,7 +205,8 @@ fn unscoped<'q>(ex: &dyn Extractor, path: &str, qualname: &'q str) -> &'q str {
         .unwrap_or(qualname)
 }
 
-fn moved(ex: &dyn Extractor, (old_key, before): (Key, Found), (key, after): (Key, Found)) -> Delta {
+/// A move or a rename: the symbol is at another path or under another qualname than before.
+fn relocated(ex: &dyn Extractor, op: Op, (old_key, before): (Key, Found), (key, after): (Key, Found)) -> Delta {
     let (attrs_before, attrs_after) = changed_keys(&before.attrs, &after.attrs);
     let origin = Origin {
         id: SymbolId::new(&old_key.0, &old_key.1),
@@ -173,7 +214,7 @@ fn moved(ex: &dyn Extractor, (old_key, before): (Key, Found), (key, after): (Key
         path: before.path.to_string(),
         module: ex.module(before.path).map(str::to_string),
     };
-    event(ex, Op::Moved, key, &after, attrs_before, attrs_after, Some(origin))
+    event(ex, op, key, &after, attrs_before, attrs_after, Some(origin))
 }
 
 fn event(
@@ -194,6 +235,7 @@ fn event(
         module: ex.module(at.path).map(str::to_string),
         line: at.line,
         old,
+        rename: None,
         attrs_before,
         attrs_after,
     }
@@ -327,14 +369,14 @@ mod tests {
     #[test]
     fn every_op() {
         let old = table(&[("gone", 1, "x"), ("kept", 2, "x"), ("edited", 3, "x")]);
-        let new = table(&[("kept", 9, "x"), ("edited", 3, "y"), ("fresh", 4, "x")]);
+        let new = table(&[("kept", 9, "x"), ("edited", 3, "y"), ("fresh", 4, "z")]);
         let d = one(&ByDir, Some(("a/f.py", &old)), Some(("a/f.py", &new)));
         assert_eq!(
             ops(&d),
             [("a:edited", "changed"), ("a:fresh", "added"), ("a:gone", "removed")]
         );
         assert_eq!(attrs(&d[0]), (Some(r#"{"body":"x"}"#), Some(r#"{"body":"y"}"#)));
-        assert_eq!(attrs(&d[1]), (None, Some(r#"{"body":"x"}"#)));
+        assert_eq!(attrs(&d[1]), (None, Some(r#"{"body":"z"}"#)));
         assert_eq!(attrs(&d[2]), (Some(r#"{"body":"x"}"#), None));
         assert_eq!(d[2].line, 1);
         assert_eq!(d[0].id, SymbolId::new("def", "a:edited"));

@@ -324,6 +324,14 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
     fx.git(&["checkout", "-q", "17.0"]);
     fx.merge("16.0", "[MERGE] forward port 16.0");
     fx.mv("addons/m17.0_0/models.py", "addons/m17.0_0/core.py", "[MOV] m17.0_0");
+    let thing = "class Thing(models.Model):\n    _name = 'x.thing'\n    _description = 'Thing'\n    name = fields.Char(required=True)\n    qty = fields.Integer()\n";
+    fx.commit_files(&[("addons/x/models/thing.py", thing)], "[ADD] x: thing");
+    fx.git(&["rm", "-q", "addons/x/models/thing.py"]);
+    let item = thing.replace("x.thing", "x.item").replace("Thing(", "Item(");
+    fx.commit_files(
+        &[("addons/x/models/item.py", &item)],
+        "[REF] x: rename x.thing to x.item",
+    );
     fx.git(&["checkout", "-q", "master"]);
     fx.git(&["mv", "addons/mmaster_0/models.py", "addons/mmaster_0/main.py"]);
     let edited = "def a: master 0\ndef b: same\ndef c: edited\n";
@@ -403,6 +411,20 @@ fn thread_count_does_not_change_the_database() {
     let moved = "SELECT COUNT(*) FROM events
         WHERE extractor = 'python' AND op = 'moved' AND old_module = 'sale_ext' AND module = 'sale_more'";
     assert_eq!(count(&db, moved, []), 1, "foo moved to sale_more once");
+    let renamed = "SELECT o.qualname || ' ' || s.qualname FROM events e JOIN symbols s ON s.id = e.symbol_id
+        JOIN symbols o ON o.id = e.old_symbol_id WHERE e.op = 'renamed' ORDER BY 1";
+    let conn = Connection::open(&db).unwrap();
+    let mut stmt = conn.prepare(renamed).unwrap();
+    let renamed: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+    assert_eq!(
+        renamed,
+        [
+            "sale.order#_prepare@sale_ext sale.order#_prepare_vals@sale_ext",
+            "x.thing#name@x x.item#name@x",
+            "x.thing#qty@x x.item#qty@x",
+            "x.thing@x x.item@x",
+        ]
+    );
     let modules = "SELECT COUNT(*) FROM events WHERE extractor = 'manifest' AND op = 'added'";
     assert_eq!(count(&db, modules, []), 9, "one module per [ADD] commit");
     let views = "SELECT COUNT(*) FROM events e JOIN symbols s ON s.id = e.symbol_id
@@ -680,18 +702,19 @@ fn incremental_range_equals_full() {
         ..options()
     };
     let (py, _) = defs("py", 1, "py");
-    extract(&incremental, vec![py], &to_16);
+    extract(&incremental, vec![py, Box::new(Python)], &to_16);
     let db = dir.join("incremental.db");
     let outside = "SELECT COUNT(*) FROM extracted e JOIN commits c ON c.sha = e.sha WHERE c.version != '16.0'";
     assert_eq!(count(&db, outside, []), 0);
     assert!(count(&db, "SELECT COUNT(*) FROM extracted", []) > 0);
     let (py, _) = defs("py", 1, "py");
-    extract(&incremental, vec![py], &options());
+    extract(&incremental, vec![py, Box::new(Python)], &options());
 
     let full = config(&dir, "full", &clone, "");
     walk(&full);
     let (py, _) = defs("py", 1, "py");
-    extract(&full, vec![py], &options());
+    extract(&full, vec![py, Box::new(Python)], &options());
+    assert!(count(&db, "SELECT COUNT(*) FROM events WHERE op = 'renamed'", []) > 0);
     assert_eq!(dump(&db), dump(&dir.join("full.db")));
 }
 
@@ -1257,17 +1280,17 @@ fn builtin_js_extractor_records_registry_events() {
     assert_eq!(
         ops(&renamed),
         [
-            row("added", "js_component", &format!("{new}#ThingField")),
-            row("removed", "js_component", &format!("{old}#ThingField")),
-            row("added", "js_export", &format!("{new}#ThingField")),
-            row("added", "js_export", &format!("{new}#thingField")),
-            row("removed", "js_export", &format!("{old}#ThingField")),
-            row("removed", "js_export", &format!("{old}#thingField")),
-            row("added", "js_module", new),
-            row("removed", "js_module", old),
+            row("renamed", "js_component", &format!("{new}#ThingField")),
+            row("renamed", "js_export", &format!("{new}#ThingField")),
+            row("renamed", "js_export", &format!("{new}#thingField")),
+            row("renamed", "js_module", new),
             row("moved", "js_registry", "fields:thing@demo"),
         ]
     );
+    // The module's name comes from its path; its members follow it.
+    let followed = "SELECT COUNT(*) FROM events e JOIN symbols o ON o.id = e.old_symbol_id
+                     WHERE e.op = 'renamed' AND e.signals = '[\"parent\"]' AND o.qualname LIKE ?1";
+    assert_eq!(count(&db, followed, [format!("{old}#%")]), 3);
 
     assert_eq!(
         ops(&at("origin/master~1")),

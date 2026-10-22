@@ -17,6 +17,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE repos DROP COLUMN path;",
     include_str!("extract.sql"),
     include_str!("moves.sql"),
+    include_str!("renames.sql"),
 ];
 
 pub struct Store {
@@ -356,6 +357,49 @@ mod tests {
         assert!(store.extract_candidates(7).unwrap()[0].done.is_empty());
     }
 
+    #[test]
+    fn migrates_v4_rebuilds_events_with_rename_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..4] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 4).unwrap();
+        conn.execute_batch(
+            "INSERT INTO repos (id, name, shallow) VALUES (7, 'odoo', 0);
+             INSERT INTO commits (repo_id, sha, branch, fp_idx, sub_idx, parents, is_merge,
+                author_name, author_email, authored_at, committed_at, subject, body, modules,
+                related_prs)
+             VALUES (7, 'abc', 'master', 0, 0, '[]', 0, 'a', 'a@x', 0, 0, 's', '', '[]', '[]');
+             INSERT INTO extractors (name, version) VALUES ('py', 1);
+             INSERT INTO symbols (id, kind, qualname) VALUES (x'01', 'def', 'f');
+             INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, line, attrs_after)
+             VALUES (7, 'abc', 'f.py', 'py', x'01', 'added', 1, '{}');
+             INSERT INTO extracted (repo_id, sha, extractor) VALUES (7, 'abc', 'py');
+             INSERT INTO blob_cache (blob_oid, extractor, extractor_version, symbols)
+             VALUES ('b1', 'py', 1, x'00');",
+        )
+        .unwrap();
+
+        let store = Store { conn };
+        store.migrate().unwrap();
+
+        for (table, n) in [
+            ("events", 0),
+            ("extracted", 0),
+            ("symbols", 0),
+            ("blob_cache", 1),
+            ("extractors", 1),
+        ] {
+            assert_eq!(count(&store, &format!("SELECT COUNT(*) FROM {table}")), n, "{table}");
+        }
+        let columns = count(
+            &store,
+            "SELECT COUNT(*) FROM pragma_table_info('events') WHERE name IN ('confidence', 'signals')",
+        );
+        assert_eq!(columns, 2);
+        assert!(store.extract_candidates(7).unwrap()[0].done.is_empty());
+    }
+
     fn count(store: &Store, sql: &str) -> i64 {
         store.conn.query_row(sql, [], |r| r.get(0)).unwrap()
     }
@@ -382,12 +426,14 @@ mod tests {
             )
             .unwrap();
         assert!(store.sync_extractors(&[("py", 1), ("xml", 1)]).unwrap().is_empty());
-        // The xml event is a move, whose old symbol outlives a purge of py too.
+        // The xml event is a rename, whose old symbol outlives a purge of py too.
+        let signals = ["type".to_string(), "refs".to_string()];
         let old = OldSide {
             symbol_id: &[3u8; 32],
             qualname: "xml-old",
             path: "g",
             module: None,
+            rename: Some((0.75, signals.as_slice())),
         };
         for (extractor, id, old) in [("py", [1u8; 32], None), ("xml", [2u8; 32], Some(old))] {
             store.insert_cached_blob("b1", extractor, 1, Some(b"[]"), None).unwrap();
@@ -401,7 +447,7 @@ mod tests {
                         symbol_id: &id,
                         kind: "def",
                         qualname: extractor,
-                        op: if old.is_some() { "moved" } else { "added" },
+                        op: if old.is_some() { "renamed" } else { "added" },
                         module: None,
                         line: 1,
                         attrs_before: None,
@@ -412,6 +458,14 @@ mod tests {
                 .unwrap();
             store.mark_extracted(repo_id, "abc", &[extractor]).unwrap();
         }
+
+        let rename: (f64, String) = store
+            .conn
+            .query_row("SELECT confidence, signals FROM events WHERE op = 'renamed'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(rename, (0.75, r#"["type","refs"]"#.to_string()));
 
         assert_eq!(store.sync_extractors(&[("py", 2), ("xml", 1)]).unwrap(), ["py"]);
         for table in ["events", "extracted", "blob_cache"] {

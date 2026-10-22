@@ -2,9 +2,9 @@
 
 `extract` diffs each walked commit against its parent and turns its changed files into symbol
 events, as [Events](#events) describes. Merge commits are skipped, so each event belongs to the
-commit that made the change. Renames are paired with git's default settings (50% similarity),
-whatever the clone's config says, and renames and moves are paired only among the files one
-extractor reads: an extractor's events never depend on which other extractors run. A symbol's id
+commit that made the change. File renames are paired with git's default settings (50%
+similarity), whatever the clone's config says, and file renames, moves and renames are paired only
+among the files one extractor reads: an extractor's events never depend on which other extractors run. A symbol's id
 is `blake3(kind, 0x00, qualname)`. Each blob is parsed
 once per extractor version: the result is cached under the blob id, the extractor's name and its
 version, and bumping the version re-extracts that extractor's commits only. `--from` and `--to`
@@ -27,13 +27,14 @@ Each row of `events` is one symbol in one commit, with its `op`:
 | `added`, `removed` | The symbol appears or disappears | The whole side that exists |
 | `changed` | Same file, attributes differ | The entries that differ |
 | `moved` | Another file than before | The entries that differ, both NULL when equal |
+| `renamed` | Another qualname than before, as [Renames](#renames) pairs it | The entries that differ, both NULL when equal |
 
 A symbol is `moved` when its file was renamed, or when the commit removes it from one file and
 adds it to another under the same qualname once each side's `@<module>` suffix is stripped:
 moving `sale.order#foo@sale` to `sale_management` gives one `moved` event for
 `sale.order#foo@sale_management`, not a removal and an addition. A move is paired only when no
 other symbol of that kind and unscoped name leaves or enters a file in the commit; otherwise the
-removals and additions stay. A renamed symbol is no move: its qualname differs.
+removals and additions stay. A symbol whose qualname changed is no move, but may be `renamed`.
 
 "The entries that differ" holds, on each side, the attributes whose value differs from the other
 side, down into nested objects; a key only one side has shows on that side only. Making a field
@@ -41,8 +42,9 @@ declared with a `string` required gives `{"args":{}}` before and `{"args":{"requ
 after.
 
 `path` and `module` are the new side's, or the old side's for a removal; `module` is NULL for a
-file outside any module. `old_symbol_id`, `old_path` and `old_module` say where a moved symbol
-was, and are NULL for every other op.
+file outside any module. `old_symbol_id`, `old_path` and `old_module` say where a moved or renamed
+symbol was, and are NULL for every other op. `confidence` and `signals` are a rename's, and NULL
+for every other op.
 
 A forward-ported commit records its original in `commits.original_sha`, so its events reach the
 original's through a join. The trailer may abbreviate the sha, and may name a commit the
@@ -54,6 +56,39 @@ SELECT o.* FROM events e
   JOIN events o ON o.repo_id = c.repo_id AND o.sha = c.original_sha
                AND o.extractor = e.extractor AND o.symbol_id = e.symbol_id
  WHERE e.sha = :sha;
+```
+
+## Renames
+
+The removals and additions a commit leaves once moves are paired are scored in pairs, and a pair
+scoring at least 0.6 becomes one `renamed` event. Pairs are only scored within a scope: members
+of the same parent (the fields, methods and constraints of one model, a field's selection values,
+a view's nodes, a JS module's exports, components and widgets), and any other symbol within its
+kind and module. Parents pair first, and the members of a renamed parent follow it by name with
+the parent's confidence: renaming `mail.channel` renames `mail.channel#name@mail` to
+`discuss.channel#name@mail` too.
+
+A pair's score is the share of attribute weight equal on both sides, an attribute counting as
+equal when it differs only by the old name written as the new one, as `_name` does. The `body`,
+`arch` and `values` hashes weigh 4, a boolean, number, empty value or one-character string 0.5,
+any other attribute 1, and an attribute both sides hold with different values counts double
+against the pair. A pair matching less than a weight of 4 scores in proportion, so two `Char`
+fields sharing only their type, or two view nodes sharing only `count` and `path`, are no rename.
+A parent averages that with the overlap of its members' names. Each change in the same
+commit and extractor that replaces a reference to the old name with the new one, such as a
+`comodel` moving to the renamed model, adds 0.1, up to 0.3, to a pair already scoring 0.4. Pairs are assigned one to one, best
+score first and the lowest symbol id on a tie. A scope with more than 100,000 possible pairs, such
+as a regenerated chart of accounts, is not scored. A symbol removed and added under one name is
+never a rename: the move pass decides it.
+
+`confidence` runs from 0.6 to 1 in steps of 0.001. `signals` is a JSON array of what matched: the
+top-level attributes equal on both sides, then `members`, `refs` and `parent` when they counted.
+
+```sql
+SELECT o.qualname, s.qualname, e.confidence, e.signals FROM events e
+  JOIN symbols s ON s.id = e.symbol_id
+  JOIN symbols o ON o.id = e.old_symbol_id
+ WHERE e.op = 'renamed' AND s.kind = 'model';
 ```
 
 ## Extractors

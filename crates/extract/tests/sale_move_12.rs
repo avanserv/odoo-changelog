@@ -4,51 +4,15 @@
 
 mod common;
 
-use common::{clones, git};
-use odoo_changelog_extract::{Extractor, Op, Python, Side, SymbolTable, delta};
+use common::python_deltas;
+use odoo_changelog_extract::Op;
 
 const COMMIT: &str = "34c47eecd30bdf66bc057bf285a51cff956cd0e8";
 
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]
 fn sale_management_fields_move_to_sale() {
-    let (_, clone) = clones().into_iter().find(|(name, _)| name == "odoo").unwrap();
-    let parent = format!("{COMMIT}^");
-    let listing = git(
-        &clone,
-        &["diff-tree", "-r", "--no-renames", "--name-status", &parent, COMMIT],
-    );
-    let changed: Vec<(String, String)> = String::from_utf8(listing)
-        .unwrap()
-        .lines()
-        .filter_map(|l| l.split_once('\t'))
-        .map(|(status, path)| (status.to_string(), path.to_string()))
-        .filter(|(_, path)| Python.claims(path))
-        .collect();
-    let table = |rev: &str, path: &str| {
-        Python
-            .extract(&git(&clone, &["show", &format!("{rev}:{path}")]))
-            .unwrap()
-    };
-    let tables: Vec<(Option<SymbolTable>, Option<SymbolTable>)> = changed
-        .iter()
-        .map(|(status, path)| {
-            let old = (status != "A").then(|| table(&parent, path));
-            let new = (status != "D").then(|| table(COMMIT, path));
-            (old, new)
-        })
-        .collect();
-    let files: Vec<(Side, Side)> = changed
-        .iter()
-        .zip(&tables)
-        .map(|((_, path), (old, new))| {
-            (
-                old.as_ref().map(|t| (path.as_str(), t)),
-                new.as_ref().map(|t| (path.as_str(), t)),
-            )
-        })
-        .collect();
-    let deltas = delta(&Python, &files);
+    let deltas = python_deltas(COMMIT);
 
     for name in ["require_signature", "require_payment"] {
         let of = |qualname: String| deltas.iter().filter(move |d| d.qualname == qualname);
