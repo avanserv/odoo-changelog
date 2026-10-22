@@ -5,9 +5,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow};
 use gix::ObjectId;
 use odoo_changelog_core::{Config, RepoConfig, Version};
+use odoo_changelog_extract::classify::{self, Event};
 use odoo_changelog_extract::{Delta, Extractor, Registry, SymbolTable, delta};
 use odoo_changelog_git::{FileChange, FileSide, Repo, SharedRepo};
-use odoo_changelog_store::{CachedBlob, EventRow, OldSide, Store};
+use odoo_changelog_store::{CachedBlob, ClassRow, EventRow, OldSide, Store};
 use rayon::prelude::*;
 use tracing::{debug, info, warn};
 
@@ -32,6 +33,7 @@ pub struct Timings {
     pub parse: Duration,
     pub cache: Duration,
     pub write: Duration,
+    pub classify: Duration,
 }
 
 #[derive(Default)]
@@ -67,9 +69,10 @@ struct Ctx<'a> {
 }
 
 /// Records the symbol events of every walked, non-merge commit that some extractor has not
-/// processed yet. Each commit is diffed against its only parent, and renames and moves are paired
-/// per extractor, so an extractor's events depend on the commit and that extractor alone, and an
-/// incremental run equals a full rebuild.
+/// processed yet, then classifies each commit every extractor has processed whose events changed
+/// since it was last classified. Each commit is diffed against its only parent, and renames and
+/// moves are paired per extractor, so an extractor's events depend on the commit and that
+/// extractor alone, and an incremental run equals a full rebuild.
 pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> Result<Timings> {
     let repos = cfg.select_repos(&opts.repos)?;
     let mut timings = Timings::default();
@@ -164,6 +167,57 @@ fn extract_repo(
             rc.name, counts.partial
         );
     }
+    classify_repo(&ctx, timings)
+}
+
+/// Classifies from the stored events, so a rule change re-reads no blob.
+fn classify_repo(ctx: &Ctx, timings: &mut Timings) -> Result<()> {
+    let start = Instant::now();
+    let commits = ctx
+        .store
+        .classify_candidates(ctx.repo_id, classify::VERSION, ctx.extractors.len())?;
+    for batch in commits.chunks(BATCH) {
+        ctx.store.in_transaction(|| {
+            for c in batch {
+                let stored = ctx.store.commit_events(ctx.repo_id, &c.sha)?;
+                let events: Vec<Event> = stored
+                    .iter()
+                    .map(|e| Event {
+                        kind: &e.kind,
+                        qualname: &e.qualname,
+                        op: &e.op,
+                        module: e.module.as_deref(),
+                        old_module: e.old_module.as_deref(),
+                        attrs_before: e.attrs_before.as_deref(),
+                        attrs_after: e.attrs_after.as_deref(),
+                    })
+                    .collect();
+                let (classes, commit) = classify::commit(c.tag.as_deref(), &events);
+                let rows: Vec<_> = stored
+                    .iter()
+                    .zip(&classes)
+                    .map(|(e, class)| {
+                        let row = ClassRow {
+                            category: Some(class.category.as_str()),
+                            breaking: class.breaking,
+                            rule_id: class.rule,
+                        };
+                        (e, row)
+                    })
+                    .collect();
+                let commit = ClassRow {
+                    category: commit.category.map(|c| c.as_str()),
+                    breaking: commit.breaking,
+                    rule_id: commit.rule,
+                };
+                ctx.store
+                    .set_classes(ctx.repo_id, &c.sha, classify::VERSION, &rows, commit)?;
+            }
+            Ok(())
+        })?;
+    }
+    info!("{}: {} commits classified", ctx.name, commits.len());
+    timings.classify += start.elapsed();
     Ok(())
 }
 

@@ -50,7 +50,8 @@ impl Store {
     }
 
     /// Drops the events, marks and stale cache rows of every stored extractor that `current`
-    /// lacks or has at another version, then records `current`. Returns the names it purged.
+    /// lacks or has at another version, and the classes they took part in, then records
+    /// `current`. Returns the names it purged.
     pub fn sync_extractors(&self, current: &[(&str, i64)]) -> Result<Vec<String>> {
         let stored: Vec<(String, i64)> = {
             let mut stmt = self
@@ -59,12 +60,16 @@ impl Store {
             let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect::<Result<_, _>>()?
         };
+        if current.iter().any(|(n, _)| !stored.iter().any(|(s, _)| s == n)) {
+            self.unclassify_all()?;
+        }
         let mut purged = Vec::new();
         for (name, version) in stored {
             let now = current.iter().find(|(n, _)| *n == name).map(|(_, v)| *v);
             if now == Some(version) {
                 continue;
             }
+            self.unclassify_extracted_by(&name)?;
             self.conn.execute("DELETE FROM events WHERE extractor = ?1", [&name])?;
             self.conn
                 .execute("DELETE FROM extracted WHERE extractor = ?1", [&name])?;
@@ -185,6 +190,7 @@ impl Store {
         Ok(())
     }
 
+    /// Clears the commit's classes, since its events may have changed.
     pub fn mark_extracted(&self, repo_id: i64, sha: &str, extractors: &[&str]) -> Result<()> {
         let mut stmt = self
             .conn
@@ -192,6 +198,6 @@ impl Store {
         for extractor in extractors {
             stmt.execute(params![repo_id, sha, extractor])?;
         }
-        Ok(())
+        self.unclassify_commit(repo_id, sha)
     }
 }

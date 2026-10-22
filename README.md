@@ -30,6 +30,8 @@ identical databases.
   [`python`](docs/extractors/python.md), [`manifest`](docs/extractors/manifest.md),
   [`data`](docs/extractors/data.md), [`js`](docs/extractors/js.md),
   [`owl`](docs/extractors/owl.md) and [`scss`](docs/extractors/scss.md) extractors.
+- [Classify](docs/classify.md): which changes are functional, technical or breaking, and the
+  rule that decided.
 
 ## Contributing
 

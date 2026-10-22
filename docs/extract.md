@@ -44,7 +44,8 @@ after.
 `path` and `module` are the new side's, or the old side's for a removal; `module` is NULL for a
 file outside any module. `old_symbol_id`, `old_path` and `old_module` say where a moved or renamed
 symbol was, and are NULL for every other op. `confidence` and `signals` are a rename's, and NULL
-for every other op.
+for every other op. `category`, `breaking` and `rule_id` say what the change means to a user and
+to custom code, as [Classify](classify.md) describes.
 
 A forward-ported commit records its original in `commits.original_sha`, so its events reach the
 original's through a join. The trailer may abbreviate the sha, and may name a commit the

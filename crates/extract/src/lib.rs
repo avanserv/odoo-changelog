@@ -1,8 +1,10 @@
-//! Turns one blob into symbols, and the symbol tables of a commit's changed files into symbol-level
-//! changes. Never sees git or SQLite: the CLI hands each extractor the bytes of the blobs it claims.
+//! Turns one blob into symbols, the symbol tables of a commit's changed files into symbol-level
+//! changes, and those changes into functional and technical ones. Never sees git or SQLite: the
+//! CLI hands each extractor the bytes of the blobs it claims.
 
 mod access_csv;
 mod bound;
+pub mod classify;
 mod data;
 mod data_csv;
 mod delta;

@@ -274,6 +274,36 @@ fn version_bump_invalidates_only_that_extractor() {
     assert_eq!(dump(&db), dump(&dir.join("fresh.db")));
 }
 
+#[test]
+fn reclassifying_reads_no_blob() {
+    let (dir, _fx, clone) = two_kinds("extract-reclassify");
+    let cfg = config(&dir, "reclassify", &clone, "");
+    walk(&cfg);
+    let db = dir.join("reclassify.db");
+    let (py, _) = defs("py", 1, "py");
+    let (xml, _) = defs("xml", 1, "xml");
+    extract(&cfg, vec![py, xml], &options());
+    let unclassified = "SELECT COUNT(*) FROM commits WHERE is_merge = 0 AND classified IS NULL";
+    assert_eq!(count(&db, unclassified, []), 0);
+    assert!(count(&db, "SELECT COUNT(*) FROM events WHERE rule_id IS NOT NULL", []) > 0);
+    let before = dump(&db);
+
+    // What a run under another classifier version finds.
+    Connection::open(&db)
+        .unwrap()
+        .execute_batch(
+            "UPDATE events SET category = NULL, breaking = NULL, rule_id = NULL;
+             UPDATE commits SET category = NULL, breaking = NULL, rule_id = NULL, classified = 0
+              WHERE is_merge = 0;",
+        )
+        .unwrap();
+    let (py, py_calls) = defs("py", 1, "py");
+    let (xml, xml_calls) = defs("xml", 1, "xml");
+    extract(&cfg, vec![py, xml], &options());
+    assert_eq!(total(&py_calls) + total(&xml_calls), 0);
+    assert_eq!(dump(&db), before);
+}
+
 /// About 30 commits across 16.0, 17.0 and master: forward-port merges, renames, deletions,
 /// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, a manifest per
 /// module for `Manifest`, a model file for `Python` that gains a field and renames a method, a
@@ -446,6 +476,20 @@ fn thread_count_does_not_change_the_database() {
     for kind in ["owl_template", "owl_node", "scss_variable"] {
         assert_eq!(count(&db, client, [kind]), 9, "{kind}: one per [ADD] commit");
     }
+    let unclassified = "SELECT COUNT(*) FROM events WHERE category IS NULL OR breaking IS NULL OR rule_id IS NULL";
+    assert_eq!(count(&db, unclassified, []), 0, "an event was not classified");
+    let breaking = "SELECT COUNT(*) FROM events WHERE breaking = 1 AND rule_id = ?1";
+    assert_eq!(count(&db, breaking, ["moved-module"]), 1, "foo left sale_ext");
+    assert_eq!(count(&db, breaking, ["renamed"]), 4);
+    let functional = "SELECT COUNT(*) FROM events WHERE category = 'functional' AND rule_id = ?1";
+    assert_eq!(count(&db, functional, ["module"]), 9);
+    assert_eq!(count(&db, functional, ["arch-node-visible"]), 18);
+    let unclassified = "SELECT COUNT(*) FROM commits WHERE is_merge = 0 AND classified IS NULL";
+    assert_eq!(
+        count(&db, unclassified, []),
+        0,
+        "an extracted commit was not classified"
+    );
     let failed = "SELECT COUNT(*) FROM blob_cache WHERE symbols IS NULL AND error = 'line 2: !broken'";
     assert_eq!(count(&db, failed, []), 1);
     let broken = rev_parse(&clone, "origin/master~4");
@@ -727,7 +771,7 @@ fn extract_command_prints_timings_and_checks_its_arguments() {
     let out = odoo_changelog(&cfg, &["extract", "--timings"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    for phase in ["setup", "diff", "parse", "cache", "write", "total"] {
+    for phase in ["setup", "diff", "parse", "cache", "write", "classify", "total"] {
         assert!(
             stdout.lines().any(|l| l.starts_with(phase)),
             "no {phase} line in {stdout}"
