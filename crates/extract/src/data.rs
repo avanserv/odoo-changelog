@@ -9,7 +9,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::path::module_of;
-use crate::{Extractor, Symbol, SymbolTable, data_csv, xml};
+use crate::{Extractor, Parent, Symbol, SymbolTable, data_csv, xml};
 
 pub(crate) const VIEW: &str = "view";
 pub(crate) const VIEW_NODE: &str = "view_node";
@@ -94,6 +94,14 @@ impl Extractor for Data {
         let hashed = symbol.kind == VIEW_NODE && id.starts_with('~');
         let id = xml_id(module, id).filter(|_| !hashed).unwrap_or_else(|| id.to_string());
         format!("{id}{rest}@{module}")
+    }
+
+    /// A view node belongs to its view.
+    fn parent<'q>(&self, kind: &str, qualname: &'q str) -> Option<Parent<'q>> {
+        match kind {
+            VIEW_NODE => Parent::member(VIEW, qualname),
+            _ => None,
+        }
     }
 
     /// The xmlids under `REF_KEYS`, with the file's module where they are written without one,

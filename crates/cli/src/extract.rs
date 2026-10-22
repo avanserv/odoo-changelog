@@ -320,6 +320,7 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
                 qualname: &o.qualname,
                 path: &o.path,
                 module: o.module.as_deref(),
+                rename: d.rename.as_ref().map(|r| (r.confidence, r.signals.as_slice())),
             }),
         })
         .collect();

@@ -19,7 +19,7 @@ use tree_sitter::Node;
 
 use crate::bound::{Budget, bounded};
 use crate::syntax::{self, Visit, Visitor, named, statements, text, visit};
-use crate::{Extractor, Span, Symbol, SymbolTable};
+use crate::{Extractor, Parent, Span, Symbol, SymbolTable};
 use hash::fn_hash;
 use path::{Header, qualify_ref};
 use scope::{Binding, Resolved, Scope, Shadowed, method_call, require};
@@ -103,6 +103,14 @@ impl Extractor for Js {
             PATCH => format!("{}@{addon}", qualify_ref(path, &symbol.name)),
             MAIL_MODEL => format!("{}@{addon}", symbol.name),
             _ => qualify_ref(path, &symbol.name).into_owned(),
+        }
+    }
+
+    /// Exports, components and widgets belong to the module that declares them.
+    fn parent<'q>(&self, kind: &str, qualname: &'q str) -> Option<Parent<'q>> {
+        match kind {
+            EXPORT | COMPONENT | WIDGET => Parent::member(MODULE, qualname),
+            _ => None,
         }
     }
 

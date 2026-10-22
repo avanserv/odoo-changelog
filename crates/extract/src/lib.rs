@@ -12,6 +12,7 @@ mod manifest;
 mod owl;
 mod path;
 mod python;
+mod rename;
 mod scss;
 mod symbol;
 mod syntax;
@@ -30,14 +31,15 @@ pub use manifest::Manifest;
 pub use owl::Owl;
 pub use path::module_of;
 pub use python::Python;
+pub use rename::{Parent, Rename};
 pub use scss::Scss;
 pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
 
 pub trait Extractor: Send + Sync {
     /// Stored in the database; never rename.
     fn name(&self) -> &'static str;
-    /// Bump on any change to what `extract`, `qualify`, `qualify_attrs` or `module` returns for
-    /// some input.
+    /// Bump on any change to what `extract`, `qualify`, `qualify_attrs`, `module` or `parent`
+    /// returns for some input.
     fn version(&self) -> u32;
     /// Decides from the path alone, before any blob is read.
     fn claims(&self, path: &str) -> bool;
@@ -56,6 +58,11 @@ pub trait Extractor: Send + Sync {
     /// a symbol moving between modules pairs with itself once the suffix is stripped.
     fn module<'a>(&self, path: &'a str) -> Option<&'a str> {
         module_of(path)
+    }
+    /// The symbol a member belongs to, such as a field's model, so that the members of a renamed
+    /// parent follow it; `None` for a symbol that belongs to none.
+    fn parent<'q>(&self, _kind: &str, _qualname: &'q str) -> Option<Parent<'q>> {
+        None
     }
     /// Whether a symbol found in the file at `path` counts there; uncached like `qualify`, for
     /// files whose path limits what they declare.
