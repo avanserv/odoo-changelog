@@ -70,7 +70,7 @@ impl Extractor for Js {
     /// Bump with any change to the output, including a tree-sitter or tree-sitter-javascript
     /// upgrade and changes to `syntax`.
     fn version(&self) -> u32 {
-        2
+        3
     }
 
     fn claims(&self, path: &str) -> bool {
@@ -1598,16 +1598,25 @@ fn block_names(node: Node, src: &[u8]) -> Vec<String> {
         _ => {}
     }
     let mut names = Vec::new();
-    while let Some(p) = patterns.pop() {
+    for p in patterns {
+        pattern_names(Some(p), src, &mut names);
+    }
+    names
+}
+
+/// The names a binding pattern binds, left to right, through object, array, rest and default
+/// patterns.
+fn pattern_names(pattern: Option<Node>, src: &[u8], out: &mut Vec<String>) {
+    let mut todo: Vec<Node> = pattern.into_iter().collect();
+    while let Some(p) = todo.pop() {
         match p.kind() {
-            "identifier" | "shorthand_property_identifier_pattern" => names.push(text(p, src).into_owned()),
-            "object_pattern" | "array_pattern" | "rest_pattern" => patterns.extend(named(p)),
-            "pair_pattern" => patterns.extend(p.child_by_field_name("value")),
-            "assignment_pattern" | "object_assignment_pattern" => patterns.extend(p.child_by_field_name("left")),
+            "identifier" | "shorthand_property_identifier_pattern" => out.push(text(p, src).into_owned()),
+            "object_pattern" | "array_pattern" | "rest_pattern" => todo.extend(named(p).into_iter().rev()),
+            "pair_pattern" => todo.extend(p.child_by_field_name("value")),
+            "assignment_pattern" | "object_assignment_pattern" => todo.extend(p.child_by_field_name("left")),
             _ => {}
         }
     }
-    names
 }
 
 #[cfg(test)]

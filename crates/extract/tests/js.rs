@@ -244,6 +244,12 @@ fn reformatting_gives_no_event() {
     assert_ne!(old, new);
     assert_eq!(delta(&Js, &[(Some((path, &old)), Some((path, &new)))]), []);
 
+    let locals = extract(&COMPONENT.replace(
+        "run(a, b) {\n        return [a, b];",
+        "run(x, y) {\n        return [x, y];",
+    ));
+    assert_eq!(delta(&Js, &[(Some((path, &old)), Some((path, &locals)))]), []);
+
     let edited = extract(&COMPONENT.replace("return [a, b];", "return [b, a];"));
     let changes = delta(&Js, &[(Some((path, &old)), Some((path, &edited)))]);
     let ops: Vec<(&str, &str, Op)> = changes

@@ -93,7 +93,7 @@
             "allowNew": true
           },
           "extractProps": {
-            "fn": "754fccb55aedbc1174b75c2f567f505c"
+            "fn": "b78166db26458bfbf64b2c3961e12376"
           }
         },
         "template": "demo.ThingField"
@@ -167,7 +167,7 @@
             "fn": "2a90c5ae3e93a636dc49be6475ce7c54"
           },
           "onCreate": {
-            "fn": "c9477263faad97452a21d8a1261e7301"
+            "fn": "660d8faa1fc8368c73f36c04998e8ce4"
           },
           "setup": {
             "fn": "7a24615687f7dd99be5fb6af631c89e4"

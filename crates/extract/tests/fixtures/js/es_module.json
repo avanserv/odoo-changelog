@@ -48,7 +48,7 @@
         "kind": "class",
         "members": {
           "add": {
-            "fn": "c1c6fa9cafb7f2656aaa57b5ad39cb70"
+            "fn": "8d98a2613c72f3d8740501187bb0420a"
           },
           "get size": {
             "fn": "d93e4e7a0e46db71500b6c3fbe4c82d6"
@@ -69,7 +69,7 @@
         "end": 268
       },
       "attrs": {
-        "body": "df7295096b524284e193357e43f75199",
+        "body": "81c597b2640405e001c6e1a8325b624d",
         "kind": "function",
         "params": [
           "a",
@@ -182,7 +182,7 @@
       },
       "attrs": {
         "async": true,
-        "body": "11450072ee62a50754f7e5a9fb0cd155",
+        "body": "f32df24893b3d1516f5b43df8c61b185",
         "generator": true,
         "kind": "function",
         "params": [
