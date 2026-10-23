@@ -1,5 +1,6 @@
 //! SQLite persistence. Writers take plain data so the store does not depend on git types.
 
+mod classify;
 mod extract;
 
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use anyhow::{Context, Result};
 use odoo_changelog_core::CommitMeta;
 use rusqlite::{Connection, OptionalExtension, params};
 
+pub use classify::{ClassRow, StoredEvent, Unclassified};
 pub use extract::{CachedBlob, EventRow, OldSide, PendingCommit};
 
 const MIGRATIONS: &[&str] = &[
@@ -18,6 +20,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("extract.sql"),
     include_str!("moves.sql"),
     include_str!("renames.sql"),
+    include_str!("classify.sql"),
 ];
 
 pub struct Store {
@@ -398,6 +401,146 @@ mod tests {
         );
         assert_eq!(columns, 2);
         assert!(store.extract_candidates(7).unwrap()[0].done.is_empty());
+    }
+
+    #[test]
+    fn migrates_v5_adds_class_columns_and_keeps_events() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..5] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 5).unwrap();
+        conn.execute_batch(
+            "INSERT INTO repos (id, name, shallow) VALUES (7, 'odoo', 0);
+             INSERT INTO commits (repo_id, sha, branch, fp_idx, sub_idx, parents, is_merge,
+                author_name, author_email, authored_at, committed_at, subject, body, modules,
+                related_prs)
+             VALUES (7, 'abc', 'master', 0, 0, '[]', 0, 'a', 'a@x', 0, 0, 's', '', '[]', '[]');
+             INSERT INTO symbols (id, kind, qualname) VALUES (x'01', 'def', 'f');
+             INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, line, attrs_after)
+             VALUES (7, 'abc', 'f.py', 'py', x'01', 'added', 1, '{}');
+             INSERT INTO extracted (repo_id, sha, extractor) VALUES (7, 'abc', 'py');",
+        )
+        .unwrap();
+
+        let store = Store { conn };
+        store.migrate().unwrap();
+
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM events WHERE category IS NULL"), 1);
+        let columns = "SELECT COUNT(*) FROM pragma_table_info(?1)
+                        WHERE name IN ('category', 'breaking', 'rule_id', 'classified')";
+        for (table, n) in [("events", 3), ("commits", 4)] {
+            let found: i64 = store.conn.query_row(columns, [table], |r| r.get(0)).unwrap();
+            assert_eq!(found, n, "{table}");
+        }
+        let unclassified = store.classify_candidates(7, 1, 1).unwrap();
+        assert_eq!(unclassified.len(), 1);
+    }
+
+    #[test]
+    fn classes_are_written_and_dropped_when_events_change() {
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        let repo_id = store.upsert_repo("odoo", false).unwrap();
+        let commit = CommitRow {
+            sha: "abc",
+            branch: "master",
+            fp_idx: 0,
+            sub_idx: 0,
+            parents: &[],
+            author_name: "a",
+            author_email: "a@x",
+            authored_at: 0,
+            committed_at: 0,
+            message: "[FIX] sale: x",
+        };
+        store.insert_commit(repo_id, &commit).unwrap();
+        store.sync_extractors(&[("py", 1), ("xml", 1)]).unwrap();
+        store
+            .insert_events(
+                repo_id,
+                &[EventRow {
+                    sha: "abc",
+                    path: "f",
+                    extractor: "py",
+                    symbol_id: &[1u8; 32],
+                    kind: "def",
+                    qualname: "f",
+                    op: "added",
+                    module: None,
+                    line: 1,
+                    attrs_before: None,
+                    attrs_after: Some("{}"),
+                    old: None,
+                }],
+            )
+            .unwrap();
+        store.mark_extracted(repo_id, "abc", &["py"]).unwrap();
+        assert!(
+            store.classify_candidates(repo_id, 1, 2).unwrap().is_empty(),
+            "xml is pending"
+        );
+        store.mark_extracted(repo_id, "abc", &["xml"]).unwrap();
+
+        let candidates = store.classify_candidates(repo_id, 1, 2).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].tag.as_deref(), Some("FIX"));
+        let events = store.commit_events(repo_id, "abc").unwrap();
+        assert_eq!((events[0].kind.as_str(), events[0].op.as_str()), ("def", "added"));
+        let class = |rule_id| ClassRow {
+            category: Some("technical"),
+            breaking: true,
+            rule_id,
+        };
+        store
+            .set_classes(
+                repo_id,
+                "abc",
+                1,
+                &[(&events[0], class("removed"))],
+                class("commit-majority"),
+            )
+            .unwrap();
+        assert!(store.classify_candidates(repo_id, 1, 2).unwrap().is_empty());
+        assert_eq!(
+            store.classify_candidates(repo_id, 2, 2).unwrap().len(),
+            1,
+            "a new version reclassifies"
+        );
+        let row = "SELECT category || ' ' || breaking || ' ' || rule_id FROM events";
+        let written: String = store.conn.query_row(row, [], |r| r.get(0)).unwrap();
+        assert_eq!(written, "technical 1 removed");
+
+        let classify = || {
+            store
+                .set_classes(
+                    repo_id,
+                    "abc",
+                    1,
+                    &[(&events[0], class("removed"))],
+                    class("commit-majority"),
+                )
+                .unwrap()
+        };
+        let cleared = |store: &Store| {
+            let commits = "SELECT COUNT(*) FROM commits
+                            WHERE category IS NULL AND breaking IS NULL AND rule_id IS NULL AND classified IS NULL";
+            let events = "SELECT COUNT(*) FROM events WHERE category IS NULL AND breaking IS NULL AND rule_id IS NULL";
+            count(store, commits) == 1 && count(store, events) == count(store, "SELECT COUNT(*) FROM events")
+        };
+
+        // A new extractor has processed no commit yet.
+        store.sync_extractors(&[("js", 1), ("py", 1), ("xml", 1)]).unwrap();
+        assert!(cleared(&store), "adding js left classes");
+        store.sync_extractors(&[("py", 1), ("xml", 1)]).unwrap();
+        classify();
+        // Purging xml leaves py's event, whose class was computed beside xml's.
+        store.sync_extractors(&[("py", 1), ("xml", 2)]).unwrap();
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM events"), 1);
+        assert!(cleared(&store), "purging xml left classes");
+        store.mark_extracted(repo_id, "abc", &["xml"]).unwrap();
+        classify();
+        store.mark_extracted(repo_id, "abc", &["js"]).unwrap();
+        assert!(cleared(&store), "a new mark left classes");
     }
 
     fn count(store: &Store, sql: &str) -> i64 {

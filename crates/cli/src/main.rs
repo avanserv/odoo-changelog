@@ -25,7 +25,8 @@ enum Command {
         #[arg(long)]
         repo: Vec<String>,
     },
-    /// Diff each recorded commit against its parent and record the symbols it changed.
+    /// Diff each recorded commit against its parent, record the symbols it changed and classify
+    /// the changes.
     Extract {
         /// Only these repos (by config name).
         #[arg(long)]
@@ -39,7 +40,7 @@ enum Command {
         /// Worker threads (default: one per core).
         #[arg(long)]
         threads: Option<NonZeroUsize>,
-        /// Print the time spent in setup, diffing, parsing, in the cache and writing.
+        /// Print the time spent in setup, diffing, parsing, in the cache, writing and classifying.
         #[arg(long)]
         timings: bool,
     },
@@ -85,7 +86,7 @@ fn version(name: &str) -> Result<Version> {
 }
 
 fn print_timings(t: &extract::Timings) {
-    let total = t.setup + t.diff + t.parse + t.cache + t.write;
+    let total = t.setup + t.diff + t.parse + t.cache + t.write + t.classify;
     println!("{:<8} {:>9}", "phase", "seconds");
     for (phase, spent) in [
         ("setup", t.setup),
@@ -93,6 +94,7 @@ fn print_timings(t: &extract::Timings) {
         ("parse", t.parse),
         ("cache", t.cache),
         ("write", t.write),
+        ("classify", t.classify),
         ("total", total),
     ] {
         println!("{:<8} {:>9.2}", phase, spent.as_secs_f64());
