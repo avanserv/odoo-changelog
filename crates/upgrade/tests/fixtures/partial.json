@@ -1,0 +1,62 @@
+[
+  {
+    "line": 7,
+    "col": 5,
+    "seq": 0,
+    "call": "remove_view",
+    "kind": "view",
+    "op": "removed",
+    "model": null,
+    "old": null,
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": true,
+    "source": "util.remove_view(cr, view_id=view_id)"
+  },
+  {
+    "line": 8,
+    "col": 5,
+    "seq": 0,
+    "call": "rename_field",
+    "kind": "field",
+    "op": "renamed",
+    "model": "shop.order",
+    "old": null,
+    "new": "partner_id",
+    "old_module": null,
+    "new_module": null,
+    "partial": true,
+    "source": "util.rename_field(cr, \"shop.order\", get_old(), \"partner_id\")"
+  },
+  {
+    "line": 10,
+    "col": 5,
+    "seq": 0,
+    "call": "rename_xmlid",
+    "kind": "xmlid",
+    "op": "renamed",
+    "model": null,
+    "old": null,
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": true,
+    "source": "util.rename_xmlid(cr, *renames.popitem())"
+  },
+  {
+    "line": 11,
+    "col": 5,
+    "seq": 0,
+    "call": "rename_xmlid",
+    "kind": "xmlid",
+    "op": "renamed",
+    "model": null,
+    "old": "shop.a",
+    "new": "shop.b",
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  }
+]

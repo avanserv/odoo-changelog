@@ -17,6 +17,7 @@ cp config/odoo-changelog.example.toml config/odoo-changelog.toml   # then edit t
 ./target/release/odoo-changelog walk --repo odoo
 ./target/release/odoo-changelog stats
 ./target/release/odoo-changelog extract --repo odoo --from 17.0 --to 18.0 --timings
+./target/release/odoo-changelog upgrade         # the [upgrade] clone's scripts
 ```
 
 `walk` is incremental and fails when a branch was rewritten or a fork moved since the last walk:
@@ -32,6 +33,7 @@ identical databases.
   [`owl`](docs/extractors/owl.md) and [`scss`](docs/extractors/scss.md) extractors.
 - [Classify](docs/classify.md): which changes are functional, technical or breaking, and the
   rule that decided.
+- [Upgrade](docs/upgrade.md): the renames, moves and removals Odoo's upgrade scripts declare.
 
 ## Contributing
 

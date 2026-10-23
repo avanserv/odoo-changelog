@@ -22,3 +22,7 @@ path = "/path/to/design-themes"
 # Pin a fork point when neither the first-parent chain nor release.py resolves it:
 # [fork_overrides.odoo]
 # "18.0" = "<sha of the last master commit shared with 18.0>"
+
+# The clone of odoo/upgrade that `odoo-changelog upgrade` reads, at <remote>/master.
+# [upgrade]
+# path = "/path/to/upgrade"

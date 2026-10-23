@@ -1491,6 +1491,7 @@ dependencies = [
  "odoo-changelog-extract",
  "odoo-changelog-git",
  "odoo-changelog-store",
+ "odoo-changelog-upgrade",
  "rayon",
  "rusqlite",
  "tracing",
@@ -1543,6 +1544,17 @@ dependencies = [
  "odoo-changelog-core",
  "rusqlite",
  "serde_json",
+]
+
+[[package]]
+name = "odoo-changelog-upgrade"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tree-sitter",
+ "tree-sitter-python",
 ]
 
 [[package]]

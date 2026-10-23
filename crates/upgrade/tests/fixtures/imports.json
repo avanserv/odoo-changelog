@@ -1,0 +1,62 @@
+[
+  {
+    "line": 7,
+    "col": 5,
+    "seq": 0,
+    "call": "remove_record",
+    "kind": "xmlid",
+    "op": "removed",
+    "model": null,
+    "old": "shop.rule_cart",
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  },
+  {
+    "line": 8,
+    "col": 5,
+    "seq": 0,
+    "call": "remove_view",
+    "kind": "view",
+    "op": "removed",
+    "model": null,
+    "old": "shop.view_cart_search",
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  },
+  {
+    "line": 9,
+    "col": 5,
+    "seq": 0,
+    "call": "remove_field",
+    "kind": "field",
+    "op": "removed",
+    "model": "shop.cart",
+    "old": "token",
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  },
+  {
+    "line": 10,
+    "col": 5,
+    "seq": 0,
+    "call": "remove_model",
+    "kind": "model",
+    "op": "removed",
+    "model": null,
+    "old": "shop.token",
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  }
+]

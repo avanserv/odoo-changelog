@@ -2,6 +2,7 @@
 
 mod classify;
 mod extract;
+mod upgrade;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -12,6 +13,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 pub use classify::{ClassRow, StoredEvent, Unclassified};
 pub use extract::{CachedBlob, EventRow, OldSide, PendingCommit, RenameRow};
+pub use upgrade::UpgradeEventRow;
 
 const MIGRATIONS: &[&str] = &[
     include_str!("schema.sql"),
@@ -23,6 +25,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("classify.sql"),
     include_str!("referrers.sql"),
     include_str!("similarity.sql"),
+    include_str!("upgrade.sql"),
 ];
 
 pub struct Store {

@@ -1,0 +1,62 @@
+[
+  {
+    "line": 8,
+    "col": 9,
+    "seq": 0,
+    "call": "rename_field",
+    "kind": "field",
+    "op": "renamed",
+    "model": "shop.order",
+    "old": "cust",
+    "new": "partner_id",
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  },
+  {
+    "line": 12,
+    "col": 9,
+    "seq": 0,
+    "call": "delete_model",
+    "kind": "model",
+    "op": "removed",
+    "model": null,
+    "old": "shop.a",
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  },
+  {
+    "line": 12,
+    "col": 9,
+    "seq": 1,
+    "call": "delete_model",
+    "kind": "model",
+    "op": "removed",
+    "model": null,
+    "old": "shop.b",
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  },
+  {
+    "line": 14,
+    "col": 9,
+    "seq": 0,
+    "call": "remove_record",
+    "kind": "xmlid",
+    "op": "removed",
+    "model": null,
+    "old": "shop.menu_old",
+    "new": null,
+    "old_module": null,
+    "new_module": null,
+    "partial": false,
+    "source": null
+  }
+]

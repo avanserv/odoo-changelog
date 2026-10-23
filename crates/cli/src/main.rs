@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
-use odoo_changelog::{extract, walk};
+use odoo_changelog::{extract, upgrade, walk};
 use odoo_changelog_core::{Config, Version};
 use odoo_changelog_extract::Registry;
 use odoo_changelog_store::Store;
@@ -44,6 +44,8 @@ enum Command {
         #[arg(long)]
         timings: bool,
     },
+    /// Read the renames, moves, merges and removals that the upgrade clone's scripts declare.
+    Upgrade,
     /// Commit counts per repo and version.
     Stats,
 }
@@ -77,6 +79,12 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Upgrade => {
+            if let Some(counts) = upgrade::run(&cfg, &store)? {
+                print_upgrade(&counts);
+            }
+            Ok(())
+        }
         Command::Stats => stats(&store),
     }
 }
@@ -98,6 +106,13 @@ fn print_timings(t: &extract::Timings) {
         ("total", total),
     ] {
         println!("{:<8} {:>9.2}", phase, spent.as_secs_f64());
+    }
+}
+
+fn print_upgrade(counts: &upgrade::Counts) {
+    println!("{:<22} {:>7} {:>7}", "call", "events", "partial");
+    for (call, (events, partial)) in counts {
+        println!("{call:<22} {events:>7} {partial:>7}");
     }
 }
 
