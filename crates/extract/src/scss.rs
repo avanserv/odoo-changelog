@@ -14,6 +14,7 @@ use serde_json::Value;
 use crate::bound::{Budget, ENVELOPE, bounded, json_len, warn_capped};
 use crate::hash::digest;
 use crate::path::{static_addon, static_file};
+use crate::sketch::Sketcher;
 use crate::{Extractor, Span, Symbol, SymbolTable};
 use scan::{Item, Kind, Lines, Token, Warnings};
 
@@ -45,7 +46,7 @@ impl Extractor for Scss {
 
     /// Bump with any change to the output.
     fn version(&self) -> u32 {
-        2
+        3
     }
 
     /// Every stylesheet an addon serves, vendored Bootstrap included: themes override its
@@ -594,7 +595,12 @@ impl Reader<'_> {
             );
         }
         let mut hasher = blake3::Hasher::new();
-        hasher.update(self.render(body).as_bytes());
+        hasher.update(self.render(body.clone()).as_bytes());
+        let mut sketcher = Sketcher::new();
+        for i in self.solid(body) {
+            let token = self.tokens[i];
+            sketcher.push(&String::from_utf8_lossy(&self.src[token.start..token.end]));
+        }
         let mut attrs = BTreeMap::from([("body".to_string(), Value::from(digest(&hasher)))]);
         if let Some(params) = def.params {
             attrs.insert("params".into(), params.into());
@@ -609,6 +615,7 @@ impl Reader<'_> {
             span: def.span,
             attrs,
             parts: None,
+            sketch: sketcher.finish(),
         };
         if self.budget.symbol(&symbol) {
             self.table.insert(symbol);
@@ -634,6 +641,7 @@ impl Reader<'_> {
                     span: variable.span,
                     attrs,
                     parts: None,
+                    sketch: None,
                 });
             }
         }
@@ -656,6 +664,7 @@ impl Reader<'_> {
             span: Span::default(),
             attrs,
             parts: None,
+            sketch: None,
         };
         if self.budget.symbol(&stylesheet) {
             self.table.insert(stylesheet);

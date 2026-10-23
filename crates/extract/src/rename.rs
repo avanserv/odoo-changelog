@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::delta::unscoped;
+use crate::sketch;
 use crate::{Extractor, SymbolId};
 
 /// Lowest confidence, in thousandths, at which a pair is recorded as a rename.
@@ -15,6 +16,8 @@ const EVIDENCE: f64 = 4.0;
 /// Attrs holding a hash of a definition's content, which say more than any other attr when equal.
 const HASHES: [&str; 3] = ["arch", "body", "values"];
 const HASH_WEIGHT: f64 = 4.0;
+/// Lowest similarity of two body sketches at which differing bodies count, in part, for a pair.
+const SIMILAR: f64 = 0.5;
 /// Booleans, numbers, empty values and one-character strings, which many unrelated symbols share.
 const TRIVIAL_WEIGHT: f64 = 0.5;
 /// How much more an attr both sides hold with different values counts against a pair than an
@@ -52,11 +55,14 @@ pub struct Rename {
     /// From 0.6 to 1, in steps of 0.001.
     pub confidence: f64,
     /// The top-level attrs equal once the old name reads as the new one, in name order, then
-    /// `members`, `refs` and `parent` when they counted.
+    /// `similar`, `members`, `refs` and `parent` when they counted.
     pub signals: Vec<String>,
     /// The qualnames whose change in the same commit replaced the old name with the new one,
     /// sorted.
     pub referrers: Vec<String>,
+    /// How alike the bodies' sketches are, in steps of 0.001, when the bodies differ and counted
+    /// as `similar`.
+    pub similarity: Option<f64>,
 }
 
 /// A symbol the commit changed or moved, whose attrs may name a renamed one.
@@ -66,12 +72,19 @@ pub(crate) struct Change<'a> {
     pub after: &'a str,
 }
 
+/// What a pair's score rests on: its signals and the similarity of its bodies.
+struct Evidence {
+    signals: Vec<String>,
+    similarity: Option<f64>,
+}
+
 /// A symbol a commit removed or added, which no move claimed.
 pub(crate) struct Item<'a> {
     pub kind: &'a str,
     pub qualname: &'a str,
     pub path: &'a str,
     pub attrs: &'a BTreeMap<String, Value>,
+    pub sketch: Option<&'a str>,
 }
 
 struct Node<'a> {
@@ -85,6 +98,7 @@ struct Node<'a> {
     depth: usize,
     /// `(top-level key, path below it, canonical JSON)` of each leaf of the attrs, in order.
     leaves: Vec<(&'a str, String, String)>,
+    sketch: Option<&'a str>,
 }
 
 /// The children of each parent, by `(kind, qualname)`, as `(kind, local)`.
@@ -139,7 +153,11 @@ pub(crate) fn pairs(
             if let Some(&j) = by_name.get(&(old[i].kind, *kind, to, old[i].local))
                 && !taken.new[j]
             {
-                taken.take(&old[i], &new[j], (i, j), milli, vec!["parent".into()]);
+                let evidence = Evidence {
+                    signals: vec!["parent".into()],
+                    similarity: None,
+                };
+                taken.take(&old[i], &new[j], (i, j), milli, evidence);
             }
         }
 
@@ -169,9 +187,9 @@ pub(crate) fn pairs(
             for &i in &olds {
                 // One name on both sides is a move the move pass found ambiguous, never a rename.
                 for &j in news.iter().filter(|&&j| new[j].unscoped != old[i].unscoped) {
-                    let (milli, signals) = score(&old[i], &new[j], &old_children, &new_children, refs);
+                    let (milli, evidence) = score(&old[i], &new[j], &old_children, &new_children, refs);
                     if milli >= THRESHOLD {
-                        candidates.push((milli, i, j, signals));
+                        candidates.push((milli, i, j, evidence));
                     }
                 }
             }
@@ -180,9 +198,9 @@ pub(crate) fn pairs(
                     .then(old[a.1].id.cmp(&old[b.1].id))
                     .then(new[a.2].id.cmp(&new[b.2].id))
             });
-            for (milli, i, j, signals) in candidates {
+            for (milli, i, j, evidence) in candidates {
                 if !taken.old[i] && !taken.new[j] {
-                    taken.take(&old[i], &new[j], (i, j), milli, signals);
+                    taken.take(&old[i], &new[j], (i, j), milli, evidence);
                 }
             }
         }
@@ -200,7 +218,7 @@ struct Taken<'n, 'r> {
 }
 
 impl<'n> Taken<'n, '_> {
-    fn take(&mut self, o: &Node<'n>, n: &Node<'n>, (i, j): (usize, usize), milli: u32, signals: Vec<String>) {
+    fn take(&mut self, o: &Node<'n>, n: &Node<'n>, (i, j): (usize, usize), milli: u32, evidence: Evidence) {
         self.old[i] = true;
         self.new[j] = true;
         self.renamed.insert((o.kind, o.qualname), (n.qualname, milli));
@@ -210,6 +228,7 @@ impl<'n> Taken<'n, '_> {
             .map(|c| c.qualname)
             .collect();
         let referrers = referrers.into_iter().map(String::from).collect();
+        let Evidence { signals, similarity } = evidence;
         self.out.push((
             i,
             j,
@@ -217,6 +236,7 @@ impl<'n> Taken<'n, '_> {
                 confidence,
                 signals,
                 referrers,
+                similarity,
             },
         ));
     }
@@ -249,6 +269,7 @@ fn node<'a>(ex: &dyn Extractor, item: &Item<'a>) -> Node<'a> {
         parent: parent.map(|p| (p.kind, p.qualname)),
         depth,
         leaves,
+        sketch: item.sketch,
     }
 }
 
@@ -274,8 +295,9 @@ fn children<'n>(nodes: &'n [Node]) -> Children<'n> {
 }
 
 /// The pair's confidence in thousandths, and its signals.
-fn score(o: &Node, n: &Node, old_children: &Children, new_children: &Children, refs: &[Change]) -> (u32, Vec<String>) {
-    let (mut score, mut signals) = attr_score(o, n);
+fn score(o: &Node, n: &Node, old_children: &Children, new_children: &Children, refs: &[Change]) -> (u32, Evidence) {
+    let (mut score, mut evidence) = attr_score(o, n);
+    let signals = &mut evidence.signals;
     let kids = (
         old_children.get(&(o.kind, o.qualname)),
         new_children.get(&(n.kind, n.qualname)),
@@ -299,13 +321,15 @@ fn score(o: &Node, n: &Node, old_children: &Children, new_children: &Children, r
             signals.push("refs".into());
         }
     }
-    (milli(score.min(1.0)), signals)
+    (milli(score.min(1.0)), evidence)
 }
 
 /// Matched weight over total weight, scaled down while the matched weight is below `EVIDENCE`,
-/// and the top-level keys whose every leaf matched.
-fn attr_score(o: &Node, n: &Node) -> (f64, Vec<String>) {
+/// and the top-level keys whose every leaf matched. Differing bodies whose sketches are at least
+/// `SIMILAR` alike match in proportion and give the signal `similar`.
+fn attr_score(o: &Node, n: &Node) -> (f64, Evidence) {
     let (mut matched, mut total) = (0.0, 0.0);
+    let mut similarity = None;
     let (mut keys, mut unequal) = (BTreeSet::new(), BTreeSet::new());
     let (mut a, mut b) = (o.leaves.iter().peekable(), n.leaves.iter().peekable());
     loop {
@@ -315,8 +339,19 @@ fn attr_score(o: &Node, n: &Node) -> (f64, Vec<String>) {
             (Some(x), Some(y)) if (x.0, &x.1) == (y.0, &y.1) => {
                 a.next();
                 b.next();
+                let alike = (o.sketch.zip(n.sketch))
+                    .filter(|_| x.0 == "body")
+                    .and_then(|(a, b)| sketch::similarity(a, b))
+                    .filter(|&s| s >= SIMILAR);
                 if x.2 == y.2 || replace(&x.2, o.local, n.local) == y.2 {
                     (x.0, weight(x.0, &x.2), true)
+                } else if let Some(s) = alike {
+                    similarity = Some(f64::from(milli(s)) / 1000.0);
+                    matched += HASH_WEIGHT * s;
+                    total += HASH_WEIGHT;
+                    unequal.insert(x.0);
+                    keys.insert(x.0);
+                    continue;
                 } else {
                     (x.0, CONFLICT * weight(x.0, &x.2), false)
                 }
@@ -347,7 +382,11 @@ fn attr_score(o: &Node, n: &Node) -> (f64, Vec<String>) {
     } else {
         matched / total * (matched / EVIDENCE).min(1.0)
     };
-    (score, keys.difference(&unequal).map(|k| k.to_string()).collect())
+    let mut signals: Vec<String> = keys.difference(&unequal).map(|k| k.to_string()).collect();
+    if similarity.is_some() {
+        signals.push("similar".into());
+    }
+    (score, Evidence { signals, similarity })
 }
 
 fn weight(top: &str, json: &str) -> f64 {
@@ -423,6 +462,7 @@ mod tests {
                 span: Span::default(),
                 attrs: attrs.clone().into_iter().collect(),
                 parts: None,
+                sketch: None,
             });
         }
         t

@@ -208,6 +208,7 @@ fn rekinded<'a>(
                 confidence: 1.0,
                 signals: vec!["kind".into()],
                 referrers: Vec::new(),
+                similarity: None,
             });
             out.push(d);
         }
@@ -225,6 +226,7 @@ fn items<'s>(side: &'s [(Key, Found)]) -> Vec<Item<'s>> {
             qualname,
             path: f.path,
             attrs: &f.attrs,
+            sketch: f.sketch.as_deref(),
         })
         .collect()
 }
@@ -234,6 +236,7 @@ struct Found<'a> {
     path: &'a str,
     line: u32,
     attrs: Cow<'a, BTreeMap<String, Value>>,
+    sketch: Option<Cow<'a, str>>,
 }
 
 type Key = (String, String);
@@ -268,6 +271,7 @@ fn qualified<'a>(ex: &dyn Extractor, side: Side<'a>) -> BTreeMap<Key, Found<'a>>
                         path,
                         line: merged.line,
                         attrs: Cow::Owned(ex.qualify_attrs(path, &merged).into_owned()),
+                        sketch: merged.sketch.map(Cow::Owned),
                     }
                 }
             };
@@ -281,6 +285,7 @@ fn found<'a>(ex: &dyn Extractor, path: &'a str, symbol: &'a Symbol) -> Found<'a>
         path,
         line: symbol.line,
         attrs: ex.qualify_attrs(path, symbol),
+        sketch: symbol.sketch.as_deref().map(Cow::Borrowed),
     }
 }
 
@@ -432,6 +437,7 @@ mod tests {
             },
             attrs: attrs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
             parts: None,
+            sketch: None,
         }
     }
 

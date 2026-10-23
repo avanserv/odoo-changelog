@@ -257,6 +257,7 @@ fn records(sheet: &Sheet, kind: &'static str, table: &mut SymbolTable, warnings:
             span: rows.span,
             attrs,
             parts: spellings.both(id).then_some(parts),
+            sketch: None,
         });
     }
 }

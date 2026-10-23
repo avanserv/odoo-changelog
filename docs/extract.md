@@ -44,8 +44,8 @@ after.
 `path` and `module` are the new side's, or the old side's for a removal; `module` is NULL for a
 file outside any module. `old_symbol_id`, `old_path` and `old_module` say where a moved or renamed
 symbol was, and are NULL for every other op; the `symbols` row of `old_symbol_id` holds the old
-kind. `confidence`, `signals` and `referrers` are a rename's, and NULL for every other op.
-`category`, `breaking` and `rule_id` say what the change means to a user and
+kind. `confidence`, `signals`, `referrers` and `similarity` are a rename's, and NULL for every
+other op. `category`, `breaking` and `rule_id` say what the change means to a user and
 to custom code, as [Classify](classify.md) describes.
 
 A forward-ported commit records its original in `commits.original_sha`, so its events reach the
@@ -76,7 +76,13 @@ equal when it differs only by the old name written as the new one, as `_name` do
 any other attribute 1, and an attribute both sides hold with different values counts double
 against the pair. A pair matching less than a weight of 4 scores in proportion, so two `Char`
 fields sharing only their type, or two view nodes sharing only `count` and `path`, are no rename.
-A parent averages that with the overlap of its members' names. Each change in the same
+Two `body` hashes that differ count, instead of against the pair, for the share of their weight
+that their bodies are alike: each Python def, JS function and SCSS mixin or function of at least
+eight shingles of three tokens carries a 32-slot b-bit MinHash sketch of its normalized tokens,
+cached with the symbol but never stored in an event, and two sketches estimating at least 0.5
+similarity give that share. A renamed method with one line of its body edited so pairs below an
+exact rename. The sketches take 107 MB of the 673 MB Python cache, 4 MB of 126 MB for JS, from
+17.0 to 18.0 (2026-10-23). A parent averages that with the overlap of its members' names. Each change in the same
 commit and extractor that replaces a reference to the old name with the new one, such as a
 `comodel` moving to the renamed model, adds 0.1, up to 0.3, to a pair already scoring 0.4. Pairs are assigned one to one, best
 score first and the lowest symbol id on a tie. A scope with more than 100,000 possible pairs, such
@@ -89,7 +95,8 @@ under that qualname: a `rule` re-declared as an `access`, as master's conversion
 does. No other kinds pair, since a view and a record can share an id without being one thing.
 
 `confidence` runs from 0.6 to 1 in steps of 0.001. `signals` is a JSON array of what matched: the
-top-level attributes equal on both sides, then `members`, `refs` and `parent` when they counted.
+top-level attributes equal on both sides, then `similar`, `members`, `refs` and `parent` when
+they counted. `similarity` is the estimate that made bodies count as `similar`, from 0.5 to 1.
 `referrers` is a JSON array of the qualnames whose change in the same commit and extractor
 replaced the old name with the new one, such as the templates whose `t-call` follows a renamed
 template, whatever the score; a symbol still naming the old one is not listed.

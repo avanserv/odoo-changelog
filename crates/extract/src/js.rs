@@ -20,7 +20,7 @@ use tree_sitter::Node;
 use crate::bound::{Budget, bounded};
 use crate::syntax::{self, Visit, Visitor, named, statements, text, visit};
 use crate::{Extractor, Parent, Span, Symbol, SymbolTable};
-use hash::fn_hash;
+use hash::fn_hash_sketched;
 use path::{Header, qualify_ref};
 use scope::{Binding, Resolved, Scope, Shadowed, method_call, require};
 use value::{canonical, is_empty_object, key_text, method_key, object, single, string_value, tagless, value};
@@ -70,7 +70,7 @@ impl Extractor for Js {
     /// Bump with any change to the output, including a tree-sitter or tree-sitter-javascript
     /// upgrade and changes to `syntax`.
     fn version(&self) -> u32 {
-        3
+        4
     }
 
     fn claims(&self, path: &str) -> bool {
@@ -200,6 +200,7 @@ fn symbol(kind: &str, name: String, at: Node, attrs: BTreeMap<String, Value>) ->
         span,
         attrs,
         parts: None,
+        sketch: None,
     }
 }
 
@@ -1190,16 +1191,18 @@ impl<'t> Reader<'t> {
         attrs
     }
 
-    fn function_attrs(&self, function: Node) -> BTreeMap<String, Value> {
+    /// A function's attrs and its body's sketch.
+    fn function_attrs(&self, function: Node) -> (BTreeMap<String, Value>, Option<String>) {
         let params = function
             .child_by_field_name("parameters")
             .map(named)
             .unwrap_or_default();
         let params = params.into_iter().map(|p| Value::from(canonical(p, self.src)));
+        let (body, sketch) = fn_hash_sketched(function, self.src);
         let mut attrs = BTreeMap::from([
             ("kind".to_string(), Value::from("function")),
             ("params".to_string(), Value::from_iter(params)),
-            ("body".to_string(), Value::from(fn_hash(function, self.src))),
+            ("body".to_string(), Value::from(body)),
         ]);
         if token(function, "async").is_some() {
             attrs.insert("async".into(), true.into());
@@ -1207,11 +1210,11 @@ impl<'t> Reader<'t> {
         if function.kind().starts_with("generator") || token(function, "*").is_some() {
             attrs.insert("generator".into(), true.into());
         }
-        attrs
+        (attrs, sketch)
     }
 
     /// The attrs of an export of the scope's `name`, read at `at`: its declaration's, or a
-    /// `value` for a name the scope does not declare.
+    /// `value` for a name the scope does not declare; and a function's sketch.
     fn exported(
         &self,
         name: &str,
@@ -1219,10 +1222,10 @@ impl<'t> Reader<'t> {
         scope: &Scope,
         decls: &Decls<'t>,
         components: &BTreeSet<String>,
-    ) -> BTreeMap<String, Value> {
-        match decls.by_name.get(name) {
+    ) -> (BTreeMap<String, Value>, Option<String>) {
+        let attrs = match decls.by_name.get(name) {
             Some(Decl::Class(i)) => self.class_attrs(&decls.classes[*i], scope, components.contains(name)),
-            Some(Decl::Function(f)) => self.function_attrs(*f),
+            Some(Decl::Function(f)) => return self.function_attrs(*f),
             Some(Decl::Var(_, Some(v))) if self.extend(*v).is_some() => {
                 BTreeMap::from([("kind".to_string(), Value::from("widget"))])
             }
@@ -1237,7 +1240,8 @@ impl<'t> Reader<'t> {
                 ("kind".to_string(), Value::from("value")),
                 ("value".to_string(), self.value(at, scope)),
             ]),
-        }
+        };
+        (attrs, None)
     }
 
     /// The `kind` an export of the scope's `name` takes.
@@ -1264,11 +1268,14 @@ impl<'t> Reader<'t> {
     ) {
         let name = self.text(local).into_owned();
         let declaration = scope.local(&name);
-        let mut attrs = match self.exports.get(&declaration) {
-            Some(first) => BTreeMap::from([
-                ("kind".to_string(), Value::from(self.kind_of(&name, decls))),
-                ("of".to_string(), single("ref", scope.local(first))),
-            ]),
+        let (mut attrs, sketch) = match self.exports.get(&declaration) {
+            Some(first) => {
+                let attrs = BTreeMap::from([
+                    ("kind".to_string(), Value::from(self.kind_of(&name, decls))),
+                    ("of".to_string(), single("ref", scope.local(first))),
+                ]);
+                (attrs, None)
+            }
             None => {
                 self.exports.insert(declaration, bounded(exported.to_string()));
                 self.exported(&name, local, scope, decls, components)
@@ -1277,7 +1284,8 @@ impl<'t> Reader<'t> {
         if name != exported {
             attrs.insert("local".into(), name.into());
         }
-        self.insert(symbol(EXPORT, scope.local(exported), at, attrs));
+        let symbol = symbol(EXPORT, scope.local(exported), at, attrs);
+        self.insert(Symbol { sketch, ..symbol });
     }
 
     fn es_exports(&mut self, scope: &Scope, decls: &Decls<'t>, components: &BTreeSet<String>, statements: &[Node<'t>]) {
@@ -1302,18 +1310,22 @@ impl<'t> Reader<'t> {
                 }
             } else if let Some(v) = statement.child_by_field_name("value") {
                 let at = default.unwrap_or(v);
-                let attrs = match v.kind() {
+                let (attrs, sketch) = match v.kind() {
                     "identifier" => {
                         self.export("default", v, at, scope, decls, components);
                         continue;
                     }
                     _ if is_function_kind(v.kind()) => self.function_attrs(v),
-                    _ => BTreeMap::from([
-                        ("kind".to_string(), Value::from("value")),
-                        ("value".to_string(), self.value(v, scope)),
-                    ]),
+                    _ => {
+                        let attrs = BTreeMap::from([
+                            ("kind".to_string(), Value::from("value")),
+                            ("value".to_string(), self.value(v, scope)),
+                        ]);
+                        (attrs, None)
+                    }
                 };
-                self.insert(symbol(EXPORT, scope.local("default"), at, attrs));
+                let symbol = symbol(EXPORT, scope.local("default"), at, attrs);
+                self.insert(Symbol { sketch, ..symbol });
             } else if let Some(source) = source {
                 for part in named(statement) {
                     match part.kind() {
@@ -1470,6 +1482,7 @@ impl<'t> Reader<'t> {
             },
             attrs,
             parts: None,
+            sketch: None,
         });
         let Some(alias) = header.and_then(|h| h.alias.map(|a| (a, h.default))) else {
             return;
@@ -1492,6 +1505,7 @@ impl<'t> Reader<'t> {
             },
             attrs,
             parts: None,
+            sketch: None,
         });
     }
 

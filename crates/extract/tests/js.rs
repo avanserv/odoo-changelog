@@ -797,3 +797,25 @@ fn every_claimed_js_file_at_the_tips_reads() {
     }
     assert!(read > 0);
 }
+
+#[test]
+fn a_renamed_function_with_an_edited_body_pairs_with_its_similarity() {
+    let path = "addons/demo/static/src/total.js";
+    let module = |name: &str, body: &str| format!("/** @odoo-module **/\nexport function {name}(lines) {{\n{body}}}\n");
+    let body = "    let total = 0;
+    for (const line of lines) {
+        if (line.product && line.qty > 0) {
+            total += line.price * line.qty;
+        }
+    }
+    return total;
+";
+    let old = extract(&module("computeTotal", body));
+    let new = extract(&module("computeAmount", &body.replace("line.price", "line.subtotal")));
+    let changes = delta(&Js, &[(Some((path, &old)), Some((path, &new)))]);
+    let renamed = changes.iter().find(|d| d.op == Op::Renamed).expect("a rename");
+    assert_eq!(renamed.qualname, "@demo/total#computeAmount");
+    let rename = renamed.rename.as_ref().unwrap();
+    assert!(rename.confidence < 1.0 && rename.confidence >= 0.6, "{rename:?}");
+    assert!(rename.similarity.is_some_and(|s| s >= 0.5), "{rename:?}");
+}

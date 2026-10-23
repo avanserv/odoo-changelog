@@ -66,6 +66,7 @@ impl Extractor for Manifest {
                     },
                     attrs,
                     parts: None,
+                    sketch: None,
                 });
             }
             None => warnings.push((0, "line 1: no manifest dictionary".into())),
@@ -189,6 +190,7 @@ mod tests {
             span: Span::default(),
             attrs: BTreeMap::new(),
             parts: None,
+            sketch: None,
         };
         for (path, module) in [
             ("addons/sale/__manifest__.py", "sale"),

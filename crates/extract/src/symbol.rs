@@ -23,6 +23,9 @@ pub struct Symbol {
     /// that another of the file may merge with, and never in an event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parts: Option<Parts>,
+    /// A sketch of a body's tokens, which renames compare when `body` differs; never in an event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sketch: Option<String>,
 }
 
 /// Each part of a hashed value by key: the line that last set it and the part's hash.
@@ -162,6 +165,7 @@ mod tests {
             },
             attrs: BTreeMap::from([("body".into(), Value::from(body))]),
             parts: None,
+            sketch: None,
         }
     }
 

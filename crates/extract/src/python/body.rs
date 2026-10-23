@@ -9,14 +9,17 @@ use tree_sitter::Node;
 use super::closes_single_tuple;
 use super::value::{delimiters, prefix};
 use crate::hash::digest;
+use crate::sketch::Sketcher;
 use crate::syntax::{Tokens, Visit, Visitor, named, text, visit};
 
-/// The first 16 bytes of blake3 over the body's tokens, each followed by a 0x00 byte, as hex.
-/// The whole def is one scope: a name bound anywhere in it, nested defs and lambdas included,
-/// reads as `$<n>` (parameters first, in signature order, then by first binding), and the def's
-/// own name reads as `$fn`, so that an override hashes alike under a new name.
-pub(super) fn body_hash(def: Node, src: &[u8]) -> String {
+/// The first 16 bytes of blake3 over the body's tokens, each followed by a 0x00 byte, as hex, and
+/// a sketch of the same tokens. The whole def is one scope: a name bound anywhere in it, nested
+/// defs and lambdas included, reads as `$<n>` (parameters first, in signature order, then by first
+/// binding), and the def's own name reads as `$fn`, so that an override hashes alike under a new
+/// name.
+pub(super) fn body_hash(def: Node, src: &[u8]) -> (String, Option<String>) {
     let mut hasher = blake3::Hasher::new();
+    let mut sketcher = Sketcher::new();
     if let Some(body) = def.child_by_field_name("body") {
         let own_name = def.child_by_field_name("name").map(|n| text(n, src));
         let docstring = named(body).first().copied().filter(|&s| is_docstring(s));
@@ -28,12 +31,13 @@ pub(super) fn body_hash(def: Node, src: &[u8]) -> String {
             tokens: Tokens::new(|token: &str| {
                 hasher.update(token.as_bytes());
                 hasher.update(&[0]);
+                sketcher.push(token);
             }),
         };
         visit(body, &mut walk);
         walk.tokens.finish();
     }
-    digest(&hasher)
+    (digest(&hasher), sketcher.finish())
 }
 
 fn is_docstring(statement: Node) -> bool {

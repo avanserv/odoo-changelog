@@ -62,6 +62,7 @@ impl Extractor for Defs {
                     span: Span::default(),
                     attrs: [("body".to_string(), body.into())].into(),
                     parts: None,
+                    sketch: None,
                 });
             }
         }
