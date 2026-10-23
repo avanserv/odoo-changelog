@@ -18,7 +18,7 @@
           "base.group_system",
           "demo.model_demo_order"
         ],
-        "values": "61c8021b12fbf46dc94521ddbfd8d70c"
+        "values": "5df21dba56c265f312d4c38e9a1fc51c"
       }
     },
     {
@@ -36,7 +36,7 @@
           "demo.group_demo_user"
         ],
         "res_model": "demo.order.line",
-        "values": "bcf292c6e59afe147334ae306da644f0"
+        "values": "651ac7abe79aa1bc309bce52c3e73304"
       }
     },
     {
@@ -56,7 +56,7 @@
         "references": [
           "demo.model_demo_order"
         ],
-        "values": "e2a5e69a37a7b3081f3ff31d464079f5"
+        "values": "e9ae8eee1244ddeedf63d37c944d2180"
       }
     },
     {
@@ -73,7 +73,7 @@
         "noupdate": true,
         "record_model": "ir.actions.act_window",
         "res_model": "demo.order",
-        "values": "86896191d0c64aca4f758263ccdccc4c"
+        "values": "75f666c6f7e8b8cb4cbbc8091d0dcf83"
       }
     },
     {
@@ -90,7 +90,7 @@
         "name": "Order",
         "noupdate": true,
         "record_model": "ir.actions.report",
-        "values": "614ac4a33bbeedf7265fc7f4b5615395"
+        "values": "4065c56a86b0d275c0385034e1048c6e"
       }
     },
     {
@@ -105,7 +105,7 @@
         "declared": "report",
         "model": "demo.order",
         "name": "Legacy order",
-        "values": "42e4017b9dc2cbc1634a431f2ec90352"
+        "values": "ee97a15d6e17595dccf426b00e88971e"
       }
     },
     {
@@ -135,7 +135,7 @@
         "references": [
           "demo.demo_order_1"
         ],
-        "values": "329a4257da3747f2a8a40dc5e4548c94"
+        "values": "70c71debfe2182780b5b738388eadb09"
       }
     },
     {
@@ -152,7 +152,7 @@
         "references": [
           "base.partner_admin"
         ],
-        "values": "64706de68834d6892e78c33fc808823b"
+        "values": "f801e56f906ae5c0097db71bbe006081"
       }
     },
     {
@@ -210,7 +210,7 @@
           "base.group_user",
           "base.module_category_demo"
         ],
-        "values": "20b6efb6d9e63254f1b4608d81fde064"
+        "values": "abb0b37dae731a8b8080d335586b214b"
       }
     },
     {
@@ -225,7 +225,7 @@
         "declared": "record",
         "name": "Demo company",
         "record_model": "res.company",
-        "values": "db1b8f2d60c65693875b3a1fb0f15148"
+        "values": "a412d176723cf27024623702a84fa514"
       }
     },
     {
@@ -239,7 +239,7 @@
       "attrs": {
         "declared": "asset",
         "name": "Demo backend",
-        "values": "363374226c3cc49f62fd6d472f5e3137"
+        "values": "81287d41ba702c8470e49995cc5dff34"
       }
     },
     {
@@ -258,7 +258,7 @@
         "references": [
           "demo.model_demo_order"
         ],
-        "values": "a57755ea118357dc33f366dca605c346"
+        "values": "75da03b3db58a3bd62104fb05d51995a"
       }
     },
     {
@@ -291,7 +291,7 @@
         "references": [
           "demo.model_demo_order"
         ],
-        "values": "4a1fd8ec214c951b9fda8fb2052df64e"
+        "values": "58ece9f3c2902abd6d71482659341844"
       }
     }
   ],

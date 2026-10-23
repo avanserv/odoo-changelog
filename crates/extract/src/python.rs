@@ -272,6 +272,7 @@ fn symbol(kind: &str, name: String, at: Node, attrs: BTreeMap<String, Value>) ->
         line,
         span,
         attrs,
+        parts: None,
     }
 }
 

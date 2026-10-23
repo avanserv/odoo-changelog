@@ -61,6 +61,7 @@ impl Extractor for Defs {
                     line: i as u32 + 1,
                     span: Span::default(),
                     attrs: [("body".to_string(), body.into())].into(),
+                    parts: None,
                 });
             }
         }

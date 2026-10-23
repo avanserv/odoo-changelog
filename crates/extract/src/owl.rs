@@ -228,6 +228,7 @@ impl Reader {
             line: at.line,
             span: at.span,
             attrs,
+            parts: None,
         };
         if self.budget.symbol_at(&symbol, symbol.line as usize) {
             self.decls.push(symbol);
@@ -264,6 +265,7 @@ impl Reader {
                 line: node.line,
                 span: node.span,
                 attrs,
+                parts: None,
             }
         });
         for symbol in self.decls.into_iter().chain(nodes) {

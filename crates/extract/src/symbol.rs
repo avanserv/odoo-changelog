@@ -19,7 +19,14 @@ pub struct Symbol {
     /// path (a manifest), for codemods; ignored by change detection like `line`.
     pub span: Span,
     pub attrs: BTreeMap<String, Value>,
+    /// What `attrs` hashes into `values`, part by part, for `Extractor::merge`; only on a symbol
+    /// that another of the file may merge with, and never in an event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Parts>,
 }
+
+/// Each part of a hashed value by key: the line that last set it and the part's hash.
+pub type Parts = BTreeMap<String, (u32, String)>;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
@@ -154,6 +161,7 @@ mod tests {
                 end: line + 1,
             },
             attrs: BTreeMap::from([("body".into(), Value::from(body))]),
+            parts: None,
         }
     }
 

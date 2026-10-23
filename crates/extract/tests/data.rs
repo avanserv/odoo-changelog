@@ -744,3 +744,70 @@ fn a_renamed_template_lists_the_callers_that_follow_it() {
     assert_eq!(renamed.qualname, "sale.crate@sale");
     assert_eq!(renamed.rename.as_ref().unwrap().referrers, ["sale.caller@sale"]);
 }
+
+/// The symbols of `src` at `path` as `delta` qualifies and merges them, by qualname.
+fn qualified(path: &str, src: &[u8]) -> BTreeMap<String, Value> {
+    let table = Data.extract(src).unwrap();
+    let changes = delta(&Data, &[(None, Some((path, &table)))]);
+    let attrs = |d: &odoo_changelog_extract::Delta| serde_json::from_str(d.attrs_after.as_deref().unwrap()).unwrap();
+    changes.iter().map(|d| (d.qualname.clone(), attrs(d))).collect()
+}
+
+#[test]
+fn an_id_written_bare_and_qualified_is_one_record_with_the_later_fields() {
+    let path = "addons/sale/data/x.xml";
+    let split = br#"<odoo>
+        <record id="x" model="res.partner">
+            <field name="name">First</field>
+            <field name="city">Ghent</field>
+        </record>
+        <record id="sale.x" model="res.partner">
+            <field name="name">Second</field>
+            <field name="zip">9000</field>
+        </record>
+        <record id="x" model="res.partner">
+            <field name="city">Bruges</field>
+        </record>
+    </odoo>"#;
+    let once = br#"<odoo>
+        <record id="sale.x" model="res.partner">
+            <field name="city">Bruges</field>
+            <field name="name">Second</field>
+            <field name="zip">9000</field>
+        </record>
+    </odoo>"#;
+    let merged = qualified(path, split);
+    assert_eq!(merged.keys().collect::<Vec<_>>(), ["sale.x@sale"]);
+    assert_eq!(merged, qualified(path, once));
+    assert_eq!(merged["sale.x@sale"]["name"], "Second");
+
+    let refs = br#"<odoo>
+        <record id="x" model="res.partner"><field name="country_id" ref="base.be"/></record>
+        <record id="sale.x" model="res.partner"><field name="state_id" ref="state_x"/></record>
+    </odoo>"#;
+    let joined = &qualified(path, refs)["sale.x@sale"]["references"];
+    assert_eq!(joined, &json!(["base.be", "sale.state_x"]));
+
+    let table = Data.extract(split).unwrap();
+    let (old, new) = (Data.extract(once).unwrap(), table);
+    assert_eq!(delta(&Data, &[(Some((path, &old)), Some((path, &new)))]), []);
+
+    // Another module's record of the same local name stays apart.
+    let other = br#"<odoo>
+        <record id="x" model="res.partner"><field name="name">Ours</field></record>
+        <record id="base.x" model="res.partner"><field name="name">Theirs</field></record>
+    </odoo>"#;
+    let apart = qualified(path, other);
+    assert_eq!(apart.keys().collect::<Vec<_>>(), ["base.x@sale", "sale.x@sale"]);
+    assert_eq!(apart["sale.x@sale"]["name"], "Ours");
+}
+
+#[test]
+fn a_csv_id_written_bare_and_qualified_is_one_record() {
+    let path = "addons/sale/data/res.partner.csv";
+    let split = b"id,name,city\nx,First,Ghent\nsale.x,Second,\n";
+    let once = b"id,name,city\nsale.x,Second,Ghent\n";
+    let merged = qualified(path, split);
+    assert_eq!(merged.keys().collect::<Vec<_>>(), ["sale.x@sale"]);
+    assert_eq!(merged, qualified(path, once));
+}

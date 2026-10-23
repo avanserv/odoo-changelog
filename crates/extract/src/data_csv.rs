@@ -9,12 +9,12 @@ use serde_json::Value;
 use crate::data::{RECORD, RULE};
 use crate::hash::digest;
 use crate::xml::refs::Refs;
-use crate::{Span, Symbol, SymbolTable, access_csv, xml};
+use crate::{Parts, Span, Symbol, SymbolTable, access_csv, xml};
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
-/// Marks a row continuing the record above in `values`, apart from the bytes `xml::feed_field`
-/// writes.
+/// Marks each row continuing the record above in its `#continued` part, apart from the bytes
+/// `xml::feed_field` writes.
 const CONTINUED: u8 = 0x08;
 
 /// Warnings come in line order.
@@ -167,26 +167,29 @@ impl<'b> Sheet<'b> {
     }
 }
 
-/// The rows of one id: its first row's position, its fields with later rows of the id winning,
-/// and the rows without an id that follow it.
+/// A non-empty cell but the id: its field, whether it is an xmlid, its text.
+type Cell<'s> = (&'s str, bool, &'s str);
+
+/// The rows of one id: its first row's position, its fields with later rows of the id winning and
+/// the line that set each, and the rows without an id that follow it, with their lines.
 struct Rows<'s> {
     line: u32,
     span: Span,
-    fields: BTreeMap<&'s str, (bool, &'s str)>,
-    continued: Vec<Vec<(&'s str, bool, &'s str)>>,
+    fields: BTreeMap<&'s str, (bool, &'s str, u32)>,
+    continued: Vec<(u32, Vec<Cell<'s>>)>,
 }
 
 /// Attrs as an XML record of the same fields has them: `name`, `model`, `res_model` and an
 /// xmlid `model_id` in clear, and `values` hashing every field as `<field name="x" ref="..."/>`
-/// or `<field name="x">...</field>` would. A row without an id continues the record above, as a
-/// chart template's repartition lines do, and is hashed after it.
+/// or `<field name="x">...</field>` would, part by part. A row without an id continues the record
+/// above, as a chart template's repartition lines do, and is hashed in the `#continued` part.
 fn records(sheet: &Sheet, kind: &'static str, table: &mut SymbolTable, warnings: &mut Warnings) {
     let mut by_id: BTreeMap<&str, Rows> = BTreeMap::new();
     let mut last: Option<&str> = None;
     for row in &sheet.rows {
         let Some(id) = sheet.id(row) else {
             match last.and_then(|id| by_id.get_mut(id)) {
-                Some(rows) => rows.continued.push(sheet.fields(row).collect()),
+                Some(rows) => rows.continued.push((row.line, sheet.fields(row).collect())),
                 None => warnings.push((row.line.into(), format!("line {}: row without id ignored", row.line))),
             }
             continue;
@@ -198,49 +201,62 @@ fn records(sheet: &Sheet, kind: &'static str, table: &mut SymbolTable, warnings:
             continued: Vec::new(),
         });
         rows.fields
-            .extend(sheet.fields(row).map(|(name, is_ref, v)| (name, (is_ref, v))));
+            .extend(sheet.fields(row).map(|(name, is_ref, v)| (name, (is_ref, v, row.line))));
         last = Some(id);
     }
-    for (id, rows) in by_id {
+    let mut spellings = xml::Spellings::default();
+    by_id.keys().for_each(|id| spellings.add(id));
+    for (id, rows) in &by_id {
         let mut attrs = BTreeMap::from([("declared".to_string(), Value::from("csv"))]);
         for key in ["name", "model", "res_model"] {
-            if let Some((_, v)) = rows.fields.get(key) {
+            if let Some((_, v, _)) = rows.fields.get(key) {
                 attrs.insert(key.into(), v.trim().into());
             }
         }
-        if let Some((true, v)) = rows.fields.get("model_id") {
+        if let Some((true, v, _)) = rows.fields.get("model_id") {
             attrs.insert("model_id".into(), (*v).into());
         }
-        let mut hasher = blake3::Hasher::new();
         let feed = |hasher: &mut blake3::Hasher, name: &str, is_ref: bool, v: &str| match is_ref {
             true => xml::feed_field(hasher, name, &[("ref", v)], ""),
             false => xml::feed_field(hasher, name, &[], v),
         };
-        for (name, (is_ref, v)) in &rows.fields {
+        let mut parts = Parts::new();
+        for (name, (is_ref, v, line)) in &rows.fields {
+            let mut hasher = blake3::Hasher::new();
             feed(&mut hasher, name, *is_ref, v);
+            parts.insert((*name).to_string(), (*line, digest(&hasher)));
         }
-        for row in &rows.continued {
-            hasher.update(&[CONTINUED]);
-            for (name, is_ref, v) in row {
-                feed(&mut hasher, name, *is_ref, v);
+        if let Some((line, _)) = rows.continued.last() {
+            let mut hasher = blake3::Hasher::new();
+            for (_, row) in &rows.continued {
+                hasher.update(&[CONTINUED]);
+                for (name, is_ref, v) in row {
+                    feed(&mut hasher, name, *is_ref, v);
+                }
             }
+            parts.insert("#continued".into(), (*line, digest(&hasher)));
         }
-        if !rows.fields.is_empty() || !rows.continued.is_empty() {
-            attrs.insert("values".into(), digest(&hasher).into());
+        if let Some(values) = xml::values_of(&parts) {
+            attrs.insert("values".into(), values);
         }
         let mut refs = Refs::default();
-        let cells = rows.fields.values().copied();
-        let continued = rows.continued.iter().flatten().map(|&(_, is_ref, v)| (is_ref, v));
+        let cells = rows.fields.values().map(|&(is_ref, v, _)| (is_ref, v));
+        let continued = rows
+            .continued
+            .iter()
+            .flat_map(|(_, row)| row)
+            .map(|&(_, is_ref, v)| (is_ref, v));
         for (_, v) in cells.chain(continued).filter(|(is_ref, _)| *is_ref) {
             refs.ids(v);
         }
         refs.put(&mut attrs);
         table.insert(Symbol {
             kind: kind.into(),
-            name: id.into(),
+            name: (*id).into(),
             line: rows.line,
             span: rows.span,
             attrs,
+            parts: spellings.both(id).then_some(parts),
         });
     }
 }

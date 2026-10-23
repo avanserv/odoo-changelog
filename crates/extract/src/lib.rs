@@ -35,7 +35,7 @@ pub use path::module_of;
 pub use python::Python;
 pub use rename::{Parent, Rename};
 pub use scss::Scss;
-pub use symbol::{Span, Symbol, SymbolId, SymbolTable};
+pub use symbol::{Parts, Span, Symbol, SymbolId, SymbolTable};
 
 pub trait Extractor: Send + Sync {
     /// Stored in the database; never rename.
@@ -70,6 +70,10 @@ pub trait Extractor: Send + Sync {
     /// files whose path limits what they declare.
     fn keeps(&self, _path: &str, _symbol: &Symbol) -> bool {
         true
+    }
+    /// One symbol of two that `qualify` names alike in one file, `a` before `b` in the table.
+    fn merge(&self, a: Symbol, _b: Symbol) -> Symbol {
+        a
     }
 }
 

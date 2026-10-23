@@ -12,7 +12,7 @@
         "declared": "csv",
         "name": "0%",
         "record_model": "account.tax",
-        "values": "f34ec510f7175d7be067e124bf3dcc00"
+        "values": "475e31b133736e6b50c88991859cb9ed"
       }
     },
     {
@@ -27,7 +27,7 @@
         "declared": "csv",
         "name": "21%",
         "record_model": "account.tax",
-        "values": "7956908a09314495dbe2010f5e049223"
+        "values": "5cbd599ca9c71b18ee39845c4510b80e"
       }
     }
   ],
