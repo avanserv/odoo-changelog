@@ -4,15 +4,15 @@
 
 mod common;
 
-use common::python_deltas;
-use odoo_changelog_extract::Op;
+use common::commit_deltas;
+use odoo_changelog_extract::{Op, Python};
 
 const COMMIT: &str = "34c47eecd30bdf66bc057bf285a51cff956cd0e8";
 
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]
 fn sale_management_fields_move_to_sale() {
-    let deltas = python_deltas(COMMIT);
+    let deltas = commit_deltas(&Python, COMMIT);
 
     for name in ["require_signature", "require_payment"] {
         let of = |qualname: String| deltas.iter().filter(move |d| d.qualname == qualname);

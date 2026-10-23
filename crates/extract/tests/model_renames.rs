@@ -4,8 +4,8 @@
 
 mod common;
 
-use common::python_deltas;
-use odoo_changelog_extract::{Delta, Op};
+use common::commit_deltas;
+use odoo_changelog_extract::{Delta, Op, Python};
 
 /// The rename of `old`, its new qualname and confidence.
 fn renamed<'d>(deltas: &'d [Delta], old: &str) -> (&'d str, f64) {
@@ -19,7 +19,7 @@ fn renamed<'d>(deltas: &'d [Delta], old: &str) -> (&'d str, f64) {
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]
 fn mail_channel_renamed_to_discuss_channel() {
-    let deltas = python_deltas("90cb44e1e1b6bad9c12f3bd14d1c9e340461e19e");
+    let deltas = commit_deltas(&Python, "90cb44e1e1b6bad9c12f3bd14d1c9e340461e19e");
     let (new, confidence) = renamed(&deltas, "mail.channel@mail");
     assert_eq!(new, "discuss.channel@mail");
     assert!(confidence >= 0.9, "{confidence}");
@@ -33,7 +33,7 @@ fn mail_channel_renamed_to_discuss_channel() {
 #[test]
 #[ignore = "reads the Odoo community clone in config/odoo-changelog.toml"]
 fn stock_production_lot_renamed_to_stock_lot() {
-    let deltas = python_deltas("6a23b9bcd6aea529eb339640e6231e1aa4c9e207");
+    let deltas = commit_deltas(&Python, "6a23b9bcd6aea529eb339640e6231e1aa4c9e207");
     let (new, confidence) = renamed(&deltas, "stock.production.lot@stock");
     assert_eq!(new, "stock.lot@stock");
     assert!(confidence >= 0.9, "{confidence}");

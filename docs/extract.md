@@ -27,7 +27,7 @@ Each row of `events` is one symbol in one commit, with its `op`:
 | `added`, `removed` | The symbol appears or disappears | The whole side that exists |
 | `changed` | Same file, attributes differ | The entries that differ |
 | `moved` | Another file than before | The entries that differ, both NULL when equal |
-| `renamed` | Another qualname than before, as [Renames](#renames) pairs it | The entries that differ, both NULL when equal |
+| `renamed` | Another qualname or kind than before, as [Renames](#renames) pairs it | The entries that differ, both NULL when equal |
 
 A symbol is `moved` when its file was renamed, or when the commit removes it from one file and
 adds it to another under the same qualname once each side's `@<module>` suffix is stripped:
@@ -43,8 +43,9 @@ after.
 
 `path` and `module` are the new side's, or the old side's for a removal; `module` is NULL for a
 file outside any module. `old_symbol_id`, `old_path` and `old_module` say where a moved or renamed
-symbol was, and are NULL for every other op. `confidence`, `signals` and `referrers` are a
-rename's, and NULL for every other op. `category`, `breaking` and `rule_id` say what the change means to a user and
+symbol was, and are NULL for every other op; the `symbols` row of `old_symbol_id` holds the old
+kind. `confidence`, `signals` and `referrers` are a rename's, and NULL for every other op.
+`category`, `breaking` and `rule_id` say what the change means to a user and
 to custom code, as [Classify](classify.md) describes.
 
 A forward-ported commit records its original in `commits.original_sha`, so its events reach the
@@ -81,6 +82,11 @@ commit and extractor that replaces a reference to the old name with the new one,
 score first and the lowest symbol id on a tie. A scope with more than 100,000 possible pairs, such
 as a regenerated chart of accounts, is not scored. A symbol removed and added under one name is
 never a rename: the move pass decides it.
+
+Before scoring, a removal and an addition under one qualname whose kind changed in a way the
+extractor declares pair as a rename with confidence 1 and the signal `kind`, when each is alone
+under that qualname: a `rule` re-declared as an `access`, as master's conversion to `ir.access`
+does. No other kinds pair, since a view and a record can share an id without being one thing.
 
 `confidence` runs from 0.6 to 1 in steps of 0.001. `signals` is a JSON array of what matched: the
 top-level attributes equal on both sides, then `members`, `refs` and `parent` when they counted.

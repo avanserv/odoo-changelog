@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use odoo_changelog_core::Config;
-use odoo_changelog_extract::{Delta, Extractor, Python, Side, Span, Symbol, SymbolTable, delta};
+use odoo_changelog_extract::{Delta, Extractor, Side, Span, Symbol, SymbolTable, delta};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -172,9 +172,9 @@ pub fn check(expected: &Path, actual: &str) {
     );
 }
 
-/// The Python deltas of `commit` against its parent in the community clone, each file read on
-/// both sides it exists on, for the ignored tests that read it.
-pub fn python_deltas(commit: &str) -> Vec<Delta> {
+/// The deltas `ex` gives for `commit` against its parent in the community clone, each file read
+/// on both sides it exists on, for the ignored tests that read it.
+pub fn commit_deltas(ex: &dyn Extractor, commit: &str) -> Vec<Delta> {
     let (_, clone) = clones().into_iter().find(|(name, _)| name == "odoo").unwrap();
     let parent = format!("{commit}^");
     let listing = git(
@@ -186,13 +186,9 @@ pub fn python_deltas(commit: &str) -> Vec<Delta> {
         .lines()
         .filter_map(|l| l.split_once('\t'))
         .map(|(status, path)| (status.to_string(), path.to_string()))
-        .filter(|(_, path)| Python.claims(path))
+        .filter(|(_, path)| ex.claims(path))
         .collect();
-    let table = |rev: &str, path: &str| {
-        Python
-            .extract(&git(&clone, &["show", &format!("{rev}:{path}")]))
-            .unwrap()
-    };
+    let table = |rev: &str, path: &str| ex.extract(&git(&clone, &["show", &format!("{rev}:{path}")])).unwrap();
     let tables: Vec<(Option<SymbolTable>, Option<SymbolTable>)> = changed
         .iter()
         .map(|(status, path)| {
@@ -211,5 +207,5 @@ pub fn python_deltas(commit: &str) -> Vec<Delta> {
             )
         })
         .collect();
-    delta(&Python, &files)
+    delta(ex, &files)
 }

@@ -371,6 +371,7 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
             attrs_after: d.attrs_after.as_deref(),
             old: d.old.as_ref().map(|o| OldSide {
                 symbol_id: o.id.as_bytes(),
+                kind: &o.kind,
                 qualname: &o.qualname,
                 path: &o.path,
                 module: o.module.as_deref(),
