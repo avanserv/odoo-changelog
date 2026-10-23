@@ -33,3 +33,17 @@ fn check(expected: &Path, actual: &str) {
         expected.display()
     );
 }
+
+/// The evaluation budget holds per loop run, so a long loop resolves to its last run.
+#[test]
+fn long_loops_resolve_every_run() {
+    let names: Vec<String> = (0..9000).map(|i| format!("'f{i}'")).collect();
+    let script = format!(
+        "from odoo.upgrade import util\nP = 'shop'\nQ = P + '.order'\n\n\ndef migrate(cr, version):\n    for m in [{}]:\n        util.rename_field(cr, f'{{Q}}', f'{{m}}_a', f'{{m}}_b')\n",
+        names.join(", ")
+    );
+    let events = odoo_changelog_upgrade::parse(script.as_bytes()).unwrap();
+    assert_eq!(events.len(), 9000);
+    assert!(events.iter().all(|e| !e.partial));
+    assert_eq!(events[8999].new.as_deref(), Some("f8999_b"));
+}

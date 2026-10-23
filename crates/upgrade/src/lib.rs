@@ -239,7 +239,8 @@ fn call_events<'t>(file: &eval::File<'t, '_>, call: Node<'t>, spec: &Spec) -> Ve
                 if names.is_empty() {
                     return None;
                 }
-                let value = names.iter().find_map(|n| args.get(*n)).and_then(|v| v.clone());
+                // The first alternative that resolves, so `xml_id=None` leaves `key` to name the view.
+                let value = names.iter().filter_map(|n| args.get(*n)).find_map(|v| v.clone());
                 partial |= value.is_none();
                 value
             };

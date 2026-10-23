@@ -27,35 +27,31 @@ pub fn run(cfg: &Config, store: &Store) -> Result<Option<Counts>> {
         info!("upgrade: {sha} already read");
         return Ok(None);
     }
-    let scripts: Vec<(String, _)> = repo
+    let blobs = repo
         .blobs_under(head, "migrations")?
-        .ok_or_else(|| anyhow!("upgrade: no migrations/ at {sha}"))?
-        .into_iter()
-        .filter(|(path, _)| script(path).is_some())
+        .ok_or_else(|| anyhow!("upgrade: no migrations/ at {sha}"))?;
+    let scripts: Vec<(&str, Script, _)> = blobs
+        .iter()
+        .filter_map(|(path, oid)| Some((path.as_str(), script(path)?, *oid)))
         .collect();
     let shared = repo.shared();
-    let parsed: Vec<(String, Vec<Event>)> = scripts
-        .into_par_iter()
+    let parsed: Vec<Vec<Event>> = scripts
+        .par_iter()
         .map_init(
             || shared.worker(),
-            |worker, (path, oid)| {
-                let events = worker
-                    .read_blob(oid)
+            |worker, (path, _, oid)| {
+                worker
+                    .read_blob(*oid)
                     .and_then(|blob| odoo_changelog_upgrade::parse(&blob))
-                    .with_context(|| path.clone())?;
-                Ok((path, events))
+                    .with_context(|| path.to_string())
             },
         )
         .collect::<Result<_>>()?;
 
-    let located: Vec<(&str, Script, &[Event])> = parsed
-        .iter()
-        .filter_map(|(path, events)| Some((path.as_str(), script(path)?, events.as_slice())))
-        .collect();
     let mut counts = Counts::new();
     let mut rows = Vec::new();
-    for (path, s, events) in &located {
-        for e in *events {
+    for ((path, s, _), events) in scripts.iter().zip(&parsed) {
+        for e in events {
             let count = counts.entry(e.call).or_default();
             count.0 += 1;
             count.1 += usize::from(e.partial);
@@ -82,6 +78,6 @@ pub fn run(cfg: &Config, store: &Store) -> Result<Option<Counts>> {
         }
     }
     store.in_transaction(|| store.replace_upgrade(&sha, VERSION.into(), &rows))?;
-    info!("upgrade: {} events from {} scripts at {sha}", rows.len(), parsed.len());
+    info!("upgrade: {} events from {} scripts at {sha}", rows.len(), scripts.len());
     Ok(Some(counts))
 }

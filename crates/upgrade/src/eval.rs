@@ -199,7 +199,6 @@ impl<'t, 's> File<'t, 's> {
         else {
             return vec![BTreeMap::new()];
         };
-        self.steps.set(0);
         let args: Vec<Node> = named(arguments);
         let function = enclosing_scope(call);
         let loops = self.loops_around(call);
@@ -230,7 +229,12 @@ impl<'t, 's> File<'t, 's> {
                 }
             }
         }
-        envs.iter()
+        let shadowed = self.shadowed(&loops);
+        for env in &mut envs {
+            env.retain(|name, _| !shadowed.contains(name));
+        }
+        let mut runs: Vec<_> = envs
+            .iter()
             .map(|env| {
                 self.bind_once(
                     &args,
@@ -242,10 +246,38 @@ impl<'t, 's> File<'t, 's> {
                     },
                 )
             })
-            .collect()
+            .collect();
+        // Runs that all lost the same arguments say nothing apart: keep one.
+        if runs.windows(2).all(|w| w[0] == w[1]) && runs.first().is_some_and(|r| r.values().any(Option::is_none)) {
+            runs.truncate(1);
+        }
+        runs
+    }
+
+    /// The names a loop around the call binds that another loop in its body binds again, which
+    /// leaves their value at the call unknown.
+    fn shadowed(&self, loops: &[Node<'t>]) -> HashSet<String> {
+        let mut out = HashSet::new();
+        for &l in loops {
+            let targets = self.targets(l);
+            let mut todo: Vec<Node> = l.child_by_field_name("body").into_iter().collect();
+            while let Some(n) = todo.pop() {
+                match n.kind() {
+                    "function_definition" | "class_definition" | "lambda" => continue,
+                    "for_statement" if !loops.contains(&n) => {
+                        out.extend(self.targets(n).into_iter().filter(|t| targets.contains(t)));
+                    }
+                    _ => {}
+                }
+                let mut cursor = n.walk();
+                todo.extend(n.named_children(&mut cursor));
+            }
+        }
+        out
     }
 
     fn bind_once(&self, args: &[Node<'t>], params: &[&str], scope: &Scope<'_, 't>) -> BTreeMap<String, Option<String>> {
+        self.steps.set(0);
         let mut positional: Vec<Option<Val>> = Vec::new();
         // After a splat that does not resolve, positions are unknown.
         let mut lost = false;
@@ -343,6 +375,7 @@ impl<'t, 's> File<'t, 's> {
                 loop_names,
                 function,
             };
+            self.steps.set(0);
             let items = self.eval(right, &scope, 0)?.items()?;
             for item in items {
                 let mut next = env.clone();
@@ -459,6 +492,64 @@ impl<'t, 's> File<'t, 's> {
         false
     }
 
+    /// The names `node` changes in place or declares `global`, nested definitions included.
+    fn writes_in(&self, node: Node) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut todo = vec![node];
+        while let Some(n) = todo.pop() {
+            match n.kind() {
+                "global_statement" => out.extend(self.identifiers(n)),
+                "assignment" | "augmented_assignment" => {
+                    if let Some(left) = n.child_by_field_name("left").filter(|l| l.kind() != "identifier") {
+                        out.extend(self.root_name(left));
+                    }
+                }
+                "delete_statement" => out.extend(self.deleted(n)),
+                "call" => out.extend(self.mutated(n)),
+                _ => {}
+            }
+            let mut cursor = n.walk();
+            todo.extend(n.named_children(&mut cursor));
+        }
+        out
+    }
+
+    fn deleted(&self, delete_statement: Node) -> Vec<String> {
+        let mut out = Vec::new();
+        for target in named(delete_statement) {
+            match target.kind() {
+                "expression_list" => out.extend(named(target).into_iter().filter_map(|t| self.root_name(t))),
+                _ => out.extend(self.root_name(target)),
+            }
+        }
+        out
+    }
+
+    /// The object a call to a mutating method changes: `xs` for `xs.append(x)`.
+    fn mutated(&self, call: Node) -> Option<String> {
+        let callee = call
+            .child_by_field_name("function")
+            .filter(|f| f.kind() == "attribute")?;
+        let method = callee.child_by_field_name("attribute")?;
+        if !MUTATORS.contains(&self.text(method).as_ref()) {
+            return None;
+        }
+        self.root_name(callee.child_by_field_name("object")?)
+    }
+
+    fn identifiers(&self, node: Node) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut todo = vec![node];
+        while let Some(n) = todo.pop() {
+            if n.kind() == "identifier" {
+                out.push(self.text(n).into_owned());
+            }
+            let mut cursor = n.walk();
+            todo.extend(n.named_children(&mut cursor));
+        }
+        out
+    }
+
     /// The variable a subscript or attribute target hangs from: `d` for `d[k].x`.
     fn root_name(&self, node: Node) -> Option<String> {
         match node.kind() {
@@ -508,6 +599,14 @@ impl<'t, 's> File<'t, 's> {
                             .or_default()
                             .push(Binding::Other);
                     }
+                    // A helper that changes a module name in place or through `global` leaves
+                    // its literal value stale. A local of the same name counts too, which only
+                    // costs a partial event.
+                    if scope.kind() == "module" {
+                        for name in self.writes_in(n) {
+                            found.entry(name).or_default().push(Binding::Other);
+                        }
+                    }
                     continue;
                 }
                 "lambda"
@@ -537,32 +636,16 @@ impl<'t, 's> File<'t, 's> {
                     binding = Binding::Loop;
                 }
                 "named_expression" => names.extend(n.child_by_field_name("name").and_then(|t| self.root_name(t))),
-                "delete_statement" => {
-                    for target in named(n) {
-                        match target.kind() {
-                            "expression_list" => {
-                                names.extend(named(target).into_iter().filter_map(|t| self.root_name(t)))
-                            }
-                            _ => names.extend(self.root_name(target)),
-                        }
-                    }
-                }
-                "call" => {
-                    if let Some(callee) = n.child_by_field_name("function").filter(|f| f.kind() == "attribute")
-                        && let Some(method) = callee.child_by_field_name("attribute")
-                        && MUTATORS.contains(&self.text(method).as_ref())
-                        && let Some(object) = callee.child_by_field_name("object")
-                    {
-                        names.extend(self.root_name(object));
-                    }
-                }
+                "delete_statement" => names.extend(self.deleted(n)),
+                "call" => names.extend(self.mutated(n)),
                 "import_statement" | "import_from_statement" => {
                     names.extend(self.imported(n).into_iter().map(|(_, alias)| alias));
                 }
                 "global_statement" | "nonlocal_statement" => {
                     names.extend(named(n).into_iter().filter_map(|t| self.root_name(t)))
                 }
-                "as_pattern_target" => self.pattern_names(n, &mut names),
+                "as_pattern_target" | "case_pattern" => names.extend(self.identifiers(n)),
+                "except_clause" => names.extend(n.child_by_field_name("alias").and_then(|a| self.root_name(a))),
                 _ => {}
             }
             for name in names {
@@ -632,13 +715,7 @@ impl<'t, 's> File<'t, 's> {
                     return Some(Val::List(items));
                 }
                 if node.kind() == "set" {
-                    let mut unique: Vec<Val> = Vec::new();
-                    for item in items {
-                        if !unique.contains(&item) {
-                            unique.push(item);
-                        }
-                    }
-                    items = unique;
+                    items = unique(items);
                 }
                 Some(Val::Seq(items))
             }
@@ -823,8 +900,10 @@ impl<'t, 's> File<'t, 's> {
                 match (builtin.as_ref(), values.as_slice()) {
                     ("list" | "tuple" | "set" | "reversed", [v]) => {
                         let mut items = v.clone().items()?;
-                        if builtin == "reversed" {
-                            items.reverse();
+                        match builtin.as_ref() {
+                            "reversed" => items.reverse(),
+                            "set" => items = unique(items),
+                            _ => {}
                         }
                         Some(Val::Seq(items))
                     }
@@ -879,6 +958,17 @@ fn is_value(node: Node) -> bool {
         node.kind(),
         "list_splat" | "dictionary_splat" | "generator_expression" | "parenthesized_list_splat"
     )
+}
+
+/// The items in first-seen order without repeats, as a set runs a loop once per item.
+fn unique(items: Vec<Val>) -> Vec<Val> {
+    let mut out: Vec<Val> = Vec::new();
+    for item in items {
+        if !out.contains(&item) {
+            out.push(item);
+        }
+    }
+    out
 }
 
 fn enclosing_scope(node: Node) -> Node {

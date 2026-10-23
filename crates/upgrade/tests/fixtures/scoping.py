@@ -35,3 +35,41 @@ def migrate(cr, version):
     util.remove_record(cr, "%(a)s" % seen)
     for m in {"shop.m", "shop.m"}:
         util.remove_model(cr, m)
+
+    m = "shop.with"
+    with open("x") as m:
+        pass
+    util.remove_model(cr, m)
+
+    for outer in ["shop.a", "shop.b"]:
+        for outer in ["shop.c"]:
+            pass
+        util.remove_model(cr, outer)
+
+    for once in set(["shop.s", "shop.s"]):
+        util.remove_model(cr, once)
+
+    util.remove_view(cr, xml_id=None, key="shop.by_key")
+
+    for helped in HELPED:
+        util.remove_model(cr, helped)
+    util.remove_model(cr, GLOBAL)
+
+
+HELPED = ["shop.h"]
+GLOBAL = "shop.g"
+
+
+def _more():
+    global GLOBAL
+    GLOBAL = "shop.g2"
+    HELPED.append("shop.h2")
+
+
+def _except(cr):
+    e = "shop.e"
+    try:
+        pass
+    except Exception as e:
+        pass
+    util.remove_record(cr, e)

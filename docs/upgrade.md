@@ -71,7 +71,8 @@ evaluated: the event is recorded either way.
 
 A field whose argument does not resolve is NULL, and its event is marked `partial` and keeps the
 call's text in `source`. That covers a database query result, a helper's parameter, a list
-changed in place, a `view_id`, and a name the loop body assigns again or a comprehension rebinds.
+changed in place, a `view_id`, and a name that the loop body, a nested loop, a `with`, `except`
+or comprehension binds again.
 
 `upgrade_runs` holds the commit read and the parser version. A parser change bumps
 `odoo_changelog_upgrade::VERSION`, and the next run reads every script again.
