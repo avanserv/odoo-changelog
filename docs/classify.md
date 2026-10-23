@@ -53,7 +53,9 @@ takes its category from this table. Kinds are listed on each [extractor's page](
 
 ## Commits
 
-A commit takes the category most of its events have (`commit-majority`). On a tie, its tag
+A commit that adds, removes or renames a module is functional (`commit-module`), however many
+technical events the module's own symbols give. Any other commit takes the category most of its
+events have (`commit-majority`). On a tie, its tag
 decides (`commit-tag`): `[ADD]`, `[IMP]`, `[FIX]` and `[REM]` are functional, any other tag is
 technical. A tie without a tag is technical (`commit-default`). A commit without events keeps a
 NULL `category` with `commit-no-events`. A commit is `breaking` when any of its events is.

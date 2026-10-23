@@ -58,8 +58,9 @@ const VISIBLE_NODES: &[&str] = &["field", "button", "page", "filter", "notebook"
 const LABEL_ARGS: &[&str] = &["string", "help", "selection", "selection_add"];
 const FUNCTIONAL_TAGS: &[&str] = &["ADD", "IMP", "FIX", "REM"];
 
-/// The class of each event, in input order, and of the commit: the category most of its events
-/// have, its tag on a tie, breaking when any event is.
+/// The class of each event, in input order, and of the commit: functional when it adds, removes
+/// or renames a module, else the category most of its events have, its tag on a tie; breaking
+/// when any event is.
 pub fn commit(tag: Option<&str>, events: &[Event]) -> (Vec<Class>, CommitClass) {
     let parsed: Vec<Parsed> = events.iter().map(Parsed::new).collect();
     let viewed: BTreeSet<&str> = parsed
@@ -71,8 +72,14 @@ pub fn commit(tag: Option<&str>, events: &[Event]) -> (Vec<Class>, CommitClass) 
 
     let functional = classes.iter().filter(|c| c.category == Category::Functional).count();
     let technical = classes.len() - functional;
+    // A new module's fields, records and styles outnumber the views and menus that make it one.
+    let module = events
+        .iter()
+        .any(|e| e.kind == "module" && matches!(e.op, "added" | "removed" | "renamed"));
     let (category, rule) = if classes.is_empty() {
         (None, "commit-no-events")
+    } else if module {
+        (Some(Category::Functional), "commit-module")
     } else if functional != technical {
         let category = if functional > technical {
             Category::Functional
@@ -436,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn a_commit_takes_its_events_majority_then_its_tag() {
+    fn a_commit_takes_its_modules_then_its_events_majority_then_its_tag() {
         let menu = ev("menu", "sale.m@sale", "added");
         let field = ev("field", "sale.order#x@sale", "added");
         let gone = ev("field", "sale.order#y@sale", "removed");
@@ -462,5 +469,15 @@ mod tests {
         );
         assert_eq!(class(None, &[menu, field]), (Some(Technical), false, "commit-default"));
         assert_eq!(class(Some("ADD"), &[]), (None, false, "commit-no-events"));
+        let module = ev("module", "theme_x", "added");
+        assert_eq!(
+            class(Some("ADD"), &[module, field, field, field]),
+            (Some(Functional), false, "commit-module")
+        );
+        let manifest = ev("module", "theme_x", "changed");
+        assert_eq!(
+            class(None, &[manifest, menu, field]),
+            (Some(Technical), false, "commit-majority")
+        );
     }
 }
