@@ -193,4 +193,26 @@ impl Repo {
     pub fn read_blob(&self, oid: ObjectId) -> Result<Vec<u8>> {
         Ok(self.repo.find_blob(oid)?.take_data())
     }
+
+    /// The regular files under the directory `dir` at `commit`, sorted by path; symlinks and
+    /// submodules are left out. `None` when `dir` is no directory there.
+    pub fn blobs_under(&self, commit: ObjectId, dir: &str) -> Result<Option<Vec<(String, ObjectId)>>> {
+        let tree = self.repo.find_commit(commit)?.tree()?;
+        let Some(entry) = tree.lookup_entry_by_path(dir)? else {
+            return Ok(None);
+        };
+        let Ok(sub) = entry.object()?.try_into_tree() else {
+            return Ok(None);
+        };
+        let mut out: Vec<(String, ObjectId)> = sub
+            .traverse()
+            .breadthfirst
+            .files()?
+            .into_iter()
+            .filter(|e| e.mode.is_blob())
+            .map(|e| (format!("{dir}/{}", e.filepath.to_str_lossy()), e.oid))
+            .collect();
+        out.sort();
+        Ok(Some(out))
+    }
 }

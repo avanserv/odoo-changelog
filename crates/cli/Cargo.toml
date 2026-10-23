@@ -23,6 +23,7 @@ odoo-changelog-core.workspace = true
 odoo-changelog-extract.workspace = true
 odoo-changelog-git.workspace = true
 odoo-changelog-store.workspace = true
+odoo-changelog-upgrade.workspace = true
 
 [dev-dependencies]
 rusqlite.workspace = true

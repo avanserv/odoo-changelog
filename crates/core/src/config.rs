@@ -14,6 +14,7 @@ pub struct Config {
     /// repo name → version name → fork sha
     #[serde(default)]
     pub fork_overrides: BTreeMap<String, BTreeMap<String, String>>,
+    pub upgrade: Option<UpgradeConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -21,6 +22,12 @@ pub struct RepoConfig {
     pub name: String,
     pub path: PathBuf,
     pub release_file: Option<String>,
+}
+
+/// The clone of `odoo/upgrade` that `upgrade` reads.
+#[derive(Debug, Deserialize)]
+pub struct UpgradeConfig {
+    pub path: PathBuf,
 }
 
 fn default_remote() -> String {
@@ -35,6 +42,9 @@ impl Config {
         cfg.db = resolve(base, &cfg.db);
         for repo in &mut cfg.repos {
             repo.path = resolve(base, &repo.path);
+        }
+        if let Some(upgrade) = &mut cfg.upgrade {
+            upgrade.path = resolve(base, &upgrade.path);
         }
         Ok(cfg)
     }

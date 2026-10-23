@@ -27,7 +27,7 @@ serde_json = "1"
 toml = "1.1"
 # Pinned: their parse trees are extractor output, so a bump goes with a `version()` bump of every
 # extractor built on it (`python` and `manifest` on tree-sitter-python, `js` on
-# tree-sitter-javascript, all three on tree-sitter).
+# tree-sitter-javascript, all three on tree-sitter), and of `odoo_changelog_upgrade::VERSION`.
 tree-sitter = "=0.27.1"
 tree-sitter-javascript = "=0.25.0"
 tree-sitter-python = "=0.25.0"
@@ -38,6 +38,7 @@ odoo-changelog-core = { path = "crates/core" }
 odoo-changelog-extract = { path = "crates/extract" }
 odoo-changelog-git = { path = "crates/git" }
 odoo-changelog-store = { path = "crates/store" }
+odoo-changelog-upgrade = { path = "crates/upgrade" }
 
 [profile.release]
 lto = "thin"
