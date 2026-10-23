@@ -43,8 +43,8 @@ after.
 
 `path` and `module` are the new side's, or the old side's for a removal; `module` is NULL for a
 file outside any module. `old_symbol_id`, `old_path` and `old_module` say where a moved or renamed
-symbol was, and are NULL for every other op. `confidence` and `signals` are a rename's, and NULL
-for every other op. `category`, `breaking` and `rule_id` say what the change means to a user and
+symbol was, and are NULL for every other op. `confidence`, `signals` and `referrers` are a
+rename's, and NULL for every other op. `category`, `breaking` and `rule_id` say what the change means to a user and
 to custom code, as [Classify](classify.md) describes.
 
 A forward-ported commit records its original in `commits.original_sha`, so its events reach the
@@ -84,6 +84,9 @@ never a rename: the move pass decides it.
 
 `confidence` runs from 0.6 to 1 in steps of 0.001. `signals` is a JSON array of what matched: the
 top-level attributes equal on both sides, then `members`, `refs` and `parent` when they counted.
+`referrers` is a JSON array of the qualnames whose change in the same commit and extractor
+replaced the old name with the new one, such as the templates whose `t-call` follows a renamed
+template, whatever the score; a symbol still naming the old one is not listed.
 
 ```sql
 SELECT o.qualname, s.qualname, e.confidence, e.signals FROM events e

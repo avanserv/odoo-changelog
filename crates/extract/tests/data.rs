@@ -275,13 +275,24 @@ fn nested_menus_take_their_parent() {
     let child = attrs(path, find(&table, "menu", "child"));
     assert_eq!(
         child,
-        json!({"declared": "menuitem", "name": "Child", "parent": "sale.root", "sequence": "3"})
+        json!({
+            "declared": "menuitem",
+            "name": "Child",
+            "parent": "sale.root",
+            "references": ["sale.root"],
+            "sequence": "3"
+        })
     );
     assert_eq!(attrs(path, find(&table, "menu", "flat"))["parent"], "base.menu_x");
     assert!(attrs(path, find(&table, "menu", "root")).get("parent").is_none());
     assert_eq!(
         attrs(path, find(&table, "menu", "moved")),
-        json!({"declared": "menuitem", "action": "sale.action_x", "sequence": "4"}),
+        json!({
+            "declared": "menuitem",
+            "action": "sale.action_x",
+            "references": ["sale.action_x"],
+            "sequence": "4"
+        }),
         "a later menuitem resets the parent, name and active state"
     );
 }
@@ -685,4 +696,51 @@ fn every_data_file_at_the_tips_reads_cleanly() {
         read += blobs.len();
     }
     assert!(read > 0);
+}
+
+#[test]
+fn literal_references_are_recorded_qualified() {
+    let src = r#"<odoo>
+        <record id="group_x" model="res.groups">
+            <field name="implied_ids" eval="[(4, ref('base.group_user')), (4, ref(&quot;group_y&quot;))]"/>
+            <field name="comment">env.ref('sale.z') and xref('no')</field>
+        </record>
+        <template id="page" groups="base.group_user, !base.group_portal">
+            <t t-call="layout"/>
+            <t t-call="{{ dynamic }}"/>
+            <button type="action" name="%(action_x)d"/>
+        </template>
+    </odoo>"#;
+    let table = extract(src);
+    let path = "addons/sale/views/x.xml";
+    let group = attrs(path, find(&table, "group", "group_x"));
+    assert_eq!(
+        group["references"],
+        json!(["base.group_user", "sale.group_y", "sale.z"])
+    );
+    let page = attrs(path, find(&table, "view", "page"));
+    assert_eq!(
+        page["references"],
+        json!(["base.group_portal", "base.group_user", "sale.action_x", "sale.layout"])
+    );
+    assert_eq!(page["dynamic_calls"], 1);
+}
+
+#[test]
+fn a_renamed_template_lists_the_callers_that_follow_it() {
+    let calls = |name: &str| {
+        format!(
+            r#"<odoo>
+            <template id="{name}"><div class="x"><span>body</span></div></template>
+            <template id="caller"><t t-call="sale.{name}"/></template>
+            <template id="bystander"><t t-call="web.other"/></template>
+        </odoo>"#
+        )
+    };
+    let path = "addons/sale/views/x.xml";
+    let (old, new) = (extract(&calls("box")), extract(&calls("crate")));
+    let changes = delta(&Data, &[(Some((path, &old)), Some((path, &new)))]);
+    let renamed = changes.iter().find(|d| d.op == Op::Renamed).expect("a rename");
+    assert_eq!(renamed.qualname, "sale.crate@sale");
+    assert_eq!(renamed.rename.as_ref().unwrap().referrers, ["sale.caller@sale"]);
 }

@@ -4,6 +4,7 @@
 
 pub(crate) mod arch;
 pub(crate) mod dom;
+pub(crate) mod refs;
 
 use std::collections::BTreeMap;
 
@@ -14,6 +15,7 @@ use crate::data::{ACTION, DATA_FUNCTION, DELETE, MENU, RECORD, VIEW, VIEW_NODE, 
 use crate::hash::digest;
 use crate::{Span, Symbol, SymbolTable};
 use dom::{Attr, Element, Node, elements};
+use refs::Refs;
 
 const ROOTS: [&str; 3] = ["odoo", "openerp", "data"];
 
@@ -267,7 +269,10 @@ impl<'d> Walker<'d> {
             }
         };
         for ((kind, name), decl) in &self.decls {
-            let (attrs, nodes) = attrs(kind, decl);
+            let (mut attrs, nodes) = attrs(kind, decl);
+            if decl.declared != "delete" {
+                references(decl).put(&mut attrs);
+            }
             let symbol = Symbol {
                 kind: (*kind).into(),
                 name: name.clone(),
@@ -374,7 +379,7 @@ fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNo
         (MENU, "menuitem") => {
             for (key, value) in &decl.attrs {
                 let value = match *key {
-                    "groups" => value.split(',').map(Value::from).collect(),
+                    "groups" => value.split(',').map(|g| Value::from(g.trim())).collect(),
                     _ => Value::from(*value),
                 };
                 out.insert((*key).into(), value);
@@ -404,6 +409,44 @@ fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNo
         }
     }
     (out, nodes)
+}
+
+/// The xmlids a declaration names: in its own attributes, its fields' `ref`, `eval` and text,
+/// and the arch or content it holds, of which an inheriting view's specs only put in their content.
+fn references(decl: &Decl) -> Refs {
+    let mut refs = Refs::default();
+    for (key, value) in &decl.attrs {
+        match *key {
+            "groups" => refs.ids(value),
+            "parent" | "action" | "inherit_id" => refs.id(value),
+            _ => refs.text(value),
+        }
+    }
+    let inheriting = decl.attrs.contains_key("inherit_id") || decl.fields.contains_key("inherit_id");
+    let arch = |refs: &mut Refs, arch: &[Node], is_view: bool| {
+        if is_view && inheriting {
+            refs.specs(arch)
+        } else {
+            refs.arch(arch)
+        }
+    };
+    for (name, field) in &decl.fields {
+        if let Some(r) = field.attr("ref") {
+            refs.id(r);
+        }
+        if let Some(e) = field.attr("eval") {
+            refs.text(e);
+        }
+        if is_markup(field) {
+            arch(&mut refs, &field.children, *name == "arch");
+        } else {
+            refs.text(&text(field));
+        }
+    }
+    if let Some(content) = decl.content {
+        arch(&mut refs, content, decl.declared == "template");
+    }
+    refs
 }
 
 fn put(out: &mut BTreeMap<String, Value>, key: &str, value: Option<Value>) {

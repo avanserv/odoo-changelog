@@ -19,6 +19,11 @@
                 <xpath expr="//field[@name='quantity']" position="replace" mode="inner"/>
                 <xpath expr="//field[@name='customer_id']" position="attributes">
                     <attribute name="readonly">state != 'draft'</attribute>
+                    <attribute name="groups" add="demo.group_demo_user" separator=","/>
+                </xpath>
+                <xpath expr="//header" position="inside">
+                    <button name="%(action_demo_wizard)d" type="action" groups="base.group_system, !base.group_portal"
+                            context="{'default_company_id': %(base.main_company)d}"/>
                 </xpath>
                 <field name="order_date" string="Ignored" position="after">
                     <field name="validity_date"/>
@@ -45,6 +50,8 @@
     <template id="portal_layout" inherit_id="portal.portal_layout" priority="40" name="Demo layout">
         <xpath expr="//div[@id='wrap']" position="inside">
             <t t-call="demo.portal_breadcrumbs"/>
+            <t t-call="{{ layout }}"/>
+            <t t-call="website.{{ name }}"/>
         </xpath>
     </template>
 

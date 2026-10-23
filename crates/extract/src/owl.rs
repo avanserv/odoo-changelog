@@ -12,6 +12,7 @@ use crate::bound::{Budget, ENVELOPE, bounded, json_len, warn_capped};
 use crate::path::{static_addon, static_file};
 use crate::xml::arch::{self, NamedNode, TEMPLATE_KEYS};
 use crate::xml::dom::{self, Attr, Element};
+use crate::xml::refs::Refs;
 use crate::{Extractor, Span, Symbol, SymbolTable};
 
 const TEMPLATE: &str = "owl_template";
@@ -40,7 +41,7 @@ impl Extractor for Owl {
     /// Bump with any change to the output, including a quick-xml upgrade and changes to
     /// `xml::dom` or `xml::arch`, which `data` shares.
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     /// Client templates Odoo serves from `static/src`; tests, third-party files under
@@ -172,7 +173,19 @@ impl Reader {
             return self.warn(el.line, format!("<{}> without t-name ignored", el.tag));
         };
 
+        let mut refs = Refs::templates();
+        match &form {
+            Form::Template(_, None) => refs.walk([el]),
+            Form::Template(_, Some(inherit)) | Form::Extension(inherit, _) if inherit.legacy => {
+                let operations = el
+                    .elements()
+                    .filter(|c| c.attr("t-operation").is_some_and(|o| o != "attributes"));
+                operations.for_each(|c| refs.arch(&c.children));
+            }
+            _ => refs.specs(&el.children),
+        }
         let mut attrs = BTreeMap::new();
+        refs.put(&mut attrs);
         let (kind, at, symbol_name, owner, nodes) = match form {
             Form::Template(name, inherit) => {
                 if !self.names.insert(name.value.clone()) {

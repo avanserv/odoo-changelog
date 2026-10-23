@@ -11,7 +11,7 @@ use odoo_changelog_core::CommitMeta;
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use classify::{ClassRow, StoredEvent, Unclassified};
-pub use extract::{CachedBlob, EventRow, OldSide, PendingCommit};
+pub use extract::{CachedBlob, EventRow, OldSide, PendingCommit, RenameRow};
 
 const MIGRATIONS: &[&str] = &[
     include_str!("schema.sql"),
@@ -21,6 +21,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("moves.sql"),
     include_str!("renames.sql"),
     include_str!("classify.sql"),
+    include_str!("referrers.sql"),
 ];
 
 pub struct Store {
@@ -423,8 +424,9 @@ mod tests {
         )
         .unwrap();
 
+        // Only this migration: a later one rebuilds the events.
+        conn.execute_batch(MIGRATIONS[5]).unwrap();
         let store = Store { conn };
-        store.migrate().unwrap();
 
         assert_eq!(count(&store, "SELECT COUNT(*) FROM events WHERE category IS NULL"), 1);
         let columns = "SELECT COUNT(*) FROM pragma_table_info(?1)
@@ -435,6 +437,45 @@ mod tests {
         }
         let unclassified = store.classify_candidates(7, 1, 1).unwrap();
         assert_eq!(unclassified.len(), 1);
+    }
+
+    #[test]
+    fn migrates_v6_rebuilds_events_with_referrers_and_keeps_the_cache() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..6] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 6).unwrap();
+        conn.execute_batch(
+            "INSERT INTO repos (id, name, shallow) VALUES (7, 'odoo', 0);
+             INSERT INTO commits (repo_id, sha, branch, fp_idx, sub_idx, parents, is_merge,
+                author_name, author_email, authored_at, committed_at, subject, body, modules,
+                related_prs, category, breaking, rule_id, classified)
+             VALUES (7, 'abc', 'master', 0, 0, '[]', 0, 'a', 'a@x', 0, 0, 's', '', '[]', '[]',
+                'technical', 0, 'data', 1);
+             INSERT INTO symbols (id, kind, qualname) VALUES (x'01', 'def', 'f');
+             INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, line, attrs_after)
+             VALUES (7, 'abc', 'f.py', 'py', x'01', 'added', 1, '{}');
+             INSERT INTO extracted (repo_id, sha, extractor) VALUES (7, 'abc', 'py');
+             INSERT INTO extractors (name, version) VALUES ('py', 1);
+             INSERT INTO blob_cache (blob_oid, extractor, extractor_version, symbols)
+             VALUES ('b1', 'py', 1, x'5b5d');",
+        )
+        .unwrap();
+
+        let store = Store { conn };
+        store.migrate().unwrap();
+
+        for (table, n) in [("events", 0), ("extracted", 0), ("symbols", 0), ("blob_cache", 1)] {
+            assert_eq!(count(&store, &format!("SELECT COUNT(*) FROM {table}")), n, "{table}");
+        }
+        assert_eq!(
+            count(&store, "SELECT COUNT(*) FROM commits WHERE classified IS NULL"),
+            1
+        );
+        let column = "SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'referrers'";
+        assert_eq!(count(&store, column), 1);
+        assert!(store.extract_candidates(7).unwrap()[0].done.is_empty());
     }
 
     #[test]
@@ -571,12 +612,17 @@ mod tests {
         assert!(store.sync_extractors(&[("py", 1), ("xml", 1)]).unwrap().is_empty());
         // The xml event is a rename, whose old symbol outlives a purge of py too.
         let signals = ["type".to_string(), "refs".to_string()];
+        let referrers = ["xml-caller".to_string()];
         let old = OldSide {
             symbol_id: &[3u8; 32],
             qualname: "xml-old",
             path: "g",
             module: None,
-            rename: Some((0.75, signals.as_slice())),
+            rename: Some(RenameRow {
+                confidence: 0.75,
+                signals: &signals,
+                referrers: &referrers,
+            }),
         };
         for (extractor, id, old) in [("py", [1u8; 32], None), ("xml", [2u8; 32], Some(old))] {
             store.insert_cached_blob("b1", extractor, 1, Some(b"[]"), None).unwrap();
@@ -602,13 +648,18 @@ mod tests {
             store.mark_extracted(repo_id, "abc", &[extractor]).unwrap();
         }
 
-        let rename: (f64, String) = store
+        let rename: (f64, String, String) = store
             .conn
-            .query_row("SELECT confidence, signals FROM events WHERE op = 'renamed'", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT confidence, signals, referrers FROM events WHERE op = 'renamed'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
             .unwrap();
-        assert_eq!(rename, (0.75, r#"["type","refs"]"#.to_string()));
+        assert_eq!(
+            rename,
+            (0.75, r#"["type","refs"]"#.to_string(), r#"["xml-caller"]"#.to_string())
+        );
 
         assert_eq!(store.sync_extractors(&[("py", 2), ("xml", 1)]).unwrap(), ["py"]);
         for table in ["events", "extracted", "blob_cache"] {

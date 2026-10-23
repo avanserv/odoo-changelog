@@ -8,7 +8,7 @@ use odoo_changelog_core::{Config, RepoConfig, Version};
 use odoo_changelog_extract::classify::{self, Event};
 use odoo_changelog_extract::{Delta, Extractor, Registry, SymbolTable, delta};
 use odoo_changelog_git::{FileChange, FileSide, Repo, SharedRepo};
-use odoo_changelog_store::{CachedBlob, ClassRow, EventRow, OldSide, Store};
+use odoo_changelog_store::{CachedBlob, ClassRow, EventRow, OldSide, RenameRow, Store};
 use rayon::prelude::*;
 use tracing::{debug, info, warn};
 
@@ -374,7 +374,11 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
                 qualname: &o.qualname,
                 path: &o.path,
                 module: o.module.as_deref(),
-                rename: d.rename.as_ref().map(|r| (r.confidence, r.signals.as_slice())),
+                rename: d.rename.as_ref().map(|r| RenameRow {
+                    confidence: r.confidence,
+                    signals: &r.signals,
+                    referrers: &r.referrers,
+                }),
             }),
         })
         .collect();

@@ -15,6 +15,10 @@
         ],
         "name": "Configuration",
         "parent": "demo.menu_demo_root",
+        "references": [
+          "base.group_system",
+          "demo.menu_demo_root"
+        ],
         "sequence": "90"
       }
     },
@@ -34,7 +38,13 @@
           "-base.group_portal"
         ],
         "name": "Orders",
-        "parent": "demo.menu_demo_orders"
+        "parent": "demo.menu_demo_orders",
+        "references": [
+          "base.group_portal",
+          "demo.action_demo_orders",
+          "demo.group_demo_user",
+          "demo.menu_demo_orders"
+        ]
       }
     },
     {
@@ -49,6 +59,9 @@
         "declared": "menuitem",
         "name": "Orders",
         "parent": "demo.menu_demo_root",
+        "references": [
+          "demo.menu_demo_root"
+        ],
         "sequence": "10"
       }
     },
@@ -64,7 +77,11 @@
         "action": "demo_base.action_quotes",
         "declared": "menuitem",
         "name": "Quotations",
-        "parent": "demo.menu_demo_orders"
+        "parent": "demo.menu_demo_orders",
+        "references": [
+          "demo.menu_demo_orders",
+          "demo_base.action_quotes"
+        ]
       }
     },
     {
@@ -79,6 +96,9 @@
         "declared": "record",
         "name": "Reports",
         "record_model": "ir.ui.menu",
+        "references": [
+          "demo.menu_demo_root"
+        ],
         "values": "b5f523581dad895d37f9c7ca13fb658d"
       }
     },
@@ -109,6 +129,9 @@
       "attrs": {
         "action": "base.action_settings",
         "declared": "menuitem",
+        "references": [
+          "base.action_settings"
+        ],
         "sequence": "99"
       }
     }

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
-use crate::rename::{self, Item, Rename};
+use crate::rename::{self, Change, Item, Rename};
 use crate::{Extractor, Symbol, SymbolId, SymbolTable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,9 +127,15 @@ pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
     let removed: Vec<_> = removed.into_iter().flatten().collect();
     let added: Vec<_> = added.into_iter().flatten().collect();
     let renames = {
-        let refs: Vec<(&str, &str)> = out
+        let refs: Vec<Change> = out
             .iter()
-            .filter_map(|d| Some((d.attrs_before.as_deref()?, d.attrs_after.as_deref()?)))
+            .filter_map(|d| {
+                Some(Change {
+                    qualname: &d.qualname,
+                    before: d.attrs_before.as_deref()?,
+                    after: d.attrs_after.as_deref()?,
+                })
+            })
             .collect();
         rename::pairs(ex, &items(&removed), &items(&added), &refs)
     };

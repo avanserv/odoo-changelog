@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::data::{RECORD, RULE};
 use crate::hash::digest;
+use crate::xml::refs::Refs;
 use crate::{Span, Symbol, SymbolTable, access_csv, xml};
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
@@ -227,6 +228,13 @@ fn records(sheet: &Sheet, kind: &'static str, table: &mut SymbolTable, warnings:
         if !rows.fields.is_empty() || !rows.continued.is_empty() {
             attrs.insert("values".into(), digest(&hasher).into());
         }
+        let mut refs = Refs::default();
+        let cells = rows.fields.values().copied();
+        let continued = rows.continued.iter().flatten().map(|&(_, is_ref, v)| (is_ref, v));
+        for (_, v) in cells.chain(continued).filter(|(is_ref, _)| *is_ref) {
+            refs.ids(v);
+        }
+        refs.put(&mut attrs);
         table.insert(Symbol {
             kind: kind.into(),
             name: id.into(),

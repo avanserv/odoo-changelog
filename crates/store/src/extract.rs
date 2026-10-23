@@ -37,8 +37,14 @@ pub struct OldSide<'a> {
     pub qualname: &'a str,
     pub path: &'a str,
     pub module: Option<&'a str>,
-    /// A rename's confidence and the signals that matched; `None` for a move.
-    pub rename: Option<(f64, &'a [String])>,
+    /// `None` for a move.
+    pub rename: Option<RenameRow<'a>>,
+}
+
+pub struct RenameRow<'a> {
+    pub confidence: f64,
+    pub signals: &'a [String],
+    pub referrers: &'a [String],
 }
 
 impl Store {
@@ -159,12 +165,14 @@ impl Store {
             .prepare_cached("INSERT OR IGNORE INTO symbols (id, kind, qualname) VALUES (?1, ?2, ?3)")?;
         let mut event = self.conn.prepare_cached(
             "INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, module, line,
-                attrs_before, attrs_after, old_symbol_id, old_path, old_module, confidence, signals)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                attrs_before, attrs_after, old_symbol_id, old_path, old_module, confidence, signals,
+                referrers)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         )?;
         for e in rows {
-            let rename = e.old.as_ref().and_then(|o| o.rename);
-            let signals = rename.map(|(_, s)| serde_json::to_string(s)).transpose()?;
+            let rename = e.old.as_ref().and_then(|o| o.rename.as_ref());
+            let signals = rename.map(|r| serde_json::to_string(r.signals)).transpose()?;
+            let referrers = rename.map(|r| serde_json::to_string(r.referrers)).transpose()?;
             symbol.execute(params![e.symbol_id, e.kind, e.qualname])?;
             if let Some(old) = &e.old {
                 symbol.execute(params![old.symbol_id, e.kind, old.qualname])?;
@@ -183,8 +191,9 @@ impl Store {
                 e.old.as_ref().map(|o| o.symbol_id),
                 e.old.as_ref().map(|o| o.path),
                 e.old.as_ref().and_then(|o| o.module),
-                rename.map(|(c, _)| c),
-                signals
+                rename.map(|r| r.confidence),
+                signals,
+                referrers
             ])?;
         }
         Ok(())

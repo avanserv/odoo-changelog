@@ -12,6 +12,9 @@
         "declared": "csv",
         "name": "West",
         "record_model": "res.country.state",
+        "references": [
+          "base.demo"
+        ],
         "values": "ddc8ecade8c389c01cebcdc23eb7b345"
       }
     },
@@ -27,6 +30,9 @@
         "declared": "csv",
         "name": "East",
         "record_model": "res.country.state",
+        "references": [
+          "demo.demo_country"
+        ],
         "values": "f4c8469952485023c6fd172287a1337c"
       }
     },
@@ -42,6 +48,9 @@
         "declared": "csv",
         "name": "North, the cold one",
         "record_model": "res.country.state",
+        "references": [
+          "base.demo"
+        ],
         "values": "4f2d149a4bd98c19cfd11f19372b63e5"
       }
     },
@@ -57,6 +66,9 @@
         "declared": "csv",
         "name": "\"South\" side",
         "record_model": "res.country.state",
+        "references": [
+          "base.demo"
+        ],
         "values": "6da4fbf598e869da9271e0b643758d57"
       }
     }

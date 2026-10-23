@@ -9,13 +9,21 @@
         "end": 85
       },
       "attrs": {
-        "arch": "e298e53d066b9c6562b3da3da3e17079",
+        "arch": "dcc4a2e263e384e48143bc7308f4fa99",
         "declared": "record",
         "inherit_id": "demo_base.demo_order_form",
         "mode": "extension",
         "model": "demo.order",
         "name": "demo.order.form.inherit",
         "record_model": "ir.ui.view",
+        "references": [
+          "base.group_portal",
+          "base.group_system",
+          "base.main_company",
+          "demo.action_demo_wizard",
+          "demo.group_demo_user",
+          "demo_base.demo_order_form"
+        ],
         "specs": [
           {
             "expr": "//button[@name='action_confirm']",
@@ -43,6 +51,10 @@
             "position": "attributes"
           },
           {
+            "expr": "//header",
+            "position": "inside"
+          },
+          {
             "position": "after",
             "target": "field[@name='order_date']"
           },
@@ -65,10 +77,10 @@
     {
       "kind": "view",
       "qualname": "demo.demo_order_form_local@demo",
-      "line": 37,
+      "line": 42,
       "span": {
-        "start": 1725,
-        "end": 1746
+        "start": 2101,
+        "end": 2122
       },
       "attrs": {
         "arch": "649e78d84367f16f8e345180417db392",
@@ -77,6 +89,9 @@
         "mode": "extension",
         "model": "demo.order",
         "record_model": "ir.ui.view",
+        "references": [
+          "demo.demo_order_form_inherit"
+        ],
         "specs": [
           {
             "position": "after",
@@ -89,16 +104,20 @@
     {
       "kind": "view",
       "qualname": "demo.portal_breadcrumbs@demo",
-      "line": 57,
+      "line": 64,
       "span": {
-        "start": 2523,
-        "end": 2541
+        "start": 2983,
+        "end": 3001
       },
       "attrs": {
         "arch": "773c4bc304db9abcad608d1a01fabccd",
         "declared": "template",
         "mode": "primary",
         "name": "Breadcrumbs",
+        "references": [
+          "base.group_portal",
+          "base.group_user"
+        ],
         "type": "qweb",
         "values": "9da93d57fabea41da90b9043c9e9f373"
       }
@@ -106,18 +125,23 @@
     {
       "kind": "view",
       "qualname": "demo.portal_layout@demo",
-      "line": 45,
+      "line": 50,
       "span": {
-        "start": 2054,
-        "end": 2067
+        "start": 2430,
+        "end": 2443
       },
       "attrs": {
-        "arch": "5c39c8888588e70b59903104712aa50f",
+        "arch": "0699a5c3870df9772476e9e8c96b259a",
         "declared": "template",
+        "dynamic_calls": 2,
         "inherit_id": "portal.portal_layout",
         "mode": "extension",
         "name": "Demo layout",
         "priority": "40",
+        "references": [
+          "demo.portal_breadcrumbs",
+          "portal.portal_layout"
+        ],
         "specs": [
           {
             "expr": "//div[@id='wrap']",
@@ -130,16 +154,19 @@
     {
       "kind": "view",
       "qualname": "demo.portal_layout_primary@demo",
-      "line": 51,
+      "line": 58,
       "span": {
-        "start": 2298,
-        "end": 2319
+        "start": 2758,
+        "end": 2779
       },
       "attrs": {
         "arch": "e06d2542cbd42f20a59fd68fee434d75",
         "declared": "template",
         "inherit_id": "portal.portal_layout",
         "mode": "primary",
+        "references": [
+          "portal.portal_layout"
+        ],
         "specs": [
           {
             "expr": ".",
@@ -147,6 +174,18 @@
           }
         ],
         "type": "qweb"
+      }
+    },
+    {
+      "kind": "view_node",
+      "qualname": "demo.demo_order_form_inherit#button[@name='%(action_demo_wizard)d']@demo",
+      "line": 25,
+      "span": {
+        "start": 1388,
+        "end": 1410
+      },
+      "attrs": {
+        "count": 1
       }
     },
     {
@@ -202,10 +241,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.demo_order_form_inherit#field[@name='extra_id']@demo",
-      "line": 31,
+      "line": 36,
       "span": {
-        "start": 1620,
-        "end": 1628
+        "start": 1996,
+        "end": 2004
       },
       "attrs": {
         "count": 1
@@ -214,10 +253,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.demo_order_form_inherit#field[@name='origin']@demo",
-      "line": 28,
+      "line": 33,
       "span": {
-        "start": 1503,
-        "end": 1509
+        "start": 1879,
+        "end": 1885
       },
       "attrs": {
         "count": 1
@@ -226,10 +265,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.demo_order_form_inherit#field[@name='validity_date']@demo",
-      "line": 24,
+      "line": 29,
       "span": {
-        "start": 1317,
-        "end": 1330
+        "start": 1693,
+        "end": 1706
       },
       "attrs": {
         "count": 1
@@ -250,10 +289,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.demo_order_form_local#field[@name='weight']@demo",
-      "line": 41,
+      "line": 46,
       "span": {
-        "start": 1986,
-        "end": 1992
+        "start": 2362,
+        "end": 2368
       },
       "attrs": {
         "count": 1
@@ -262,10 +301,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.portal_breadcrumbs#a[@name='home']@demo",
-      "line": 59,
+      "line": 66,
       "span": {
-        "start": 2740,
-        "end": 2744
+        "start": 3200,
+        "end": 3204
       },
       "attrs": {
         "count": 1,
@@ -275,10 +314,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.portal_breadcrumbs#li[@t-name='crumb']@demo",
-      "line": 59,
+      "line": 66,
       "span": {
-        "start": 2700,
-        "end": 2705
+        "start": 3160,
+        "end": 3165
       },
       "attrs": {
         "count": 1
@@ -287,10 +326,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.portal_breadcrumbs#span[@id='last']@demo",
-      "line": 60,
+      "line": 67,
       "span": {
-        "start": 2810,
-        "end": 2814
+        "start": 3270,
+        "end": 3274
       },
       "attrs": {
         "count": 1,
@@ -300,10 +339,10 @@
     {
       "kind": "view_node",
       "qualname": "demo.portal_breadcrumbs#t[@t-name='tail']@demo",
-      "line": 60,
+      "line": 67,
       "span": {
-        "start": 2794,
-        "end": 2798
+        "start": 3254,
+        "end": 3258
       },
       "attrs": {
         "count": 1

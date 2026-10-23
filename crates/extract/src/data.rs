@@ -23,8 +23,17 @@ pub(crate) const RECORD: &str = "record";
 pub(crate) const DATA_FUNCTION: &str = "data_function";
 pub(crate) const DELETE: &str = "delete";
 
-/// Attr keys holding xmlids as written: a string, or an array of strings for `groups`.
-const REF_KEYS: [&str; 6] = ["action", "group_id", "groups", "inherit_id", "model_id", "parent"];
+/// Attr keys holding xmlids as written: a string, or an array of strings for `groups` and
+/// `references`.
+const REF_KEYS: [&str; 7] = [
+    "action",
+    "group_id",
+    "groups",
+    "inherit_id",
+    "model_id",
+    "parent",
+    "references",
+];
 
 /// The kind of a `<record>` of `model`.
 pub(crate) fn kind_of(model: &str) -> &'static str {
@@ -55,7 +64,7 @@ impl Extractor for Data {
     /// Bump with any change to the output, including a quick-xml upgrade and changes to
     /// `xml::dom` or `xml::arch`, which `owl` shares.
     fn version(&self) -> u32 {
-        2
+        3
     }
 
     /// Data files of a module, wherever they sit (views/, data/, template/, tests/, ...): Odoo
@@ -124,11 +133,19 @@ impl Extractor for Data {
                         .iter()
                         .any(|i| i.as_str().and_then(|r| xml_id(module, r)).is_some()) =>
                 {
-                    let items = items.iter().map(|i| match i.as_str().and_then(|r| xml_id(module, r)) {
-                        Some(r) => Value::String(r),
-                        None => i.clone(),
-                    });
-                    Some(Value::Array(items.collect()))
+                    let mut items: Vec<Value> = items
+                        .iter()
+                        .map(|i| match i.as_str().and_then(|r| xml_id(module, r)) {
+                            Some(r) => Value::String(r),
+                            None => i.clone(),
+                        })
+                        .collect();
+                    // A set: `x` and `<module>.x` read as one, in the order of their names.
+                    if key == "references" {
+                        items.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                        items.dedup();
+                    }
+                    Some(Value::Array(items))
                 }
                 _ => None,
             };
