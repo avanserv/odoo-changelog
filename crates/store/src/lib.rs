@@ -22,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("renames.sql"),
     include_str!("classify.sql"),
     include_str!("referrers.sql"),
+    include_str!("similarity.sql"),
 ];
 
 pub struct Store {
@@ -623,6 +624,7 @@ mod tests {
                 confidence: 0.75,
                 signals: &signals,
                 referrers: &referrers,
+                similarity: Some(0.8),
             }),
         };
         for (extractor, id, old) in [("py", [1u8; 32], None), ("xml", [2u8; 32], Some(old))] {
@@ -649,17 +651,22 @@ mod tests {
             store.mark_extracted(repo_id, "abc", &[extractor]).unwrap();
         }
 
-        let rename: (f64, String, String) = store
+        let rename: (f64, String, String, f64) = store
             .conn
             .query_row(
-                "SELECT confidence, signals, referrers FROM events WHERE op = 'renamed'",
+                "SELECT confidence, signals, referrers, similarity FROM events WHERE op = 'renamed'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
         assert_eq!(
             rename,
-            (0.75, r#"["type","refs"]"#.to_string(), r#"["xml-caller"]"#.to_string())
+            (
+                0.75,
+                r#"["type","refs"]"#.to_string(),
+                r#"["xml-caller"]"#.to_string(),
+                0.8
+            )
         );
         let old_kind: String = store
             .conn

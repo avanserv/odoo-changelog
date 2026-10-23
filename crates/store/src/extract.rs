@@ -46,6 +46,7 @@ pub struct RenameRow<'a> {
     pub confidence: f64,
     pub signals: &'a [String],
     pub referrers: &'a [String],
+    pub similarity: Option<f64>,
 }
 
 impl Store {
@@ -167,8 +168,8 @@ impl Store {
         let mut event = self.conn.prepare_cached(
             "INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, module, line,
                 attrs_before, attrs_after, old_symbol_id, old_path, old_module, confidence, signals,
-                referrers)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                referrers, similarity)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         )?;
         for e in rows {
             let rename = e.old.as_ref().and_then(|o| o.rename.as_ref());
@@ -194,7 +195,8 @@ impl Store {
                 e.old.as_ref().and_then(|o| o.module),
                 rename.map(|r| r.confidence),
                 signals,
-                referrers
+                referrers,
+                rename.and_then(|r| r.similarity)
             ])?;
         }
         Ok(())

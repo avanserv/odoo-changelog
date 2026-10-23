@@ -263,6 +263,7 @@ mod tests {
             span: Span::default(),
             attrs: serde_json::from_value(attrs).unwrap(),
             parts: None,
+            sketch: None,
         }
     }
 

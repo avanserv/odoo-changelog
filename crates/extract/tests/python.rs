@@ -329,3 +329,48 @@ fn extract_is_a_function_of_the_bytes() {
         assert_eq!(SymbolTable::from_bytes(&first).unwrap().to_bytes(), first);
     }
 }
+
+/// A model whose one method is written `body`, named `name`.
+fn model_with(name: &str, body: &str) -> String {
+    format!(
+        "from odoo import models\n\n\nclass Order(models.Model):\n    _inherit = 'sale.order'\n\n    def {name}(self):\n{body}"
+    )
+}
+
+const TOTAL: &str = "        total = 0
+        for line in self.order_line:
+            if line.product_id and line.qty > 0:
+                total += line.price_unit * line.qty
+        self.amount = total
+        return total
+";
+
+#[test]
+fn a_renamed_method_with_an_edited_body_pairs_below_an_exact_rename() {
+    let path = "addons/sale_ext/models/sale_order.py";
+    let rename = |new_body: &str| {
+        let (old, new) = (
+            extract(&model_with("_compute_total", TOTAL)),
+            extract(&model_with("_compute_amount", new_body)),
+        );
+        let changes = delta(&Python, &[(Some((path, &old)), Some((path, &new)))]);
+        changes.into_iter().find_map(|d| d.rename)
+    };
+    let exact = rename(TOTAL).expect("an exact rename");
+    assert_eq!((exact.confidence, exact.similarity), (1.0, None));
+
+    let edited = rename(&TOTAL.replace("line.price_unit", "line.price_subtotal")).expect("an edited rename");
+    assert!(
+        edited.confidence < exact.confidence && edited.confidence >= 0.6,
+        "{edited:?}"
+    );
+    assert!(edited.similarity.is_some_and(|s| s >= 0.5), "{edited:?}");
+    assert!(edited.signals.contains(&"similar".to_string()), "{edited:?}");
+
+    let unrelated = "        partner = self.env['res.partner'].search([('name', '=', self.name)])
+        if not partner:
+            raise UserError('No partner')
+        return partner.id
+";
+    assert_eq!(rename(unrelated), None);
+}

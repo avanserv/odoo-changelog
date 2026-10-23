@@ -379,6 +379,7 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
                     confidence: r.confidence,
                     signals: &r.signals,
                     referrers: &r.referrers,
+                    similarity: r.similarity,
                 }),
             }),
         })

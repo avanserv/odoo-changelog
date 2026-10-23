@@ -11,6 +11,7 @@ use tree_sitter::Node;
 use super::pattern_names;
 use super::value::string_value;
 use crate::hash::digest;
+use crate::sketch::Sketcher;
 use crate::syntax::{Tokens, Visit, Visitor, named, text, visit};
 
 /// blake3 over the leaf tokens of `node`, each followed by a 0x00 byte, its strings and the
@@ -18,6 +19,17 @@ use crate::syntax::{Tokens, Visit, Visitor, named, text, visit};
 /// parentheses and a `;` after each statement. The whole of `node` is one scope, as for a Python
 /// def: a name bound anywhere in it reads as `$<n>` by first binding, and its own name as `$fn`.
 pub(super) fn fn_hash(node: Node, src: &[u8]) -> String {
+    hash_with(node, src, |_| {})
+}
+
+/// `fn_hash` and a sketch of the same tokens.
+pub(super) fn fn_hash_sketched(node: Node, src: &[u8]) -> (String, Option<String>) {
+    let mut sketcher = Sketcher::new();
+    let hash = hash_with(node, src, |token| sketcher.push(token));
+    (hash, sketcher.finish())
+}
+
+fn hash_with(node: Node, src: &[u8], mut also: impl FnMut(&str)) -> String {
     let mut hasher = blake3::Hasher::new();
     let own_node = node.child_by_field_name("name");
     let mut walk = Walk {
@@ -30,6 +42,7 @@ pub(super) fn fn_hash(node: Node, src: &[u8]) -> String {
         tokens: Tokens::new(|token: &str| {
             hasher.update(token.as_bytes());
             hasher.update(&[0]);
+            also(token);
         }),
     };
     visit(node, &mut walk);

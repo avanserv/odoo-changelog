@@ -16,6 +16,7 @@ mod path;
 mod python;
 mod rename;
 mod scss;
+mod sketch;
 mod symbol;
 mod syntax;
 mod xml;

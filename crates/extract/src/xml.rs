@@ -285,6 +285,7 @@ impl<'d> Walker<'d> {
                 span: decl.span,
                 attrs,
                 parts: parts.filter(|_| spellings[kind].both(name)),
+                sketch: None,
             };
             keep(&mut table, symbol);
             let owner = if nodes.is_empty() {
@@ -304,6 +305,7 @@ impl<'d> Walker<'d> {
                     span: node.span,
                     attrs: node_attrs,
                     parts: None,
+                    sketch: None,
                 };
                 keep(&mut table, symbol);
             }

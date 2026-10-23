@@ -40,7 +40,7 @@ impl Extractor for Python {
     /// Bump with any change to the output, including a tree-sitter or tree-sitter-python upgrade
     /// and changes to `syntax`.
     fn version(&self) -> u32 {
-        2
+        3
     }
 
     /// Importable files only: migration scripts and other paths that are no Python identifier
@@ -273,6 +273,7 @@ fn symbol(kind: &str, name: String, at: Node, attrs: BTreeMap<String, Value>) ->
         span,
         attrs,
         parts: None,
+        sketch: None,
     }
 }
 
@@ -424,7 +425,7 @@ impl<'t> Reader<'t> {
     fn function(&mut self, def: Node<'t>, decorators: &[Node<'t>]) {
         if let Some(name) = def.child_by_field_name("name") {
             let fname = self.text(name).into_owned();
-            let function = symbol(FUNCTION, fname.clone(), name, self.def_attrs(def, decorators));
+            let function = self.def_symbol(FUNCTION, fname.clone(), name, def, decorators);
             self.bindings.insert(fname, vec![function]);
         }
     }
@@ -513,7 +514,7 @@ impl<'t> Reader<'t> {
                 "function_definition" | "decorated_definition" => {
                     if let Some((def, decorators)) = self.definition(statement) {
                         let name = def.child_by_field_name("name").expect("a def has a name");
-                        let method = symbol(METHOD, self.text(name).into(), name, self.def_attrs(def, &decorators));
+                        let method = self.def_symbol(METHOD, self.text(name).into(), name, def, &decorators);
                         members.insert((METHOD, method.name.clone()), method.into());
                     }
                 }
@@ -688,12 +689,7 @@ impl<'t> Reader<'t> {
                 continue;
             }
             let qualified = format!("{class}.{method}");
-            let mut symbols = vec![symbol(
-                FUNCTION,
-                qualified.clone(),
-                at,
-                self.def_attrs(def, &decorators),
-            )];
+            let mut symbols = vec![self.def_symbol(FUNCTION, qualified.clone(), at, def, &decorators)];
             symbols.extend(route.map(|attrs| symbol(ROUTE, qualified, at, attrs)));
             methods.insert(method, symbols);
         }
@@ -732,6 +728,17 @@ impl<'t> Reader<'t> {
         Some(attrs)
     }
 
+    /// A def named `name` at `at`, with its body's sketch.
+    fn def_symbol(&self, kind: &str, name: String, at: Node, def: Node<'t>, decorators: &[Node<'t>]) -> Symbol {
+        let (body, sketch) = body_hash(def, self.src);
+        let mut attrs = self.def_attrs(def, decorators);
+        attrs.insert("body".into(), body.into());
+        Symbol {
+            sketch,
+            ..symbol(kind, name, at, attrs)
+        }
+    }
+
     fn def_attrs(&self, def: Node<'t>, decorators: &[Node<'t>]) -> BTreeMap<String, Value> {
         let signature: Vec<Value> = def
             .child_by_field_name("parameters")
@@ -740,10 +747,7 @@ impl<'t> Reader<'t> {
             .into_iter()
             .map(|p| self.parameter(p).into())
             .collect();
-        let mut attrs = BTreeMap::from([
-            ("signature".to_string(), Value::from(signature)),
-            ("body".to_string(), body_hash(def, self.src).into()),
-        ]);
+        let mut attrs = BTreeMap::from([("signature".to_string(), Value::from(signature))]);
         if !decorators.is_empty() {
             attrs.insert("decorators".into(), self.decorators(decorators));
         }
