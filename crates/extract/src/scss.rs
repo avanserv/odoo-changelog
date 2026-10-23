@@ -608,6 +608,7 @@ impl Reader<'_> {
             line: self.lines.line(def.span.start as usize),
             span: def.span,
             attrs,
+            parts: None,
         };
         if self.budget.symbol(&symbol) {
             self.table.insert(symbol);
@@ -632,6 +633,7 @@ impl Reader<'_> {
                     line: self.lines.line(variable.span.start as usize),
                     span: variable.span,
                     attrs,
+                    parts: None,
                 });
             }
         }
@@ -653,6 +655,7 @@ impl Reader<'_> {
             line: 1,
             span: Span::default(),
             attrs,
+            parts: None,
         };
         if self.budget.symbol(&stylesheet) {
             self.table.insert(stylesheet);

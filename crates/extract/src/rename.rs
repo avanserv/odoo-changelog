@@ -422,6 +422,7 @@ mod tests {
                 line: 1,
                 span: Span::default(),
                 attrs: attrs.clone().into_iter().collect(),
+                parts: None,
             });
         }
         t

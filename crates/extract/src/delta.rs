@@ -182,16 +182,36 @@ type Key = (String, String);
 /// The indexes of the removed and of the added symbols under each `(kind, unscoped qualname)`.
 type Groups<'a> = BTreeMap<(&'a str, &'a str), (Vec<usize>, Vec<usize>)>;
 
-/// The symbols `keeps` lets through, keeping the first when `qualify` gives two the same name.
+/// The symbols `keeps` lets through, those `qualify` gives one name merged by `Extractor::merge`.
 fn qualified<'a>(ex: &dyn Extractor, side: Side<'a>) -> BTreeMap<Key, Found<'a>> {
-    let mut out = BTreeMap::new();
-    if let Some((path, table)) = side {
-        for symbol in table.iter().filter(|s| ex.keeps(path, s)) {
-            out.entry((symbol.kind.clone(), ex.qualify(path, symbol)))
-                .or_insert_with(|| found(ex, path, symbol));
-        }
+    let Some((path, table)) = side else {
+        return BTreeMap::new();
+    };
+    let mut named: BTreeMap<Key, Vec<&Symbol>> = BTreeMap::new();
+    for symbol in table.iter().filter(|s| ex.keeps(path, s)) {
+        named
+            .entry((symbol.kind.clone(), ex.qualify(path, symbol)))
+            .or_default()
+            .push(symbol);
     }
-    out
+    named
+        .into_iter()
+        .map(|(key, symbols)| {
+            let found = match symbols.as_slice() {
+                [symbol] => found(ex, path, symbol),
+                _ => {
+                    let merged = symbols.into_iter().cloned().reduce(|a, b| ex.merge(a, b));
+                    let merged = merged.expect("a name has a symbol");
+                    Found {
+                        path,
+                        line: merged.line,
+                        attrs: Cow::Owned(ex.qualify_attrs(path, &merged).into_owned()),
+                    }
+                }
+            };
+            (key, found)
+        })
+        .collect()
 }
 
 fn found<'a>(ex: &dyn Extractor, path: &'a str, symbol: &'a Symbol) -> Found<'a> {
@@ -348,6 +368,7 @@ mod tests {
                 end: line * 10 + 1,
             },
             attrs: attrs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+            parts: None,
         }
     }
 

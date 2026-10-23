@@ -6,14 +6,14 @@ pub(crate) mod arch;
 pub(crate) mod dom;
 pub(crate) mod refs;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 
 use crate::bound::{Budget, bounded};
 use crate::data::{ACTION, DATA_FUNCTION, DELETE, MENU, RECORD, VIEW, VIEW_NODE, kind_of};
 use crate::hash::digest;
-use crate::{Span, Symbol, SymbolTable};
+use crate::{Parts, Span, Symbol, SymbolTable};
 use dom::{Attr, Element, Node, elements};
 use refs::Refs;
 
@@ -64,12 +64,13 @@ struct Decl<'d> {
     noupdate: bool,
     line: u32,
     span: Span,
-    /// The declaring elements' attributes but the id, later ones winning.
-    attrs: BTreeMap<&'d str, &'d str>,
+    /// The declaring elements' attributes but the id, later ones winning, with the line of
+    /// their element.
+    attrs: BTreeMap<&'d str, (&'d str, u32)>,
     /// A record's fields by name, later ones winning.
     fields: BTreeMap<&'d str, &'d Element>,
-    /// The content of a template, asset or call, the last declaration's.
-    content: Option<&'d [Node]>,
+    /// The content of a template, asset or call, the last declaration's, and its element's line.
+    content: Option<(&'d [Node], u32)>,
 }
 
 impl<'d> Decl<'d> {
@@ -78,7 +79,7 @@ impl<'d> Decl<'d> {
             .attrs
             .iter()
             .filter(|a| !skip.contains(&a.name.as_str()))
-            .map(|a| (a.name.as_str(), a.value.as_str()))
+            .map(|a| (a.name.as_str(), (a.value.as_str(), el.line)))
             .collect();
         Decl {
             declared,
@@ -157,7 +158,7 @@ impl<'d> Walker<'d> {
             return self.warn(el.line, "template without id ignored");
         };
         let mut decl = Decl::new("template", id, el, &[id.name.as_str()], noupdate);
-        decl.content = Some(&el.children);
+        decl.content = Some((&el.children, el.line));
         self.declare(VIEW, id, decl);
     }
 
@@ -168,7 +169,7 @@ impl<'d> Walker<'d> {
         };
         let mut decl = Decl::new("menuitem", id, el, &["id"], noupdate);
         if let Some(parent) = parent {
-            decl.attrs.insert("parent", parent);
+            decl.attrs.insert("parent", (parent, el.line));
         }
         self.declare(MENU, id, decl);
         for child in el.elements().filter(|c| c.tag == "menuitem") {
@@ -186,7 +187,7 @@ impl<'d> Walker<'d> {
             return self.warn(el.line, format!("{declared} without id ignored"));
         };
         let mut decl = Decl::new(declared, id, el, &["id"], noupdate);
-        decl.content = Some(&el.children);
+        decl.content = Some((&el.children, el.line));
         self.declare(kind, id, decl);
     }
 
@@ -196,7 +197,7 @@ impl<'d> Walker<'d> {
             return self.warn(el.line, format!("function without {missing} ignored"));
         };
         let mut decl = Decl::new("function", name, el, &[], noupdate);
-        decl.content = Some(&el.children);
+        decl.content = Some((&el.children, el.line));
         let table_name = self.occurrence(DATA_FUNCTION, format!("{model}#{}", name.value));
         self.insert(DATA_FUNCTION, table_name, decl);
     }
@@ -268,8 +269,12 @@ impl<'d> Walker<'d> {
                 table.insert(symbol);
             }
         };
+        let mut spellings: BTreeMap<&str, Spellings> = BTreeMap::new();
+        for (kind, name) in self.decls.keys() {
+            spellings.entry(kind).or_default().add(name);
+        }
         for ((kind, name), decl) in &self.decls {
-            let (mut attrs, nodes) = attrs(kind, decl);
+            let (mut attrs, nodes, parts) = attrs(kind, decl);
             if decl.declared != "delete" {
                 references(decl).put(&mut attrs);
             }
@@ -279,6 +284,7 @@ impl<'d> Walker<'d> {
                 line: decl.line,
                 span: decl.span,
                 attrs,
+                parts: parts.filter(|_| spellings[kind].both(name)),
             };
             keep(&mut table, symbol);
             let owner = if nodes.is_empty() {
@@ -297,6 +303,7 @@ impl<'d> Walker<'d> {
                     line: node.line,
                     span: node.span,
                     attrs: node_attrs,
+                    parts: None,
                 };
                 keep(&mut table, symbol);
             }
@@ -311,26 +318,51 @@ impl<'d> Walker<'d> {
     }
 }
 
-/// The attrs of a declaration, and the named nodes of a view.
-fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNode>) {
+/// The ids of one kind a file declares, bare and the local part of the dotted ones, to tell which
+/// it writes both ways, `x` beside `<module>.x`, which `qualify` may name alike.
+#[derive(Default)]
+pub(crate) struct Spellings<'a> {
+    bare: BTreeSet<&'a str>,
+    dotted: BTreeSet<&'a str>,
+}
+
+impl<'a> Spellings<'a> {
+    pub(crate) fn add(&mut self, name: &'a str) {
+        match name.split_once('.') {
+            Some((_, local)) => self.dotted.insert(local),
+            None => self.bare.insert(name),
+        };
+    }
+
+    pub(crate) fn both(&self, name: &str) -> bool {
+        match name.split_once('.') {
+            Some((_, local)) => self.bare.contains(local),
+            None => self.dotted.contains(name),
+        }
+    }
+}
+
+/// The attrs of a declaration, the named nodes of a view, and the parts its `values` hashes.
+fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNode>, Option<Parts>) {
     let mut out = BTreeMap::new();
-    let a = |key: &str| decl.attrs.get(key).map(|v| Value::from(*v));
+    let a = |key: &str| decl.attrs.get(key).map(|(v, _)| Value::from(*v));
     let f = |key: &str| decl.fields.get(key).copied().map(clear);
     let mut nodes = Vec::new();
     match decl.declared {
         "function" => {
             put(&mut out, "model", a("model"));
             put(&mut out, "name", a("name"));
-            put(&mut out, "values", values(decl, &["model", "name"], &[], decl.content));
+            let parts = parts(decl, &["model", "name"], &[], decl.content);
+            put(&mut out, "values", values_of(&parts));
             if decl.noupdate {
                 out.insert("noupdate".into(), true.into());
             }
-            return (out, nodes);
+            return (out, nodes, Some(parts));
         }
         "delete" => {
             put(&mut out, "model", a("model"));
             put(&mut out, "search", a("search"));
-            return (out, nodes);
+            return (out, nodes, None);
         }
         _ => {}
     }
@@ -339,23 +371,22 @@ fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNo
     if decl.noupdate {
         out.insert("noupdate".into(), true.into());
     }
-    match (kind, decl.declared) {
+    let parts = match (kind, decl.declared) {
         (VIEW, "template") => {
-            let arch = decl.content.unwrap_or_default();
+            let arch = decl.content.map(|(c, _)| c).unwrap_or_default();
             let inheriting = decl.attrs.contains_key("inherit_id");
             put(&mut out, "name", a("name"));
             put(&mut out, "inherit_id", a("inherit_id"));
             put(&mut out, "priority", a("priority"));
             out.insert("type".into(), "qweb".into());
             let mode = match decl.attrs.get("primary") {
-                Some(&"True") => "primary",
+                Some(("True", _)) => "primary",
                 _ if inheriting => "extension",
                 _ => "primary",
             };
             out.insert("mode".into(), mode.into());
             nodes = view_arch(&mut out, arch, inheriting);
-            let skip = ["name", "inherit_id", "priority", "primary"];
-            put(&mut out, "values", values(decl, &skip, &[], None));
+            parts(decl, &["name", "inherit_id", "priority", "primary"], &[], None)
         }
         (VIEW, _) => {
             let arch = decl.fields.get("arch").map(|field| field.children.as_slice());
@@ -374,30 +405,31 @@ fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNo
             if let Some(arch) = arch {
                 nodes = view_arch(&mut out, arch, inheriting);
             }
-            put(&mut out, "values", values(decl, &[], &["arch"], None));
+            parts(decl, &[], &["arch"], None)
         }
         (MENU, "menuitem") => {
-            for (key, value) in &decl.attrs {
+            for (key, (value, _)) in &decl.attrs {
                 let value = match *key {
                     "groups" => value.split(',').map(|g| Value::from(g.trim())).collect(),
                     _ => Value::from(*value),
                 };
                 out.insert((*key).into(), value);
             }
+            return (out, nodes, None);
         }
         (_, "report") => {
             put(&mut out, "name", a("string"));
             put(&mut out, "model", a("model"));
-            put(&mut out, "values", values(decl, &["string", "model"], &[], None));
+            parts(decl, &["string", "model"], &[], None)
         }
         (_, "act_window") => {
             put(&mut out, "name", a("name"));
             put(&mut out, "res_model", a("res_model"));
-            put(&mut out, "values", values(decl, &["name", "res_model"], &[], None));
+            parts(decl, &["name", "res_model"], &[], None)
         }
         (_, "asset") => {
             put(&mut out, "name", a("name"));
-            put(&mut out, "values", values(decl, &["name"], &[], decl.content));
+            parts(decl, &["name"], &[], decl.content)
         }
         _ => {
             for key in ["name", "model", "res_model"] {
@@ -405,17 +437,18 @@ fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNo
             }
             let model_id = decl.fields.get("model_id").and_then(|field| field.attr("ref"));
             put(&mut out, "model_id", model_id.map(Value::from));
-            put(&mut out, "values", values(decl, &[], &[], None));
+            parts(decl, &[], &[], None)
         }
-    }
-    (out, nodes)
+    };
+    put(&mut out, "values", values_of(&parts));
+    (out, nodes, Some(parts))
 }
 
 /// The xmlids a declaration names: in its own attributes, its fields' `ref`, `eval` and text,
 /// and the arch or content it holds, of which an inheriting view's specs only put in their content.
 fn references(decl: &Decl) -> Refs {
     let mut refs = Refs::default();
-    for (key, value) in &decl.attrs {
+    for (key, (value, _)) in &decl.attrs {
         match *key {
             "groups" => refs.ids(value),
             "parent" | "action" | "inherit_id" => refs.id(value),
@@ -443,7 +476,7 @@ fn references(decl: &Decl) -> Refs {
             refs.text(&text(field));
         }
     }
-    if let Some(content) = decl.content {
+    if let Some((content, _)) = decl.content {
         arch(&mut refs, content, decl.declared == "template");
     }
     refs
@@ -499,20 +532,18 @@ fn text(el: &Element) -> String {
         .collect()
 }
 
-/// A hash, or None when there is nothing to hash: the declaration's attributes but `skip`, as
-/// `name 0x02 value 0x00` in name order, then every field but `skip_fields`, those the attrs hold
-/// in clear included, as `0x07 name 0x00`, its other attributes likewise, `0x03`, its content and
-/// `0x04`, then `0x06` and `content` when it has any. Plain field text is hashed as written, since
-/// Odoo stores it verbatim (Python code is indentation-sensitive); markup like an arch.
-fn values(decl: &Decl, skip: &[&str], skip_fields: &[&str], content: Option<&[Node]>) -> Option<Value> {
-    let mut hasher = blake3::Hasher::new();
-    let mut empty = true;
-    for (name, value) in decl.attrs.iter().filter(|(n, _)| !skip.contains(n)) {
-        hasher.update(name.as_bytes());
-        hasher.update(&[0x02]);
+/// What `values` hashes: each of the declaration's attributes but `skip` as `@<name>`, the hash
+/// of its value; each field but `skip_fields` by name, those the attrs hold in clear included,
+/// the hash of `0x07 name 0x00`, its other attributes as `name 0x02 value 0x00`, `0x03`, its
+/// content and `0x04`; and `#content`, the hash of `content` when it has any. Plain field text is
+/// hashed as written, since Odoo stores it verbatim (Python code is indentation-sensitive);
+/// markup like an arch.
+fn parts(decl: &Decl, skip: &[&str], skip_fields: &[&str], content: Option<(&[Node], u32)>) -> Parts {
+    let mut out = Parts::new();
+    for (name, (value, line)) in decl.attrs.iter().filter(|(n, _)| !skip.contains(n)) {
+        let mut hasher = blake3::Hasher::new();
         hasher.update(value.as_bytes());
-        hasher.update(&[0x00]);
-        empty = false;
+        out.insert(format!("@{name}"), (*line, digest(&hasher)));
     }
     for (name, field) in decl.fields.iter().filter(|(n, _)| !skip_fields.contains(n)) {
         let mut attrs: Vec<(&str, &str)> = field
@@ -522,19 +553,32 @@ fn values(decl: &Decl, skip: &[&str], skip_fields: &[&str], content: Option<&[No
             .map(|a| (a.name.as_str(), a.value.as_str()))
             .collect();
         attrs.sort();
+        let mut hasher = blake3::Hasher::new();
         if is_markup(field) {
             feed_field_with(&mut hasher, name, &attrs, |h| arch::feed(h, &field.children));
         } else {
             feed_field(&mut hasher, name, &attrs, &text(field));
         }
-        empty = false;
+        out.insert((*name).to_string(), (field.line, digest(&hasher)));
     }
-    if let Some(content) = content.filter(|c| elements(c).next().is_some()) {
-        hasher.update(&[0x06]);
+    if let Some((content, line)) = content.filter(|(c, _)| elements(c).next().is_some()) {
+        let mut hasher = blake3::Hasher::new();
         arch::feed(&mut hasher, content);
-        empty = false;
+        out.insert("#content".into(), (line, digest(&hasher)));
     }
-    (!empty).then(|| digest(&hasher).into())
+    out
+}
+
+/// A hash over each part as `key 0x00 hash 0x00`, in key order, or None when there is none.
+pub(crate) fn values_of(parts: &Parts) -> Option<Value> {
+    let mut hasher = blake3::Hasher::new();
+    for (key, (_, hash)) in parts {
+        hasher.update(key.as_bytes());
+        hasher.update(&[0x00]);
+        hasher.update(hash.as_bytes());
+        hasher.update(&[0x00]);
+    }
+    (!parts.is_empty()).then(|| digest(&hasher).into())
 }
 
 /// A plain field as `values` hashes it, with `attrs` in name order and without `name`, so that

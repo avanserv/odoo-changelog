@@ -17,7 +17,7 @@
         "priority": "20",
         "record_model": "ir.ui.view",
         "type": "form",
-        "values": "3b0aee71b793ff5e477da1d8b5a1efbb"
+        "values": "f117f24e45075cc889a60d3ab9b84cb0"
       }
     },
     {
@@ -36,7 +36,7 @@
         "name": "demo.order.search",
         "record_model": "ir.ui.view",
         "type": "search",
-        "values": "89ce6bfad59c58884f43a79697fa3267"
+        "values": "e62bb85b1e3b78c95d60ce0b8ed076e2"
       }
     },
     {

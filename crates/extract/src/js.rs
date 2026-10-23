@@ -199,6 +199,7 @@ fn symbol(kind: &str, name: String, at: Node, attrs: BTreeMap<String, Value>) ->
         line,
         span,
         attrs,
+        parts: None,
     }
 }
 
@@ -1468,6 +1469,7 @@ impl<'t> Reader<'t> {
                 end: at.end as u32,
             },
             attrs,
+            parts: None,
         });
         let Some(alias) = header.and_then(|h| h.alias.map(|a| (a, h.default))) else {
             return;
@@ -1489,6 +1491,7 @@ impl<'t> Reader<'t> {
                 end: at.end as u32,
             },
             attrs,
+            parts: None,
         });
     }
 

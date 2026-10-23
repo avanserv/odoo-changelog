@@ -45,6 +45,7 @@ pub(crate) fn symbols(sheet: &Sheet, table: &mut SymbolTable, warnings: &mut War
                 line: row.line,
                 span: sheet.span(row, id),
                 attrs,
+                parts: None,
             });
     }
     for symbol in rows.into_values() {

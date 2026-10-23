@@ -64,7 +64,7 @@ impl Extractor for Data {
     /// Bump with any change to the output, including a quick-xml upgrade and changes to
     /// `xml::dom` or `xml::arch`, which `owl` shares.
     fn version(&self) -> u32 {
-        3
+        4
     }
 
     /// Data files of a module, wherever they sit (views/, data/, template/, tests/, ...): Odoo
@@ -156,6 +156,68 @@ impl Extractor for Data {
         }
         out.map_or(Cow::Borrowed(&symbol.attrs), Cow::Owned)
     }
+
+    /// An id the file declares both bare and with its module is one record, which Odoo updates in
+    /// file order: each part of `values` comes from the declaration that set it last, as does an
+    /// attr named like a part, and any other attr from the symbol declared last, but `references`,
+    /// which joins both. Without parts, the symbol declared last replaces the other. The merged
+    /// symbol keeps the first line and span.
+    fn merge(&self, a: Symbol, b: Symbol) -> Symbol {
+        let last = |s: &Symbol| {
+            let parts = s.parts.iter().flat_map(|p| p.values().map(|(line, _)| *line));
+            parts.max().unwrap_or(s.line)
+        };
+        let (first, later) = if last(&a) <= last(&b) { (a, b) } else { (b, a) };
+        let (line, span) = if first.line <= later.line {
+            (first.line, first.span)
+        } else {
+            (later.line, later.span)
+        };
+        let (Some(first_parts), Some(later_parts)) = (&first.parts, &later.parts) else {
+            return Symbol { line, span, ..later };
+        };
+        let mut parts = first_parts.clone();
+        for (key, part) in later_parts {
+            if parts.get(key).is_none_or(|(line, _)| part.0 >= *line) {
+                parts.insert(key.clone(), part.clone());
+            }
+        }
+        let mut attrs = first.attrs.clone();
+        attrs.extend(later.attrs.clone());
+        for (key, part) in &parts {
+            let owner = if later_parts.get(key) == Some(part) {
+                &later
+            } else {
+                &first
+            };
+            match owner.attrs.get(key) {
+                Some(value) => attrs.insert(key.clone(), value.clone()),
+                None => attrs.remove(key),
+            };
+        }
+        let mut references: Vec<Value> = [&first, &later]
+            .iter()
+            .filter_map(|s| s.attrs.get("references")?.as_array())
+            .flatten()
+            .cloned()
+            .collect();
+        references.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+        references.dedup();
+        if !references.is_empty() {
+            attrs.insert("references".into(), references.into());
+        }
+        attrs.remove("values");
+        if let Some(values) = xml::values_of(&parts) {
+            attrs.insert("values".into(), values);
+        }
+        Symbol {
+            line,
+            span,
+            attrs,
+            parts: Some(parts),
+            ..later
+        }
+    }
 }
 
 /// The model a CSV data file loads into, as `convert_csv_import` reads it: its name up to the
@@ -194,6 +256,7 @@ mod tests {
             line: 1,
             span: Span::default(),
             attrs: serde_json::from_value(attrs).unwrap(),
+            parts: None,
         }
     }
 
