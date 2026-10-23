@@ -9,7 +9,7 @@
         "end": 182
       },
       "attrs": {
-        "body": "388bd25ade62068eb089c08413de9483",
+        "body": "7ce5ea29fdeac1ba2394ce796b3ba06e",
         "kind": "function",
         "params": [
           "config={}"
@@ -27,7 +27,7 @@
       "attrs": {
         "kind": "const",
         "value": {
-          "fn": "c76f160713653def8c097dc3b8034c52"
+          "fn": "5a58646e994545162e1314f7fcfb0935"
         }
       }
     },

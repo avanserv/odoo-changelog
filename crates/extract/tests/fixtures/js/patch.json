@@ -107,7 +107,7 @@
         "declared": "patch",
         "members": {
           "onCellClicked": {
-            "fn": "11535a86f00984e214250c595df842d6"
+            "fn": "96ccf197810d2cfd07b91b6c9b25ed86"
           }
         },
         "name": "demo.ListRenderer"

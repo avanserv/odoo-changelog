@@ -44,5 +44,7 @@ keeps its call as `declared`, a mail patch its calls, and both their sections by
 14.0 or 15.0 patch call fills the section it patches and adds its free-text patch name to
 `names`. A field reads as its helper's `type`, such as `many` or `one2many`, and `args`.
 Functions, methods and classes are a hash of their tokens without layout, comments, quote style,
-trailing commas, semicolons or their own name. A file that does not fully parse still gives the symbols
+trailing commas, semicolons, their own name or local names: a name bound anywhere inside reads by
+the order it is first bound, so a consistent rename of a local hashes alike. A shorthand `{ a }`
+keeps `a` as the key it also names. A file that does not fully parse still gives the symbols
 around the error and leaves a warning.
