@@ -615,6 +615,7 @@ mod tests {
         let referrers = ["xml-caller".to_string()];
         let old = OldSide {
             symbol_id: &[3u8; 32],
+            kind: "rule",
             qualname: "xml-old",
             path: "g",
             module: None,
@@ -660,6 +661,11 @@ mod tests {
             rename,
             (0.75, r#"["type","refs"]"#.to_string(), r#"["xml-caller"]"#.to_string())
         );
+        let old_kind: String = store
+            .conn
+            .query_row("SELECT kind FROM symbols WHERE qualname = 'xml-old'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(old_kind, "rule");
 
         assert_eq!(store.sync_extractors(&[("py", 2), ("xml", 1)]).unwrap(), ["py"]);
         for table in ["events", "extracted", "blob_cache"] {

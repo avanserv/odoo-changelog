@@ -28,12 +28,13 @@ pub struct EventRow<'a> {
     pub line: i64,
     pub attrs_before: Option<&'a str>,
     pub attrs_after: Option<&'a str>,
-    /// Where a moved or renamed symbol was; it keeps the kind of the new one.
+    /// Where a moved or renamed symbol was.
     pub old: Option<OldSide<'a>>,
 }
 
 pub struct OldSide<'a> {
     pub symbol_id: &'a [u8],
+    pub kind: &'a str,
     pub qualname: &'a str,
     pub path: &'a str,
     pub module: Option<&'a str>,
@@ -175,7 +176,7 @@ impl Store {
             let referrers = rename.map(|r| serde_json::to_string(r.referrers)).transpose()?;
             symbol.execute(params![e.symbol_id, e.kind, e.qualname])?;
             if let Some(old) = &e.old {
-                symbol.execute(params![old.symbol_id, e.kind, old.qualname])?;
+                symbol.execute(params![old.symbol_id, old.kind, old.qualname])?;
             }
             event.execute(params![
                 repo_id,

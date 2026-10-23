@@ -40,8 +40,8 @@ pub use symbol::{Parts, Span, Symbol, SymbolId, SymbolTable};
 pub trait Extractor: Send + Sync {
     /// Stored in the database; never rename.
     fn name(&self) -> &'static str;
-    /// Bump on any change to what `extract`, `qualify`, `qualify_attrs`, `module` or `parent`
-    /// returns for some input.
+    /// Bump on any change to what `extract`, `qualify`, `qualify_attrs`, `module`, `parent` or
+    /// `rekinds` returns for some input.
     fn version(&self) -> u32;
     /// Decides from the path alone, before any blob is read.
     fn claims(&self, path: &str) -> bool;
@@ -74,6 +74,11 @@ pub trait Extractor: Send + Sync {
     /// One symbol of two that `qualify` names alike in one file, `a` before `b` in the table.
     fn merge(&self, a: Symbol, _b: Symbol) -> Symbol {
         a
+    }
+    /// The `(old, new)` kinds a symbol may change between while keeping its qualname, as one thing
+    /// re-declared in another form; a commit doing so gives one rename.
+    fn rekinds(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
     }
 }
 

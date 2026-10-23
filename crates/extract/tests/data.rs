@@ -811,3 +811,53 @@ fn a_csv_id_written_bare_and_qualified_is_one_record() {
     assert_eq!(merged.keys().collect::<Vec<_>>(), ["sale.x@sale"]);
     assert_eq!(merged, qualified(path, once));
 }
+
+#[test]
+fn a_rule_redeclared_as_an_access_right_is_one_renamed_symbol() {
+    let rules = br#"<odoo>
+        <record id="order_rule" model="ir.rule"><field name="name">Own orders</field></record>
+        <record id="order_view" model="ir.ui.view"><field name="model">sale.order</field></record>
+        <record id="twice_rule" model="ir.rule"><field name="name">Twice</field></record>
+    </odoo>"#;
+    let again = br#"<odoo><record id="twice_rule" model="ir.rule"/></odoo>"#;
+    let rights = b"id,name,model_id,group_id/id,operation,domain\n\
+        order_rule,Own orders,sale.order,base.group_user,r,[]\n\
+        twice_rule,Twice,sale.order,,r,[]\n";
+    let records = br#"<odoo><record id="order_view" model="sale.order"/></odoo>"#;
+    let dir = "addons/sale/security";
+    let (rules_xml, again_xml) = (format!("{dir}/rules.xml"), format!("{dir}/again.xml"));
+    let (rights_csv, records_xml) = (format!("{dir}/ir.access.csv"), format!("{dir}/records.xml"));
+    let read = |src: &[u8]| Data.extract(src).unwrap();
+    let (rules, again, rights, records) = (read(rules), read(again), read(rights), read(records));
+    let changes = delta(
+        &Data,
+        &[
+            (Some((&rules_xml, &rules)), None),
+            (Some((&again_xml, &again)), None),
+            (None, Some((&rights_csv, &rights))),
+            (None, Some((&records_xml, &records))),
+        ],
+    );
+    let ops: BTreeSet<(&str, &str, &str)> = changes
+        .iter()
+        .map(|d| (d.kind.as_str(), d.qualname.as_str(), d.op.as_str()))
+        .collect();
+    let expected = [
+        ("access", "sale.order_rule@sale", "renamed"),
+        // A view and a record sharing an id are not one thing.
+        ("view", "sale.order_view@sale", "removed"),
+        ("record", "sale.order_view@sale", "added"),
+        // Two rules leave under one id, so neither pairs with the access right.
+        ("access", "sale.twice_rule@sale", "added"),
+        ("rule", "sale.twice_rule@sale", "removed"),
+    ];
+    assert_eq!(ops, BTreeSet::from(expected));
+    let renamed = changes.iter().find(|d| d.op == Op::Renamed).unwrap();
+    let old = renamed.old.as_ref().unwrap();
+    assert_eq!((old.kind.as_str(), old.path.as_str()), ("rule", rules_xml.as_str()));
+    let rename = renamed.rename.as_ref().unwrap();
+    assert_eq!(
+        (rename.confidence, rename.signals.as_slice()),
+        (1.0, ["kind".to_string()].as_slice())
+    );
+}

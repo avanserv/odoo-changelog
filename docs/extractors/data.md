@@ -23,8 +23,9 @@ module, as Odoo's `make_xml_id` does: in qualnames, and in the references `inher
 The `@<module>` suffix is the module whose file declares the symbol, so an override of another
 module's record has a history of its own. Declarations of one id in a file merge, the later
 fields winning, as Odoo updates the record, an id written bare and with the file's module
-(`x` and `sale.x`) included. `declared` says which tag declared the symbol, so a
-`<report>` that became an `ir.actions.report` record is one `changed` event.
+(`x` and `sale.x`) included. `declared` says which tag declared the symbol, so a `<report>` that
+became an `ir.actions.report` record is one `changed` event, and a `rule` re-declared as an
+`access` under its xmlid is one [rename](../extract.md#renames).
 
 ## Attributes
 

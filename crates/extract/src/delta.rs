@@ -15,7 +15,8 @@ pub enum Op {
     /// At another path than before: across a renamed file, or removed from one file and added to
     /// another under the same qualname once each side's `@<module>` suffix is stripped.
     Moved,
-    /// Removed under one qualname and added under another, paired by `rename::pairs`.
+    /// Removed under one qualname and added under another, paired by `rename::pairs`, or under
+    /// one qualname with a kind `Extractor::rekinds` lets it change to.
     Renamed,
 }
 
@@ -59,6 +60,8 @@ pub struct Delta {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Origin {
     pub id: SymbolId,
+    /// A rename may change it.
+    pub kind: String,
     pub qualname: String,
     pub path: String,
     pub module: Option<String>,
@@ -68,7 +71,8 @@ pub struct Origin {
 /// `(path, kind, qualname)` order. Each side is qualified with its own path, attrs included, and
 /// compared after that. A symbol removed from one file and added to another is one move only when
 /// it is alone in this commit to leave and to enter under its kind and unscoped name. The removals
-/// and additions left are then paired into renames where the evidence is strong enough.
+/// and additions left are then paired into renames: under one qualname where only the kind
+/// changed, as `Extractor::rekinds` allows, then where the evidence is strong enough.
 pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
     let mut out = Vec::new();
     let (mut removed, mut added) = (Vec::new(), Vec::new());
@@ -126,6 +130,7 @@ pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
 
     let removed: Vec<_> = removed.into_iter().flatten().collect();
     let added: Vec<_> = added.into_iter().flatten().collect();
+    let (removed, added) = rekinded(ex, removed, added, &mut out);
     let renames = {
         let refs: Vec<Change> = out
             .iter()
@@ -159,6 +164,60 @@ pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
     out
 }
 
+type Leftovers<'a> = Vec<(Key, Found<'a>)>;
+
+/// Pairs a removal and an addition of one qualname whose kind changed as `Extractor::rekinds`
+/// allows, one against one only, as the move pass pairs, into renames with full confidence.
+fn rekinded<'a>(
+    ex: &dyn Extractor,
+    removed: Leftovers<'a>,
+    added: Leftovers<'a>,
+    out: &mut Vec<Delta>,
+) -> (Leftovers<'a>, Leftovers<'a>) {
+    let rekinds = ex.rekinds();
+    if rekinds.is_empty() {
+        return (removed, added);
+    }
+    let pairs: Vec<(usize, usize)> = {
+        // By `(old kind, new kind, qualname)`.
+        let mut groups: BTreeMap<(&str, &str, &str), Indexes> = BTreeMap::new();
+        for &(old, new) in rekinds {
+            for (i, ((kind, qualname), _)) in removed.iter().enumerate().filter(|(_, (k, _))| k.0 == old) {
+                groups.entry((kind, new, qualname)).or_default().0.push(i);
+            }
+            for (j, ((kind, qualname), _)) in added.iter().enumerate().filter(|(_, (k, _))| k.0 == new) {
+                groups.entry((old, kind, qualname)).or_default().1.push(j);
+            }
+        }
+        groups
+            .into_values()
+            .filter_map(|(r, a)| match (r.as_slice(), a.as_slice()) {
+                (&[r], &[a]) => Some((r, a)),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut removed: Vec<_> = removed.into_iter().map(Some).collect();
+    let mut added: Vec<_> = added.into_iter().map(Some).collect();
+    for (r, a) in pairs {
+        // A kind two declared pairs share is taken once.
+        if let (Some(_), Some(_)) = (&removed[r], &added[a]) {
+            let (r, a) = (removed[r].take(), added[a].take());
+            let mut d = relocated(ex, Op::Renamed, r.expect("checked"), a.expect("checked"));
+            d.rename = Some(Rename {
+                confidence: 1.0,
+                signals: vec!["kind".into()],
+                referrers: Vec::new(),
+            });
+            out.push(d);
+        }
+    }
+    (
+        removed.into_iter().flatten().collect(),
+        added.into_iter().flatten().collect(),
+    )
+}
+
 fn items<'s>(side: &'s [(Key, Found)]) -> Vec<Item<'s>> {
     side.iter()
         .map(|((kind, qualname), f)| Item {
@@ -180,7 +239,10 @@ struct Found<'a> {
 type Key = (String, String);
 
 /// The indexes of the removed and of the added symbols under each `(kind, unscoped qualname)`.
-type Groups<'a> = BTreeMap<(&'a str, &'a str), (Vec<usize>, Vec<usize>)>;
+type Groups<'a> = BTreeMap<(&'a str, &'a str), Indexes>;
+
+/// The indexes of the removed and of the added symbols in one group.
+type Indexes = (Vec<usize>, Vec<usize>);
 
 /// The symbols `keeps` lets through, those `qualify` gives one name merged by `Extractor::merge`.
 fn qualified<'a>(ex: &dyn Extractor, side: Side<'a>) -> BTreeMap<Key, Found<'a>> {
@@ -236,6 +298,7 @@ fn relocated(ex: &dyn Extractor, op: Op, (old_key, before): (Key, Found), (key, 
     let (attrs_before, attrs_after) = changed_keys(&before.attrs, &after.attrs);
     let origin = Origin {
         id: SymbolId::new(&old_key.0, &old_key.1),
+        kind: old_key.0,
         qualname: old_key.1,
         path: before.path.to_string(),
         module: ex.module(before.path).map(str::to_string),
@@ -528,6 +591,7 @@ mod tests {
             d[0].old,
             Some(Origin {
                 id: SymbolId::new("def", "f@sale"),
+                kind: "def".into(),
                 qualname: "f@sale".into(),
                 path: "sale/x.py".into(),
                 module: Some("sale".into()),
