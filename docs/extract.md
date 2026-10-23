@@ -94,9 +94,10 @@ extractor declares pair as a rename with confidence 1 and the signal `kind`, whe
 under that qualname: a `rule` re-declared as an `access`, as master's conversion to `ir.access`
 does. No other kinds pair, since a view and a record can share an id without being one thing.
 
-`confidence` runs from 0.6 to 1 in steps of 0.001. `signals` is a JSON array of what matched: the
+`confidence` runs from 0.6 to 1 in steps of 0.001, and is 1 for a rename an upgrade script
+declares, as [Matching](upgrade.md#matching) describes. `signals` is a JSON array of what matched: the
 top-level attributes equal on both sides, then `similar`, `members`, `refs` and `parent` when
-they counted. `similarity` is the estimate that made bodies count as `similar`, from 0.5 to 1.
+they counted, and `upgrade` last for a rename an upgrade script declares. `similarity` is the estimate that made bodies count as `similar`, from 0.5 to 1.
 `referrers` is a JSON array of the qualnames whose change in the same commit and extractor
 replaced the old name with the new one, such as the templates whose `t-call` follows a renamed
 template, whatever the score; a symbol still naming the old one is not listed.

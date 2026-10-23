@@ -3,6 +3,7 @@
 //! and changing that bumps `VERSION`.
 
 mod eval;
+pub mod matching;
 mod script;
 
 use anyhow::{Result, anyhow};
@@ -13,7 +14,7 @@ pub use script::{Script, folder_version, script};
 
 /// Bumped whenever `parse` or `script` returns something else for the same input, which makes
 /// the next `upgrade` run read every script again.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// One rename, move, merge or removal a call declares. A call that a loop or a brace expansion
 /// runs several times gives one event per run.
