@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "odoo-changelog"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1499,7 +1499,7 @@ dependencies = [
 
 [[package]]
 name = "odoo-changelog-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "regex",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "odoo-changelog-extract"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1526,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "odoo-changelog-git"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "gix",
@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "odoo-changelog-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "odoo-changelog-core",
