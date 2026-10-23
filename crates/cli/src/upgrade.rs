@@ -13,8 +13,8 @@ pub type Counts = BTreeMap<&'static str, (usize, usize)>;
 
 /// Reads every script under `migrations/` at the upgrade clone's `<remote>/master` and replaces
 /// the stored upgrade events with theirs; `None` when the stored events already came from the
-/// same commit and parser. Symlinked scripts and folders are left out: each one runs a script
-/// whose own folder already records it.
+/// same commit and parser. Either way, rematches them against the detected renames. Symlinked
+/// scripts and folders are left out: each one runs a script whose own folder already records it.
 pub fn run(cfg: &Config, store: &Store) -> Result<Option<Counts>> {
     let uc = cfg
         .upgrade
@@ -25,6 +25,7 @@ pub fn run(cfg: &Config, store: &Store) -> Result<Option<Counts>> {
     let sha = head.to_string();
     if store.upgrade_run()? == Some((sha.clone(), VERSION.into())) {
         info!("upgrade: {sha} already read");
+        crate::matches::run(store)?;
         return Ok(None);
     }
     let blobs = repo
@@ -79,5 +80,6 @@ pub fn run(cfg: &Config, store: &Store) -> Result<Option<Counts>> {
     }
     store.in_transaction(|| store.replace_upgrade(&sha, VERSION.into(), &rows))?;
     info!("upgrade: {} events from {} scripts at {sha}", rows.len(), scripts.len());
+    crate::matches::run(store)?;
     Ok(Some(counts))
 }

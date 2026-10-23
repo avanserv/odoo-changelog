@@ -2,7 +2,8 @@
 
 `upgrade` reads the scripts of a clone of Odoo's `odoo/upgrade` repository and records the
 renames, moves, merges and removals their `util` calls declare, each with the version its folder
-upgrades to. These events say what changed, but not in which commit.
+upgrades to. These events say what changed, but not in which commit: [matching](#matching) finds
+the commit among the renames `extract` detected.
 
 ```toml
 [upgrade]
@@ -10,8 +11,9 @@ path = "/path/to/upgrade"
 ```
 
 The command reads `<remote>/master` through git, never the working tree, and runs no fetch. A
-rerun on the same commit is a no-op; any other commit replaces every stored event. It prints the
-events and partial events per function. Without an `[upgrade]` path it fails.
+rerun on the same commit reads no script and only matches again; any other commit replaces every
+stored event. It prints the events and partial events per function. Without an `[upgrade]` path
+it fails.
 
 ## Scripts
 
@@ -22,6 +24,7 @@ followed by the module's own version:
 | --- | --- |
 | `17.0.1.2`, `16.0.13.0.1` | `17.0`, `16.0` |
 | `saas~17.2.1.1` | `saas-17.2` |
+| `saas~17.5.1.0` (from 16 on) | `18.0`: no saas-X.5 ships, master's (17, 5) becomes 18.0 |
 | `9.saas~11.1.3` (before 11.0) | `saas-11` |
 | `0.0.0` (runs on every upgrade) | NULL |
 
@@ -76,3 +79,26 @@ or comprehension binds again.
 
 `upgrade_runs` holds the commit read and the parser version. A parser change bumps
 `odoo_changelog_upgrade::VERSION`, and the next run reads every script again.
+
+## Matching
+
+`upgrade` and `extract` both end by matching every stored upgrade event against every detected
+rename (`op = 'renamed'` in `events`), from scratch, so the result depends on the stored rows and
+not on which command ran last. An event that renames or merges a field, model or xmlid, is not
+partial and has a version matches each rename whose commit ships in that version and whose
+names, `@<module>` suffix and `[<Class>]` stripped, are the event's:
+
+| `kind` | Detected kinds | Names compared |
+| --- | --- | --- |
+| model | `model` | `old`, `new` |
+| field | `field` | `model`, `old`, `new`: `model` may be either side's model, since a script may name it before or after renaming it |
+| xmlid | `view`, `menu`, `action`, `group`, `rule`, `access`, `record` | `old`, `new` |
+
+A model's rename matches in every module that declares the model. A matched rename gets
+confidence 1 and `upgrade` as its last signal; `upgrade_matches` links it to the upgrade event
+and keeps the detector's `detected_confidence`, which the rename gets back when a later match no
+longer holds. `repo_id` and `sha` on an upgrade event name the earliest committed of the commits
+it matched, and stay NULL when it matched none.
+
+[`stats --validate`](stats.md#validate) turns the matches into the detector's recall and
+precision, and its page gives the query for the events that matched nothing.

@@ -34,6 +34,8 @@ pub struct Timings {
     pub cache: Duration,
     pub write: Duration,
     pub classify: Duration,
+    /// Matching the renames to the upgrade events.
+    pub matches: Duration,
 }
 
 #[derive(Default)]
@@ -70,9 +72,10 @@ struct Ctx<'a> {
 
 /// Records the symbol events of every walked, non-merge commit that some extractor has not
 /// processed yet, then classifies each commit every extractor has processed whose events changed
-/// since it was last classified. Each commit is diffed against its only parent, and renames and
-/// moves are paired per extractor, so an extractor's events depend on the commit and that
-/// extractor alone, and an incremental run equals a full rebuild.
+/// since it was last classified, and matches the renames to the stored upgrade events. Each
+/// commit is diffed against its only parent, and renames and moves are paired per extractor, so
+/// an extractor's events depend on the commit and that extractor alone, and an incremental run
+/// equals a full rebuild.
 pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> Result<Timings> {
     let repos = cfg.select_repos(&opts.repos)?;
     let mut timings = Timings::default();
@@ -97,6 +100,9 @@ pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> 
         extract_repo(cfg, store, &pool, &extractors, rc, opts, &mut timings)?;
         info!("{}: extracted in {:.1?}", rc.name, start.elapsed());
     }
+    let start = Instant::now();
+    crate::matches::run(store)?;
+    timings.matches += start.elapsed();
     Ok(timings)
 }
 

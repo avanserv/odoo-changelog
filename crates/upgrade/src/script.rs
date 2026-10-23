@@ -41,6 +41,8 @@ pub fn script(path: &str) -> Option<Script<'_>> {
 /// The branch a version folder upgrades to: `Some(None)` for `0.0.0`, `None` for a folder that
 /// names no version. A folder is the series followed by the module's own version:
 /// `17.0.1.2` is 17.0, `saas~17.2.1.1` saas-17.2, and the older `9.saas~11.1.3` saas-11.
+/// From 16 on Odoo releases no saas-X.5: master carries (X, 5) until (X+1).0 forks, so a
+/// `saas~17.5` folder holds 18.0's scripts.
 pub fn folder_version(folder: &str) -> Option<Option<String>> {
     if folder == "0.0.0" {
         return Some(None);
@@ -53,7 +55,14 @@ pub fn folder_version(folder: &str) -> Option<Option<String>> {
     }
     if let Some(rest) = folder.strip_prefix("saas~") {
         let n = numbers(rest)?;
-        return (n.len() >= 3 && n[1] > 0).then(|| Some(format!("saas-{}.{}", n[0], n[1])));
+        if n.len() < 3 || n[1] == 0 {
+            return None;
+        }
+        return Some(Some(if n[0] >= 16 && n[1] == 5 {
+            format!("{}.0", n[0] + 1)
+        } else {
+            format!("saas-{}.{}", n[0], n[1])
+        }));
     }
     let n = numbers(folder)?;
     (n.len() >= 3 && n[1] == 0).then(|| Some(format!("{}.0", n[0])))
@@ -70,7 +79,9 @@ mod tests {
             ("16.0.13.0.1", Some(Some("16.0"))),
             ("8.0.1.0", Some(Some("8.0"))),
             ("saas~17.2.1.1", Some(Some("saas-17.2"))),
-            ("saas~16.5.0.0.1", Some(Some("saas-16.5"))),
+            ("saas~16.5.0.0.1", Some(Some("17.0"))),
+            ("saas~18.5.1.0", Some(Some("19.0"))),
+            ("saas~14.5.1.2", Some(Some("saas-14.5"))),
             ("saas~11.1.1.3", Some(Some("saas-11.1"))),
             ("9.saas~11.1.3", Some(Some("saas-11"))),
             ("10.saas~17.1.0.1", Some(Some("saas-17"))),

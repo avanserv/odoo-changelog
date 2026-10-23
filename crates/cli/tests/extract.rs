@@ -773,7 +773,7 @@ fn extract_command_prints_timings_and_checks_its_arguments() {
     let out = odoo_changelog(&cfg, &["extract", "--timings"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    for phase in ["setup", "diff", "parse", "cache", "write", "classify", "total"] {
+    for phase in ["setup", "diff", "parse", "cache", "write", "classify", "match", "total"] {
         assert!(
             stdout.lines().any(|l| l.starts_with(phase)),
             "no {phase} line in {stdout}"

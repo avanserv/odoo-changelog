@@ -3,10 +3,11 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
-use odoo_changelog::{extract, upgrade, walk};
+use odoo_changelog::{extract, matches, upgrade, walk};
 use odoo_changelog_core::{Config, Version};
 use odoo_changelog_extract::Registry;
 use odoo_changelog_store::Store;
+use odoo_changelog_upgrade::matching;
 
 #[derive(Parser)]
 #[command(version, about = "Symbol-level changelog of Odoo")]
@@ -47,7 +48,12 @@ enum Command {
     /// Read the renames, moves, merges and removals that the upgrade clone's scripts declare.
     Upgrade,
     /// Commit counts per repo and version.
-    Stats,
+    Stats {
+        /// Instead, measure the rename detector against the upgrade scripts: recall and precision
+        /// per version and kind.
+        #[arg(long)]
+        validate: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -85,7 +91,11 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Stats => stats(&store),
+        Command::Stats { validate: false } => stats(&store),
+        Command::Stats { validate: true } => {
+            print_validation(&matches::validate(&store)?);
+            Ok(())
+        }
     }
 }
 
@@ -94,7 +104,7 @@ fn version(name: &str) -> Result<Version> {
 }
 
 fn print_timings(t: &extract::Timings) {
-    let total = t.setup + t.diff + t.parse + t.cache + t.write + t.classify;
+    let total = t.setup + t.diff + t.parse + t.cache + t.write + t.classify + t.matches;
     println!("{:<8} {:>9}", "phase", "seconds");
     for (phase, spent) in [
         ("setup", t.setup),
@@ -103,6 +113,7 @@ fn print_timings(t: &extract::Timings) {
         ("cache", t.cache),
         ("write", t.write),
         ("classify", t.classify),
+        ("match", t.matches),
         ("total", total),
     ] {
         println!("{:<8} {:>9.2}", phase, spent.as_secs_f64());
@@ -113,6 +124,31 @@ fn print_upgrade(counts: &upgrade::Counts) {
     println!("{:<22} {:>7} {:>7}", "call", "events", "partial");
     for (call, (events, partial)) in counts {
         println!("{call:<22} {events:>7} {partial:>7}");
+    }
+}
+
+fn print_validation(rows: &[((String, &str), matching::Tally)]) {
+    println!(
+        "{:<11} {:<6} {:>7} {:>7} {:>7} {:>8} {:>9} {:>9}",
+        "version", "kind", "upgrade", "matched", "recall", "detected", "confirmed", "precision"
+    );
+    let share = |part: usize, whole: usize| {
+        if whole == 0 {
+            "-".to_string()
+        } else {
+            format!("{:.1}%", 100.0 * part as f64 / whole as f64)
+        }
+    };
+    for ((version, kind), t) in rows {
+        println!(
+            "{version:<11} {kind:<6} {:>7} {:>7} {:>7} {:>8} {:>9} {:>9}",
+            t.upgrade,
+            t.matched,
+            share(t.matched, t.upgrade),
+            t.detected,
+            t.confirmed,
+            share(t.confirmed, t.detected)
+        );
     }
 }
 
