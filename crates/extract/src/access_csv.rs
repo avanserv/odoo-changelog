@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use crate::data::ACCESS;
 use crate::data_csv::{Sheet, Warnings, field};
+use crate::xml::refs::Refs;
 use crate::{Symbol, SymbolTable};
 
 /// The header names a column as Odoo's import does: `model_id:id` and `model_id/id` both give
@@ -27,6 +28,15 @@ pub(crate) fn symbols(sheet: &Sheet, table: &mut SymbolTable, warnings: &mut War
             .map(|(c, v)| ((*c).to_string(), Value::from(v.as_str())))
             .collect();
         attrs.insert("declared".into(), "csv".into());
+        let mut refs = Refs::default();
+        for (_, v) in columns
+            .iter()
+            .zip(&row.cells)
+            .filter(|(c, _)| matches!(**c, "model_id" | "group_id"))
+        {
+            refs.ids(v);
+        }
+        refs.put(&mut attrs);
         rows.entry(id)
             .and_modify(|first| first.attrs = attrs.clone())
             .or_insert_with(|| Symbol {
@@ -80,12 +90,12 @@ mod tests {
                 (
                     "access_a",
                     2,
-                    json!({"declared": "csv", "name": "a, the first", "model_id": "model_a", "group_id": "base.group_user", "perm_read": "1", "perm_write": "0", "perm_create": "0", "perm_unlink": "0"})
+                    json!({"declared": "csv", "name": "a, the first", "model_id": "model_a", "group_id": "base.group_user", "perm_read": "1", "perm_write": "0", "perm_create": "0", "perm_unlink": "0", "references": ["base.group_user", "model_a"]})
                 ),
                 (
                     "access_b",
                     4,
-                    json!({"declared": "csv", "name": "b", "model_id": "model_b", "perm_read": "1", "perm_write": "1", "perm_create": "1", "perm_unlink": "1"})
+                    json!({"declared": "csv", "name": "b", "model_id": "model_b", "perm_read": "1", "perm_write": "1", "perm_create": "1", "perm_unlink": "1", "references": ["model_b"]})
                 ),
             ]
         );
@@ -104,7 +114,7 @@ mod tests {
             "id,name,model_id,group_id/id,operation,domain\nr,R,sale.order,base.group_portal,r,\"[('a','=',1)]\"\n";
         assert_eq!(
             rows(&extract(src.as_bytes()))[0].2,
-            json!({"declared": "csv", "name": "R", "model": "sale.order", "group_id": "base.group_portal", "operation": "r", "domain": "[('a','=',1)]"})
+            json!({"declared": "csv", "name": "R", "model": "sale.order", "group_id": "base.group_portal", "operation": "r", "domain": "[('a','=',1)]", "references": ["base.group_portal"]})
         );
     }
 
@@ -121,7 +131,10 @@ mod tests {
         let rows = rows(&table);
         assert_eq!(rows.len(), 4);
         assert_eq!((rows[1].0, rows[1].1, &rows[1].2["name"]), ("x", 2, &json!("second")));
-        assert_eq!(rows[3].2, json!({"declared": "csv", "name": "Z", "model_id": "m"}));
+        assert_eq!(
+            rows[3].2,
+            json!({"declared": "csv", "name": "Z", "model_id": "m", "references": ["m"]})
+        );
         let x = table.iter().nth(1).unwrap();
         assert_eq!(&src.as_bytes()[x.span.range()], b"x");
     }

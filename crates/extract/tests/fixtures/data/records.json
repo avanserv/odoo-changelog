@@ -14,6 +14,10 @@
         "name": "demo.order.manager",
         "noupdate": true,
         "record_model": "ir.model.access",
+        "references": [
+          "base.group_system",
+          "demo.model_demo_order"
+        ],
         "values": "61c8021b12fbf46dc94521ddbfd8d70c"
       }
     },
@@ -28,6 +32,9 @@
       "attrs": {
         "declared": "act_window",
         "name": "Lines",
+        "references": [
+          "demo.group_demo_user"
+        ],
         "res_model": "demo.order.line",
         "values": "bcf292c6e59afe147334ae306da644f0"
       }
@@ -46,6 +53,9 @@
         "name": "Confirm orders",
         "noupdate": true,
         "record_model": "ir.actions.server",
+        "references": [
+          "demo.model_demo_order"
+        ],
         "values": "e2a5e69a37a7b3081f3ff31d464079f5"
       }
     },
@@ -122,6 +132,9 @@
       "attrs": {
         "model": "demo.order",
         "name": "_init_sequences",
+        "references": [
+          "demo.demo_order_1"
+        ],
         "values": "329a4257da3747f2a8a40dc5e4548c94"
       }
     },
@@ -136,6 +149,9 @@
       "attrs": {
         "model": "res.partner",
         "name": "write",
+        "references": [
+          "base.partner_admin"
+        ],
         "values": "64706de68834d6892e78c33fc808823b"
       }
     },
@@ -190,6 +206,10 @@
         "name": "User",
         "noupdate": true,
         "record_model": "res.groups",
+        "references": [
+          "base.group_user",
+          "base.module_category_demo"
+        ],
         "values": "20b6efb6d9e63254f1b4608d81fde064"
       }
     },
@@ -235,6 +255,9 @@
         "model_id": "demo.model_demo_order",
         "name": "Order: send",
         "record_model": "mail.template",
+        "references": [
+          "demo.model_demo_order"
+        ],
         "values": "a57755ea118357dc33f366dca605c346"
       }
     },
@@ -265,6 +288,9 @@
         "name": "Orders: multi-company",
         "noupdate": true,
         "record_model": "ir.rule",
+        "references": [
+          "demo.model_demo_order"
+        ],
         "values": "4a1fd8ec214c951b9fda8fb2052df64e"
       }
     }

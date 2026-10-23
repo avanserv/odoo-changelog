@@ -16,7 +16,11 @@
         "perm_create": "1",
         "perm_read": "1",
         "perm_unlink": "1",
-        "perm_write": "1"
+        "perm_write": "1",
+        "references": [
+          "base.group_user",
+          "demo_base.model_demo_order_line"
+        ]
       }
     },
     {
@@ -34,7 +38,10 @@
         "perm_create": "0",
         "perm_read": "1",
         "perm_unlink": "0",
-        "perm_write": "0"
+        "perm_write": "0",
+        "references": [
+          "demo.model_demo_order"
+        ]
       }
     },
     {
@@ -53,7 +60,11 @@
         "perm_create": "1",
         "perm_read": "1",
         "perm_unlink": "0",
-        "perm_write": "1"
+        "perm_write": "1",
+        "references": [
+          "demo.group_demo_user",
+          "demo.model_demo_order"
+        ]
       }
     }
   ],

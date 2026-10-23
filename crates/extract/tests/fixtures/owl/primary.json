@@ -93,10 +93,10 @@
     {
       "kind": "owl_node",
       "qualname": "demo.ThingList#ul[@t-ref='list']@demo",
-      "line": 24,
+      "line": 25,
       "span": {
-        "start": 838,
-        "end": 842
+        "start": 875,
+        "end": 879
       },
       "attrs": {
         "count": 1
@@ -111,16 +111,19 @@
         "end": 599
       },
       "attrs": {
-        "arch": "9072dc3cc44f5923ed01d0380b6c8ac5"
+        "arch": "9df3a87590ce407a3381af7fb09bac6d",
+        "references": [
+          "demo.Card.Body"
+        ]
       }
     },
     {
       "kind": "owl_template",
       "qualname": "demo.Plain@demo",
-      "line": 31,
+      "line": 33,
       "span": {
-        "start": 1006,
-        "end": 1016
+        "start": 1093,
+        "end": 1103
       },
       "attrs": {
         "arch": "9ba1facf20530e2e0a6fb1618171f71a",
@@ -149,16 +152,20 @@
     {
       "kind": "owl_template",
       "qualname": "demo.ThingList@demo",
-      "line": 22,
+      "line": 23,
       "span": {
-        "start": 680,
-        "end": 694
+        "start": 717,
+        "end": 731
       },
       "attrs": {
-        "arch": "14280db8a3fe905b36361641cc037189",
+        "arch": "2c1a116b91615482dda193e9b80ea295",
+        "dynamic_calls": 1,
         "inherit": "demo.Thing",
         "mode": "primary",
         "owl": "1",
+        "references": [
+          "demo.ListRow"
+        ],
         "specs": [
           {
             "expr": "//div[@t-ref='root']",

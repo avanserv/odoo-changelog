@@ -7,7 +7,7 @@ template's `account.tax-be.csv`. A file whose root is not `<odoo>`, `<openerp>` 
 as an e-invoice sample, gives no symbol, and neither does a CSV whose first row is one cell, such
 as the `|`-separated codes an install hook reads. Symbols are named by xmlid, and an id written without a module gets the file's
 module, as Odoo's `make_xml_id` does: in qualnames, and in the references `inherit_id`, `parent`,
-`action`, `groups`, `model_id` and `group_id`.
+`action`, `groups`, `model_id`, `group_id` and `references`.
 
 | Kind | Declared by | Example |
 | --- | --- | --- |
@@ -37,6 +37,14 @@ own. Other records keep `name`, `model`, `res_model` and a `model_id` reference 
 everything else into `values`. Arch and markup hashes ignore whitespace runs, comments, attribute
 order and how a character is escaped; plain field text is hashed as written, since Odoo stores it
 verbatim. Menuitems and access rows keep every attribute or cell in clear.
+
+Every declaration but a `<delete>` lists in `references` the xmlids it names literally, sorted:
+a field's `ref`, `ref('x')` and `%(x)d` or `%(x)s` in an `eval`, a field's text or an attribute
+value, `groups` lists (a `!` or `-` prefix dropped), a menuitem's `parent` and `action`, an
+`inherit_id`, each `t-call` target of a QWeb arch, and a CSV row's `:id` and `/id` cells. They are read, not evaluated. In an
+inheriting arch only what the specs put in counts, the values an `attributes` spec sets included,
+since a spec's own attributes locate its target. A `t-call` whose target is computed, such as
+`{{ layout }}`, adds to `dynamic_calls` instead.
 
 A CSV row is a record named by its `id` column, with `declared: "csv"` and the file's model as
 `record_model`. It keeps the same attributes in clear as an XML record and hashes its non-empty

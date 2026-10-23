@@ -36,6 +36,9 @@
         "arch": "679075f7475e0e800317b24960a36b25",
         "inherit": "demo.List",
         "mode": "primary",
+        "references": [
+          "demo.Helper"
+        ],
         "specs": [
           {
             "position": "replace",

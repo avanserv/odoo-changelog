@@ -54,6 +54,16 @@ pub struct Rename {
     /// The top-level attrs equal once the old name reads as the new one, in name order, then
     /// `members`, `refs` and `parent` when they counted.
     pub signals: Vec<String>,
+    /// The qualnames whose change in the same commit replaced the old name with the new one,
+    /// sorted.
+    pub referrers: Vec<String>,
+}
+
+/// A symbol the commit changed or moved, whose attrs may name a renamed one.
+pub(crate) struct Change<'a> {
+    pub qualname: &'a str,
+    pub before: &'a str,
+    pub after: &'a str,
 }
 
 /// A symbol a commit removed or added, which no move claimed.
@@ -88,13 +98,13 @@ enum Scope<'n> {
 
 /// The `(removed, added)` index pairs that are renames, each with its evidence. Parents pair
 /// before their members; members of a renamed parent pair by name first, then are scored with
-/// the new parent's other members. `refs` are the `(attrs_before, attrs_after)` of the commit's
-/// other changes, where a replaced reference to the old name adds to a pair's confidence.
+/// the new parent's other members. A change in `refs` that replaces a reference to the old name
+/// adds to a pair's confidence and lists the change among its referrers.
 pub(crate) fn pairs(
     ex: &dyn Extractor,
     removed: &[Item],
     added: &[Item],
-    refs: &[(&str, &str)],
+    refs: &[Change],
 ) -> Vec<(usize, usize, Rename)> {
     if removed.is_empty() || added.is_empty() {
         return Vec::new();
@@ -106,6 +116,7 @@ pub(crate) fn pairs(
         old: vec![false; old.len()],
         new: vec![false; new.len()],
         renamed: BTreeMap::new(),
+        refs,
         out: Vec::new(),
     };
 
@@ -179,21 +190,35 @@ pub(crate) fn pairs(
     taken.out
 }
 
-struct Taken<'n> {
+struct Taken<'n, 'r> {
     old: Vec<bool>,
     new: Vec<bool>,
     /// Old `(kind, qualname)` to the new qualname and the confidence in thousandths.
     renamed: BTreeMap<(&'n str, &'n str), (&'n str, u32)>,
+    refs: &'r [Change<'r>],
     out: Vec<(usize, usize, Rename)>,
 }
 
-impl<'n> Taken<'n> {
+impl<'n> Taken<'n, '_> {
     fn take(&mut self, o: &Node<'n>, n: &Node<'n>, (i, j): (usize, usize), milli: u32, signals: Vec<String>) {
         self.old[i] = true;
         self.new[j] = true;
         self.renamed.insert((o.kind, o.qualname), (n.qualname, milli));
         let confidence = f64::from(milli) / 1000.0;
-        self.out.push((i, j, Rename { confidence, signals }));
+        let referrers: BTreeSet<&str> = (self.refs.iter())
+            .filter(|c| replaces(c.before, c.after, o.local, n.local))
+            .map(|c| c.qualname)
+            .collect();
+        let referrers = referrers.into_iter().map(String::from).collect();
+        self.out.push((
+            i,
+            j,
+            Rename {
+                confidence,
+                signals,
+                referrers,
+            },
+        ));
     }
 }
 
@@ -249,13 +274,7 @@ fn children<'n>(nodes: &'n [Node]) -> Children<'n> {
 }
 
 /// The pair's confidence in thousandths, and its signals.
-fn score(
-    o: &Node,
-    n: &Node,
-    old_children: &Children,
-    new_children: &Children,
-    refs: &[(&str, &str)],
-) -> (u32, Vec<String>) {
+fn score(o: &Node, n: &Node, old_children: &Children, new_children: &Children, refs: &[Change]) -> (u32, Vec<String>) {
     let (mut score, mut signals) = attr_score(o, n);
     let kids = (
         old_children.get(&(o.kind, o.qualname)),
@@ -271,7 +290,10 @@ fn score(
         }
     }
     if milli(score) >= REFS_FLOOR {
-        let replaced = refs.iter().filter(|(b, a)| replaces(b, a, o.local, n.local)).count();
+        let replaced = refs
+            .iter()
+            .filter(|c| replaces(c.before, c.after, o.local, n.local))
+            .count();
         if replaced > 0 {
             score += (replaced as f64 * REF_BOOST).min(MAX_REF_BOOST);
             signals.push("refs".into());

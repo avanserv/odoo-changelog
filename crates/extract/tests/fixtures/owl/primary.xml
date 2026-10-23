@@ -17,6 +17,7 @@
 
     <div t-name="demo.Card" class="o_card">
         <span t-esc="props.title"/>
+        <t t-call="demo.Card.Body"/>
     </div>
 
     <t t-name="demo.ThingList" t-inherit="demo.Thing" t-inherit-mode="primary" owl="1">
@@ -25,6 +26,7 @@
         </xpath>
         <t t-call="demo.Row" position="replace">
             <t t-call="demo.ListRow"/>
+            <t t-call="{{ props.rowTemplate }}"/>
         </t>
     </t>
 

@@ -622,3 +622,25 @@ fn every_claimed_template_at_the_tips_reads() {
     }
     assert!(read > 0);
 }
+
+#[test]
+fn a_renamed_template_lists_the_callers_that_follow_it() {
+    let calls = |name: &str| {
+        format!(
+            r#"<templates>
+            <t t-name="demo.{name}"><div class="x"><span>body</span></div></t>
+            <t t-name="demo.Caller"><div><t t-call="demo.{name}"/></div></t>
+            <t t-name="demo.Bystander"><t t-call="demo.Other"/></t>
+        </templates>"#
+        )
+    };
+    let (old, new) = (extract(&calls("Box")), extract(&calls("Crate")));
+    assert_eq!(
+        attrs(find(&old, "owl_template", "demo.Caller"))["references"],
+        json!(["demo.Box"])
+    );
+    let changes = delta(&Owl, &[(Some((PATH, &old)), Some((PATH, &new)))]);
+    let renamed = changes.iter().find(|d| d.op == Op::Renamed).expect("a rename");
+    assert_eq!(renamed.qualname, "demo.Crate@demo");
+    assert_eq!(renamed.rename.as_ref().unwrap().referrers, ["demo.Caller@demo"]);
+}

@@ -14,7 +14,10 @@
         "group_id": "base.group_portal",
         "model": "demo.order",
         "name": "Portal orders",
-        "operation": "r"
+        "operation": "r",
+        "references": [
+          "base.group_portal"
+        ]
       }
     },
     {
@@ -30,7 +33,10 @@
         "group_id": "demo.group_demo_user",
         "model": "demo.order",
         "name": "Orders of the user",
-        "operation": "rwcd"
+        "operation": "rwcd",
+        "references": [
+          "demo.group_demo_user"
+        ]
       }
     }
   ],
