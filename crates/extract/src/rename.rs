@@ -16,13 +16,21 @@ const EVIDENCE: f64 = 4.0;
 /// Attrs holding a hash of a definition's content, which say more than any other attr when equal.
 const HASHES: [&str; 3] = ["arch", "body", "values"];
 const HASH_WEIGHT: f64 = 4.0;
-/// Lowest similarity of two body sketches at which differing bodies count, in part, for a pair.
+/// Lowest similarity of two sketches at which differing hashes count, in part, for a pair.
 const SIMILAR: f64 = 0.5;
 /// Booleans, numbers, empty values and one-character strings, which many unrelated symbols share.
 const TRIVIAL_WEIGHT: f64 = 0.5;
-/// How much more an attr both sides hold with different values counts against a pair than an
-/// attr only one side holds.
+/// How much more a hash or a trivial attr both sides hold with different values counts against a
+/// pair than an attr only one side holds.
 const CONFLICT: f64 = 2.0;
+/// Weight of the share of words the old and new names have in common, matched as if it were one
+/// more attr, and never counted against a pair.
+const NAME_WEIGHT: f64 = 2.0;
+/// How far, in thousandths, a pair must score above any other its removal or its addition could
+/// still take, so that near-equal candidates, as in a renumbered chart of accounts, pair with none.
+const MARGIN: u32 = 60;
+/// Share of words from which the names count among a pair's signals.
+const NAME_SIGNAL: f64 = 0.5;
 const REF_BOOST: f64 = 0.1;
 const MAX_REF_BOOST: f64 = 0.3;
 /// Removed × added pairs past which a scope is not scored: a mass rewrite, such as a regenerated
@@ -55,13 +63,12 @@ pub struct Rename {
     /// From 0.6 to 1, in steps of 0.001.
     pub confidence: f64,
     /// The top-level attrs equal once the old name reads as the new one, in name order, then
-    /// `similar`, `members`, `refs` and `parent` when they counted.
+    /// `similar`, `words`, `members`, `refs` and `parent` when they counted.
     pub signals: Vec<String>,
     /// The qualnames whose change in the same commit replaced the old name with the new one,
     /// sorted.
     pub referrers: Vec<String>,
-    /// How alike the bodies' sketches are, in steps of 0.001, when the bodies differ and counted
-    /// as `similar`.
+    /// How alike the sketches are, in steps of 0.001, when a hash differs and counted as `similar`.
     pub similarity: Option<f64>,
 }
 
@@ -94,12 +101,19 @@ struct Node<'a> {
     module: Option<&'a str>,
     unscoped: &'a str,
     parent: Option<(&'static str, String)>,
+    /// The parent's qualname without its `@<module>`, which members are scored across modules by.
+    family: Option<String>,
     local: &'a str,
+    words: BTreeSet<String>,
     depth: usize,
-    /// `(top-level key, path below it, canonical JSON)` of each leaf of the attrs, in order.
-    leaves: Vec<(&'a str, String, String)>,
     sketch: Option<&'a str>,
 }
+
+/// `(top-level key, path below it, canonical JSON)` of one leaf of a symbol's attrs.
+type Leaf<'a> = (&'a str, String, String);
+
+/// The `(score, other side)` candidates of each removal or each addition, best first.
+type Candidates = BTreeMap<usize, Vec<(u32, usize)>>;
 
 /// The children of each parent, by `(kind, qualname)`, as `(kind, local)`.
 type Children<'n> = BTreeMap<(&'n str, &'n str), BTreeSet<(&'n str, &'n str)>>;
@@ -108,12 +122,26 @@ type Children<'n> = BTreeMap<(&'n str, &'n str), BTreeSet<(&'n str, &'n str)>>;
 enum Scope<'n> {
     Module(&'n str, Option<&'n str>),
     Parent(&'n str, &'static str, &'n str),
+    Kind(&'n str),
+    Family(&'n str, &'static str, &'n str),
+}
+
+/// What every pass of one commit reads.
+struct Sides<'n, 'r> {
+    old: &'n [Node<'n>],
+    new: &'n [Node<'n>],
+    new_leaves: &'n [Vec<Leaf<'n>>],
+    old_children: Children<'n>,
+    new_children: Children<'n>,
+    refs: &'r [Change<'r>],
 }
 
 /// The `(removed, added)` index pairs that are renames, each with its evidence. Parents pair
 /// before their members; members of a renamed parent pair by name first, then are scored with
-/// the new parent's other members. A change in `refs` that replaces a reference to the old name
-/// adds to a pair's confidence and lists the change among its referrers.
+/// the new parent's other members. Each depth is scored in scopes across modules, or by module
+/// past `MAX_PAIRS`, and once more when a symbol without a parent was renamed, its old name read as
+/// the new one in what is left. A change in `refs` that replaces a reference to the old name adds to a pair's
+/// confidence and lists the change among its referrers.
 pub(crate) fn pairs(
     ex: &dyn Extractor,
     removed: &[Item],
@@ -125,11 +153,21 @@ pub(crate) fn pairs(
     }
     let old: Vec<Node> = removed.iter().map(|i| node(ex, i)).collect();
     let new: Vec<Node> = added.iter().map(|i| node(ex, i)).collect();
-    let (old_children, new_children) = (children(&old), children(&new));
+    let mut old_leaves: Vec<Vec<Leaf>> = removed.iter().map(|i| leaves(i.attrs)).collect();
+    let new_leaves: Vec<Vec<Leaf>> = added.iter().map(|i| leaves(i.attrs)).collect();
+    let sides = Sides {
+        old: &old,
+        new: &new,
+        new_leaves: &new_leaves,
+        old_children: children(&old),
+        new_children: children(&new),
+        refs,
+    };
     let mut taken = Taken {
         old: vec![false; old.len()],
         new: vec![false; new.len()],
         renamed: BTreeMap::new(),
+        names: BTreeMap::new(),
         refs,
         out: Vec::new(),
     };
@@ -147,7 +185,7 @@ pub(crate) fn pairs(
             let Some((kind, qualname)) = &old[i].parent else {
                 continue;
             };
-            let Some(&(to, milli)) = taken.renamed.get(&(*kind, qualname.as_str())) else {
+            let Some(&(to, _, milli)) = taken.renamed.get(&(*kind, qualname.as_str())) else {
                 continue;
             };
             if let Some(&j) = by_name.get(&(old[i].kind, *kind, to, old[i].local))
@@ -161,58 +199,135 @@ pub(crate) fn pairs(
             }
         }
 
-        let mut scopes: BTreeMap<Scope, (Vec<usize>, Vec<usize>)> = BTreeMap::new();
-        for i in (0..old.len()).filter(|&i| old[i].depth == depth && !taken.old[i]) {
-            let scope = match &old[i].parent {
-                None => Scope::Module(old[i].kind, old[i].module),
-                Some((kind, qualname)) => {
-                    let to = taken.renamed.get(&(*kind, qualname.as_str()));
-                    Scope::Parent(old[i].kind, kind, to.map_or(qualname.as_str(), |r| r.0))
-                }
-            };
-            scopes.entry(scope).or_default().0.push(i);
-        }
-        for j in (0..new.len()).filter(|&j| new[j].depth == depth && !taken.new[j]) {
-            let scope = match &new[j].parent {
-                None => Scope::Module(new[j].kind, new[j].module),
-                Some((kind, qualname)) => Scope::Parent(new[j].kind, kind, qualname.as_str()),
-            };
-            scopes.entry(scope).or_default().1.push(j);
-        }
-        for (olds, news) in scopes.into_values() {
-            if olds.is_empty() || news.is_empty() || olds.len() * news.len() > MAX_PAIRS {
-                continue;
-            }
-            let mut candidates = Vec::new();
-            for &i in &olds {
-                // One name on both sides is a move the move pass found ambiguous, never a rename.
-                for &j in news.iter().filter(|&&j| new[j].unscoped != old[i].unscoped) {
-                    let (milli, evidence) = score(&old[i], &new[j], &old_children, &new_children, refs);
-                    if milli >= THRESHOLD {
-                        candidates.push((milli, i, j, evidence));
+        let mut read = 0;
+        for round in 0..2 {
+            if taken.names.len() > read {
+                for i in (0..old.len()).filter(|&i| old[i].depth == depth && !taken.old[i]) {
+                    for leaf in &mut old_leaves[i] {
+                        leaf.2 = rewrite(&leaf.2, &taken.names);
                     }
                 }
+                read = taken.names.len();
+            } else if round > 0 {
+                break;
             }
-            candidates.sort_by(|a, b| {
-                (b.0.cmp(&a.0))
-                    .then(old[a.1].id.cmp(&old[b.1].id))
-                    .then(new[a.2].id.cmp(&new[b.2].id))
-            });
-            for (milli, i, j, evidence) in candidates {
-                if !taken.old[i] && !taken.new[j] {
-                    taken.take(&old[i], &new[j], (i, j), milli, evidence);
-                }
-            }
+            let scopes = scopes(&sides, &taken, depth);
+            assign(&sides, &old_leaves, &mut taken, scopes);
         }
     }
     taken.out
 }
 
+/// The removals and additions of `depth` no pair has taken, by scope: across modules, or by module
+/// where that would make more than `MAX_PAIRS` pairs.
+fn scopes(s: &Sides, taken: &Taken, depth: usize) -> Vec<(Vec<usize>, Vec<usize>)> {
+    type Groups<'n> = BTreeMap<Scope<'n>, BTreeMap<Scope<'n>, (Vec<usize>, Vec<usize>)>>;
+    let mut wide: Groups = BTreeMap::new();
+    for i in (0..s.old.len()).filter(|&i| s.old[i].depth == depth && !taken.old[i]) {
+        let o = &s.old[i];
+        let (narrow, broad) = match &o.parent {
+            None => (Scope::Module(o.kind, o.module), Scope::Kind(o.kind)),
+            Some((kind, qualname)) => match taken.renamed.get(&(*kind, qualname.as_str())) {
+                Some(&(to, family, _)) => (Scope::Parent(o.kind, kind, to), Scope::Family(o.kind, kind, family)),
+                None => (
+                    Scope::Parent(o.kind, kind, qualname),
+                    Scope::Family(o.kind, kind, o.family.as_deref().unwrap_or_default()),
+                ),
+            },
+        };
+        wide.entry(broad).or_default().entry(narrow).or_default().0.push(i);
+    }
+    for j in (0..s.new.len()).filter(|&j| s.new[j].depth == depth && !taken.new[j]) {
+        let n = &s.new[j];
+        let (narrow, broad) = match &n.parent {
+            None => (Scope::Module(n.kind, n.module), Scope::Kind(n.kind)),
+            Some((kind, qualname)) => (
+                Scope::Parent(n.kind, kind, qualname),
+                Scope::Family(n.kind, kind, n.family.as_deref().unwrap_or_default()),
+            ),
+        };
+        wide.entry(broad).or_default().entry(narrow).or_default().1.push(j);
+    }
+    let mut out = Vec::new();
+    for narrow in wide.into_values() {
+        let (olds, news): (usize, usize) = narrow.values().fold((0, 0), |(o, n), g| (o + g.0.len(), n + g.1.len()));
+        if olds * news <= MAX_PAIRS {
+            let (mut olds, mut news) = (Vec::new(), Vec::new());
+            for (o, n) in narrow.into_values() {
+                olds.extend(o);
+                news.extend(n);
+            }
+            out.push((olds, news));
+        } else {
+            out.extend(narrow.into_values());
+        }
+    }
+    out
+}
+
+/// Scores the pairs of each scope and takes them one to one, best score first and the lowest
+/// symbol ids on a tie, each only when it beats by `MARGIN` every other pair its removal or its
+/// addition could still take.
+fn assign<'n>(
+    s: &Sides<'n, '_>,
+    old_leaves: &[Vec<Leaf>],
+    taken: &mut Taken<'n, '_>,
+    scopes: Vec<(Vec<usize>, Vec<usize>)>,
+) {
+    let (old, new) = (s.old, s.new);
+    for (olds, news) in scopes {
+        if olds.is_empty() || news.is_empty() || olds.len() * news.len() > MAX_PAIRS {
+            continue;
+        }
+        let floor = THRESHOLD - MARGIN;
+        let mut candidates = Vec::new();
+        for &i in &olds {
+            // One name on both sides is a move the move pass found ambiguous, never a rename.
+            for &j in news.iter().filter(|&&j| new[j].unscoped != old[i].unscoped) {
+                let (milli, evidence) = score(s, (i, &old_leaves[i]), j);
+                if milli >= floor {
+                    candidates.push((milli, i, j, evidence));
+                }
+            }
+        }
+        candidates.sort_by(|a, b| {
+            (b.0.cmp(&a.0))
+                .then(old[a.1].id.cmp(&old[b.1].id))
+                .then(new[a.2].id.cmp(&new[b.2].id))
+        });
+        // The scores of each removal's and each addition's candidates, for the runner-up check.
+        let (mut by_old, mut by_new): (Candidates, Candidates) = (BTreeMap::new(), BTreeMap::new());
+        for &(milli, i, j, _) in &candidates {
+            by_old.entry(i).or_default().push((milli, j));
+            by_new.entry(j).or_default().push((milli, i));
+        }
+        let runner_up = |list: &[(u32, usize)], other: usize, free: &dyn Fn(usize) -> bool| {
+            (list.iter())
+                .find(|&&(_, k)| k != other && free(k))
+                .map_or(0, |&(milli, _)| milli)
+        };
+        for (milli, i, j, evidence) in candidates {
+            if taken.old[i] || taken.new[j] || milli < THRESHOLD {
+                continue;
+            }
+            let second =
+                runner_up(&by_old[&i], j, &|k| !taken.new[k]).max(runner_up(&by_new[&j], i, &|k| !taken.old[k]));
+            if milli >= second + MARGIN {
+                taken.take(&old[i], &new[j], (i, j), milli, evidence);
+            }
+        }
+    }
+}
+
 struct Taken<'n, 'r> {
     old: Vec<bool>,
     new: Vec<bool>,
-    /// Old `(kind, qualname)` to the new qualname and the confidence in thousandths.
-    renamed: BTreeMap<(&'n str, &'n str), (&'n str, u32)>,
+    /// Old `(kind, qualname)` to the new qualname, the new one without `@<module>`, and the
+    /// confidence in thousandths.
+    renamed: BTreeMap<(&'n str, &'n str), (&'n str, &'n str, u32)>,
+    /// The old name of each renamed symbol without a parent to its new one, which the symbols left
+    /// may still reference.
+    names: BTreeMap<&'n str, &'n str>,
     refs: &'r [Change<'r>],
     out: Vec<(usize, usize, Rename)>,
 }
@@ -221,7 +336,11 @@ impl<'n> Taken<'n, '_> {
     fn take(&mut self, o: &Node<'n>, n: &Node<'n>, (i, j): (usize, usize), milli: u32, evidence: Evidence) {
         self.old[i] = true;
         self.new[j] = true;
-        self.renamed.insert((o.kind, o.qualname), (n.qualname, milli));
+        self.renamed
+            .insert((o.kind, o.qualname), (n.qualname, n.unscoped, milli));
+        if o.parent.is_none() {
+            self.names.entry(o.local).or_insert(n.local);
+        }
         let confidence = f64::from(milli) / 1000.0;
         let referrers: BTreeSet<&str> = (self.refs.iter())
             .filter(|c| replaces(c.before, c.after, o.local, n.local))
@@ -251,29 +370,35 @@ fn node<'a>(ex: &dyn Extractor, item: &Item<'a>) -> Node<'a> {
         depth += 1;
         up = ex.parent(kind, &qualname).map(|p| (p.kind, p.qualname));
     }
-    let mut leaves = Vec::new();
-    for (key, value) in item.attrs {
-        flatten(key, String::new(), value, &mut leaves);
-    }
-    // `attr_score` merge-joins on this order, which depth-first output breaks: `a` before `a.b`.
-    leaves.sort_unstable();
+    let local = parent
+        .as_ref()
+        .map_or_else(|| unscoped(ex, item.path, item.qualname), |p| p.local);
     Node {
         kind: item.kind,
         qualname: item.qualname,
         id: SymbolId::new(item.kind, item.qualname),
         module: ex.module(item.path),
         unscoped: unscoped(ex, item.path, item.qualname),
-        local: parent
-            .as_ref()
-            .map_or_else(|| unscoped(ex, item.path, item.qualname), |p| p.local),
+        family: (parent.as_ref()).map(|p| unscoped(ex, item.path, &p.qualname).to_string()),
         parent: parent.map(|p| (p.kind, p.qualname)),
+        local,
+        words: words(local),
         depth,
-        leaves,
         sketch: item.sketch,
     }
 }
 
-fn flatten<'a>(top: &'a str, path: String, value: &Value, out: &mut Vec<(&'a str, String, String)>) {
+fn leaves(attrs: &BTreeMap<String, Value>) -> Vec<Leaf<'_>> {
+    let mut out = Vec::new();
+    for (key, value) in attrs {
+        flatten(key, String::new(), value, &mut out);
+    }
+    // `attr_score` merge-joins on this order, which depth-first output breaks: `a` before `a.b`.
+    out.sort_unstable();
+    out
+}
+
+fn flatten<'a>(top: &'a str, path: String, value: &Value, out: &mut Vec<Leaf<'a>>) {
     match value {
         Value::Object(map) if !map.is_empty() => {
             for (key, value) in map {
@@ -294,13 +419,15 @@ fn children<'n>(nodes: &'n [Node]) -> Children<'n> {
     out
 }
 
-/// The pair's confidence in thousandths, and its signals.
-fn score(o: &Node, n: &Node, old_children: &Children, new_children: &Children, refs: &[Change]) -> (u32, Evidence) {
-    let (mut score, mut evidence) = attr_score(o, n);
+/// The confidence in thousandths of pairing removal `i`, with its leaves as they now read, and
+/// addition `j`, and its signals.
+fn score(s: &Sides, (i, old_leaves): (usize, &[Leaf]), j: usize) -> (u32, Evidence) {
+    let (o, n) = (&s.old[i], &s.new[j]);
+    let (mut score, mut evidence) = attr_score((o, old_leaves), (n, &s.new_leaves[j]));
     let signals = &mut evidence.signals;
     let kids = (
-        old_children.get(&(o.kind, o.qualname)),
-        new_children.get(&(n.kind, n.qualname)),
+        s.old_children.get(&(o.kind, o.qualname)),
+        s.new_children.get(&(n.kind, n.qualname)),
     );
     if kids.0.is_some() || kids.1.is_some() {
         let none = BTreeSet::new();
@@ -312,8 +439,7 @@ fn score(o: &Node, n: &Node, old_children: &Children, new_children: &Children, r
         }
     }
     if milli(score) >= REFS_FLOOR {
-        let replaced = refs
-            .iter()
+        let replaced = (s.refs.iter())
             .filter(|c| replaces(c.before, c.after, o.local, n.local))
             .count();
         if replaced > 0 {
@@ -325,13 +451,16 @@ fn score(o: &Node, n: &Node, old_children: &Children, new_children: &Children, r
 }
 
 /// Matched weight over total weight, scaled down while the matched weight is below `EVIDENCE`,
-/// and the top-level keys whose every leaf matched. Differing bodies whose sketches are at least
-/// `SIMILAR` alike match in proportion and give the signal `similar`.
-fn attr_score(o: &Node, n: &Node) -> (f64, Evidence) {
+/// and the top-level keys whose every leaf matched. Differing hashes whose sketches are at least
+/// `SIMILAR` alike match in proportion and give the signal `similar`. Any other differing attr but
+/// a trivial one, such as a label or a reference, counts once and matches for the words its values
+/// share. The names' shared words weigh `NAME_WEIGHT` and give the signal `words`.
+fn attr_score((o, a): (&Node, &[Leaf]), (n, b): (&Node, &[Leaf])) -> (f64, Evidence) {
     let (mut matched, mut total) = (0.0, 0.0);
     let mut similarity = None;
     let (mut keys, mut unequal) = (BTreeSet::new(), BTreeSet::new());
-    let (mut a, mut b) = (o.leaves.iter().peekable(), n.leaves.iter().peekable());
+    let words_shared = shared(&o.words, &n.words);
+    let (mut a, mut b) = (a.iter().peekable(), b.iter().peekable());
     loop {
         // The leaf's top-level key, its weight and whether it matched.
         let (top, w, equal) = match (a.peek().copied(), b.peek().copied()) {
@@ -340,20 +469,33 @@ fn attr_score(o: &Node, n: &Node) -> (f64, Evidence) {
                 a.next();
                 b.next();
                 let alike = (o.sketch.zip(n.sketch))
-                    .filter(|_| x.0 == "body")
+                    .filter(|_| HASHES.contains(&x.0))
                     .and_then(|(a, b)| sketch::similarity(a, b))
                     .filter(|&s| s >= SIMILAR);
-                if x.2 == y.2 || replace(&x.2, o.local, n.local) == y.2 {
-                    (x.0, weight(x.0, &x.2), true)
+                let own = (x.2 != y.2).then(|| replace(&x.2, o.local, n.local));
+                let share = if own.as_ref().is_none_or(|own| *own == y.2) {
+                    None
                 } else if let Some(s) = alike {
                     similarity = Some(f64::from(milli(s)) / 1000.0);
-                    matched += HASH_WEIGHT * s;
-                    total += HASH_WEIGHT;
-                    unequal.insert(x.0);
-                    keys.insert(x.0);
-                    continue;
+                    Some(HASH_WEIGHT * s)
+                } else if !HASHES.contains(&x.0) && weight(x.0, &x.2) == 1.0 {
+                    // A rename usually rewrites its label, and a reference may follow another rename.
+                    Some(shared(&words(own.as_deref().unwrap_or_default()), &words(&y.2)))
                 } else {
-                    (x.0, CONFLICT * weight(x.0, &x.2), false)
+                    keys.insert(x.0);
+                    unequal.insert(x.0);
+                    total += CONFLICT * weight(x.0, &x.2);
+                    continue;
+                };
+                match share {
+                    None => (x.0, weight(x.0, &x.2), true),
+                    Some(part) => {
+                        matched += part;
+                        total += weight(x.0, &x.2);
+                        keys.insert(x.0);
+                        unequal.insert(x.0);
+                        continue;
+                    }
                 }
             }
             (Some(x), Some(y)) if (x.0, &x.1) < (y.0, &y.1) => {
@@ -377,14 +519,19 @@ fn attr_score(o: &Node, n: &Node) -> (f64, Evidence) {
             unequal.insert(top);
         }
     }
+    // Counted only for the words shared, since renames as often pick an unrelated name as a close one.
+    let name = NAME_WEIGHT * words_shared;
     let score = if matched == 0.0 {
         0.0
     } else {
-        matched / total * (matched / EVIDENCE).min(1.0)
+        (matched + name) / (total + name) * ((matched + name) / EVIDENCE).min(1.0)
     };
     let mut signals: Vec<String> = keys.difference(&unequal).map(|k| k.to_string()).collect();
     if similarity.is_some() {
         signals.push("similar".into());
+    }
+    if words_shared >= NAME_SIGNAL {
+        signals.push("words".into());
     }
     (score, Evidence { signals, similarity })
 }
@@ -406,6 +553,50 @@ fn milli(score: f64) -> u32 {
     (score * 1000.0).round() as u32
 }
 
+/// The lowercase words of a name or label: runs of letters and digits, split again where a
+/// capital follows a small letter or a digit, as in `AccountMove`.
+fn words(text: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut word = String::new();
+    let mut after_small = false;
+    for c in text.chars() {
+        if !c.is_alphanumeric() || (c.is_uppercase() && after_small) {
+            out.extend((!word.is_empty()).then(|| std::mem::take(&mut word)));
+        }
+        if c.is_alphanumeric() {
+            word.extend(c.to_lowercase());
+        }
+        after_small = c.is_lowercase() || c.is_numeric();
+    }
+    out.extend((!word.is_empty()).then_some(word));
+    out
+}
+
+/// The share of words two sets have in common, 0 when both are empty. A word of two letters or more
+/// matches one it begins, as `mo` does `mon`.
+fn shared(a: &BTreeSet<String>, b: &BTreeSet<String>) -> f64 {
+    let numbers = |set: &BTreeSet<String>| -> BTreeSet<String> {
+        set.iter()
+            .filter(|w| w.chars().all(|c| c.is_ascii_digit()))
+            .cloned()
+            .collect()
+    };
+    let (x, y) = (numbers(a), numbers(b));
+    if !x.is_empty() && !y.is_empty() && x.is_disjoint(&y) {
+        return 0.0;
+    }
+    let alike = |w: &String, v: &String| {
+        w == v || (w.len().min(v.len()) >= 2 && (w.starts_with(v.as_str()) || v.starts_with(w.as_str())))
+    };
+    let common = a.iter().filter(|w| b.iter().any(|v| alike(w, v))).count();
+    let union = (a.len() + b.len()).saturating_sub(common);
+    if union == 0 {
+        0.0
+    } else {
+        (common as f64 / union as f64).min(1.0)
+    }
+}
+
 /// Whether a change replaced a reference to `old` with one to `new`: the old side names `old`
 /// and not `new`, the new side the reverse.
 fn replaces(before: &str, after: &str, old: &str, new: &str) -> bool {
@@ -423,6 +614,41 @@ fn replace(text: &str, old: &str, new: &str) -> String {
         last = at + old.len();
     }
     out.push_str(&text[last..]);
+    out
+}
+
+/// `text` with each whole name `names` holds read as the name it maps to, found as `occurrences`
+/// finds one: a dotted name only where no dot follows it.
+fn rewrite(text: &str, names: &BTreeMap<&str, &str>) -> String {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(word) {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let end = rest.find(|c: char| !word(c) && c != '.').unwrap_or(rest.len());
+        let mut run = &rest[..end];
+        rest = &rest[end..];
+        // A dotted name runs to the end of the dotted run; a plain one is any segment of it.
+        loop {
+            if run.contains('.')
+                && let Some(to) = names.get(run)
+            {
+                out.push_str(to);
+                break;
+            }
+            let (segment, tail) = run.split_once('.').map_or((run, None), |(s, t)| (s, Some(t)));
+            out.push_str(names.get(segment).copied().unwrap_or(segment));
+            match tail {
+                Some(tail) => {
+                    out.push('.');
+                    run = tail;
+                }
+                None => break,
+            }
+        }
+    }
+    out.push_str(rest);
     out
 }
 
@@ -508,7 +734,7 @@ mod tests {
             [(
                 "sale.order#partner_id@sale",
                 "sale.order#customer_id@sale",
-                0.75,
+                0.917,
                 vec!["args", "comodel", "type"]
             )]
         );
@@ -559,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn members_of_other_models_or_modules_never_pair() {
+    fn members_of_other_models_never_pair_but_those_of_other_modules_do() {
         let attrs = json!({"type": "Many2one", "comodel": "res.partner", "args": {"compute": "_c"}});
         let old = table(&[("field", "sale.order#partner_id", attrs.clone())]);
         let new = table(&[("field", "sale.order.line#customer_id", attrs.clone())]);
@@ -570,7 +796,12 @@ mod tests {
             (Some((SALE, &old)), None),
             (None, Some(("addons/sale_stock/models/sale_order.py", &other))),
         ];
-        assert!(renames(&delta(&Python, &files)).is_empty());
+        let d = delta(&Python, &files);
+        let pairs: Vec<_> = renames(&d).iter().map(|r| (r.0, r.1)).collect();
+        assert_eq!(
+            pairs,
+            [("sale.order#partner_id@sale", "sale.order#customer_id@sale_stock")]
+        );
     }
 
     /// The models of one `_name` rename commit, before or after, with a few members each.
@@ -824,20 +1055,32 @@ mod tests {
     }
 
     #[test]
-    fn pairs_are_one_to_one_and_ties_go_to_the_lowest_id() {
-        let body = json!({"body": "h1"});
-        let old = table(&[
-            ("method", "sale.order#_a", body.clone()),
-            ("method", "sale.order#_b", body.clone()),
-        ]);
-        let new = table(&[("method", "sale.order#_c", body)]);
-        let d = one(&Python, SALE, &old, &new);
-        let lowest = ["sale.order#_a@sale", "sale.order#_b@sale"]
-            .into_iter()
-            .min_by_key(|q| SymbolId::new("method", q))
-            .unwrap();
-        assert_eq!(renames(&d).iter().map(|r| r.0).collect::<Vec<_>>(), [lowest]);
-        assert_eq!(d.iter().filter(|d| d.op == Op::Removed).count(), 1);
+    fn a_pair_must_clear_the_runner_up_of_both_its_symbols() {
+        let side = |symbols: &[(&str, &str)]| {
+            let symbols: Vec<(&str, String, Value)> = (symbols.iter())
+                .map(|(name, body)| ("method", format!("sale.order#{name}"), json!({"body": body})))
+                .collect();
+            let refs: Vec<(&str, &str, Value)> = symbols.iter().map(|(k, n, a)| (*k, n.as_str(), a.clone())).collect();
+            table(&refs)
+        };
+        let tie = one(
+            &Python,
+            SALE,
+            &side(&[("_a", "h1"), ("_b", "h1")]),
+            &side(&[("_c", "h1")]),
+        );
+        assert!(renames(&tie).is_empty(), "{:?}", ops(&tie));
+
+        let clear = one(
+            &Python,
+            SALE,
+            &side(&[("_a", "h1"), ("_b", "h2")]),
+            &side(&[("_c", "h1")]),
+        );
+        assert_eq!(
+            renames(&clear).iter().map(|r| r.0).collect::<Vec<_>>(),
+            ["sale.order#_a@sale"]
+        );
     }
 
     #[test]
@@ -861,28 +1104,24 @@ mod tests {
             table(&refs)
         };
         let old = build(vec![
-            field("partner_id", "Customer"),
-            related(1, "partner_id"),
-            related(2, "partner_id"),
+            field("customer", "Customer"),
+            related(1, "customer"),
+            related(2, "customer"),
         ]);
-        let new = build(vec![
-            field("buyer_id", "Buyer"),
-            related(1, "buyer_id"),
-            related(2, "buyer_id"),
-        ]);
+        let new = build(vec![field("buyer", "Buyer"), related(1, "buyer"), related(2, "buyer")]);
         let d = one(&Python, SALE, &old, &new);
         assert_eq!(
             renames(&d),
             [(
-                "sale.order#partner_id@sale",
-                "sale.order#buyer_id@sale",
-                0.65,
+                "sale.order#customer@sale",
+                "sale.order#buyer@sale",
+                0.763,
                 vec!["comodel", "type", "refs"]
             )]
         );
 
-        let old = build(vec![field("partner_id", "Customer")]);
-        let new = build(vec![field("buyer_id", "Buyer")]);
+        let old = build(vec![field("customer", "Customer")]);
+        let new = build(vec![field("buyer", "Buyer")]);
         assert!(renames(&one(&Python, SALE, &old, &new)).is_empty());
     }
 
@@ -933,5 +1172,61 @@ mod tests {
             p(&crate::Js, "js_export", "@web/core/registry#registry"),
             own("js_module", "@web/core/registry", "registry")
         );
+    }
+
+    #[test]
+    fn words_match_whole_or_by_prefix_and_numbers_must_agree() {
+        let share = |a: &str, b: &str| shared(&words(a), &words(b));
+        assert_eq!(words("GardenPlotNote"), words("garden.plot.note"));
+        assert_eq!(share("mo", "mon"), 1.0);
+        assert_eq!(share("coa_account_4011", "coa_account_4021"), 0.0);
+        assert_eq!(share("coa_4011", "coa_account_4011"), 2.0 / 3.0);
+        assert_eq!(share("", ""), 0.0);
+    }
+
+    #[test]
+    fn rewrite_reads_renamed_names_as_occurrences_finds_them() {
+        let names = BTreeMap::from([("sale.order", "sale.ord"), ("partner_id", "customer_id")]);
+        assert_eq!(
+            rewrite(r#"["sale.order","sale.order.line"]"#, &names),
+            r#"["sale.ord","sale.order.line"]"#
+        );
+        assert_eq!(
+            rewrite("partner_id.name x.partner_id", &names),
+            "customer_id.name x.customer_id"
+        );
+        assert_eq!(rewrite("a..b.", &names), "a..b.");
+    }
+
+    #[test]
+    fn a_wide_scope_past_the_pair_limit_falls_back_to_modules() {
+        let side = |module: &str, prefix: &str, n: usize| {
+            let symbols: Vec<(String, Value)> = (0..n)
+                .map(|i| {
+                    (
+                        format!("{prefix}_{i}"),
+                        json!({"body": format!("{module}{i}"), "args": ["self"]}),
+                    )
+                })
+                .collect();
+            let refs: Vec<(&str, &str, Value)> = symbols
+                .iter()
+                .map(|(name, a)| ("function", name.as_str(), a.clone()))
+                .collect();
+            table(&refs)
+        };
+        // 400 × 300 pairs across both modules, but 1 × 1 within `sale`.
+        let (big_old, big_new) = (side("x", "old", 400), side("y", "new", 300));
+        let (old, new) = (side("s", "before", 1), side("s", "after", 1));
+        let files: [(Side, Side); 3] = [
+            (
+                Some(("addons/stock/models/a.py", &big_old)),
+                Some(("addons/stock/models/a.py", &big_new)),
+            ),
+            (Some((SALE, &old)), None),
+            (None, Some(("addons/sale/models/b.py", &new))),
+        ];
+        let d = delta(&Python, &files);
+        assert_eq!(renames(&d).len(), 1, "{:?}", renames(&d));
     }
 }

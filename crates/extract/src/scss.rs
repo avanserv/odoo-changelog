@@ -46,7 +46,7 @@ impl Extractor for Scss {
 
     /// Bump with any change to the output.
     fn version(&self) -> u32 {
-        3
+        4
     }
 
     /// Every stylesheet an addon serves, vendored Bootstrap included: themes override its

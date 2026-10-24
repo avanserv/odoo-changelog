@@ -1,6 +1,6 @@
-//! A small sketch of a body's tokens, for telling how alike two bodies are once their hashes
-//! differ: b-bit MinHash over shingles of three tokens. It is deterministic across runs and
-//! machines, since every hash here is a fixed function of the token bytes.
+//! Small sketches for telling how alike two contents are once their hashes differ: b-bit MinHash
+//! over shingles of three tokens for a body, or over the items of a set. They are deterministic
+//! across runs and machines, since every hash here is a fixed function of the bytes.
 
 /// The minima kept. Two sketches estimate the Jaccard similarity of their shingle sets within
 /// about 0.08 at 0.8.
@@ -42,6 +42,22 @@ impl Sketcher {
     pub(crate) fn finish(&self) -> Option<String> {
         (self.tokens >= MIN_SHINGLES + 2).then(|| self.minima.iter().map(|m| format!("{:02x}", m & 0xff)).collect())
     }
+}
+
+/// A sketch of a set of items rather than of a run of tokens, for content whose order says little,
+/// such as a record's field values or the elements of an arch; None under two distinct items.
+/// Two such sketches compare with `similarity` like token sketches.
+pub(crate) fn set<I: AsRef<[u8]>>(items: impl IntoIterator<Item = I>) -> Option<String> {
+    let mut minima = [u64::MAX; SLOTS];
+    let mut distinct = std::collections::BTreeSet::new();
+    for item in items {
+        let hash = fnv(item.as_ref());
+        distinct.insert(hash);
+        for (slot, min) in minima.iter_mut().enumerate() {
+            *min = (*min).min(mix(hash ^ SEEDS[slot]));
+        }
+    }
+    (distinct.len() >= 2).then(|| minima.iter().map(|m| format!("{:02x}", m & 0xff)).collect())
 }
 
 /// The Jaccard similarity two sketches estimate, from 0 to 1, or None when one is malformed.
@@ -106,6 +122,19 @@ mod tests {
         assert!(similarity(&a, &c).unwrap() <= 0.3, "{:?}", similarity(&a, &c));
         assert_eq!(sketch(body), sketch(body));
         assert_eq!(a.len(), 64);
+    }
+
+    #[test]
+    fn set_sketches_tell_shared_items_apart_from_unrelated_ones() {
+        let items: Vec<String> = (0..10).map(|i| format!("field_{i}")).collect();
+        let mut edited = items.clone();
+        edited[0] = "changed".into();
+        let other: Vec<String> = (0..10).map(|i| format!("other_{i}")).collect();
+        let (a, b, c) = (set(&items).unwrap(), set(&edited).unwrap(), set(&other).unwrap());
+        assert_eq!(similarity(&a, &a), Some(1.0));
+        assert!(similarity(&a, &b).unwrap() >= 0.6, "{:?}", similarity(&a, &b));
+        assert!(similarity(&a, &c).unwrap() <= 0.2, "{:?}", similarity(&a, &c));
+        assert_eq!(set(["one", "one"]), None);
     }
 
     #[test]

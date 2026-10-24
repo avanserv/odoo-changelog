@@ -70,7 +70,7 @@ impl Extractor for Js {
     /// Bump with any change to the output, including a tree-sitter or tree-sitter-javascript
     /// upgrade and changes to `syntax`.
     fn version(&self) -> u32 {
-        4
+        5
     }
 
     fn claims(&self, path: &str) -> bool {

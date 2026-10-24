@@ -63,31 +63,51 @@ SELECT o.* FROM events e
 ## Renames
 
 The removals and additions a commit leaves once moves are paired are scored in pairs, and a pair
-scoring at least 0.6 becomes one `renamed` event. Pairs are only scored within a scope: members
-of the same parent (the fields, methods and constraints of one model, a field's selection values,
-a view's nodes, a JS module's exports, components and widgets), and any other symbol within its
-kind and module. Parents pair first, and the members of a renamed parent follow it by name with
-the parent's confidence: renaming `mail.channel` renames `mail.channel#name@mail` to
-`discuss.channel#name@mail` too.
+scoring at least 0.6 becomes one `renamed` event. Parents pair first, and the members of a renamed
+parent follow it by name with the parent's confidence: renaming `mail.channel` renames
+`mail.channel#name@mail` to `discuss.channel#name@mail` too. The rest is scored across modules: the
+members of parents of one name (the fields, methods and constraints of models of one name, a
+field's selection values, a view's nodes, a JS module's exports, components and widgets), and any
+other symbol by kind. A field moved from `garden_rent` to `garden` with its rename so pairs, as
+does an xmlid moved from `l10n_x` to `account_x`. Where that would make more than 100,000 possible
+pairs, as a regenerated chart of accounts does, members are scored by parent and other symbols by
+module, and a scope still past that is not scored. When a symbol without a parent was renamed, its
+depth is scored once more with the old name read as the new one in the attributes of the symbols
+left, so that a menu whose `action` follows a renamed action pairs too. A reference across
+extractors, such as an action's `res_model` naming a model the same commit renamed, is not
+followed.
 
 A pair's score is the share of attribute weight equal on both sides, an attribute counting as
 equal when it differs only by the old name written as the new one, as `_name` does. The `body`,
 `arch` and `values` hashes weigh 4, a boolean, number, empty value or one-character string 0.5,
-any other attribute 1, and an attribute both sides hold with different values counts double
-against the pair. A pair matching less than a weight of 4 scores in proportion, so two `Char`
-fields sharing only their type, or two view nodes sharing only `count` and `path`, are no rename.
-Two `body` hashes that differ count, instead of against the pair, for the share of their weight
-that their bodies are alike: each Python def, JS function and SCSS mixin or function of at least
-eight shingles of three tokens carries a 32-slot b-bit MinHash sketch of its normalized tokens,
-cached with the symbol but never stored in an event, and two sketches estimating at least 0.5
-similarity give that share. A renamed method with one line of its body edited so pairs below an
-exact rename. The sketches take 107 MB of the 673 MB Python cache, 4 MB of 126 MB for JS, from
-17.0 to 18.0 (2026-10-23). A parent averages that with the overlap of its members' names. Each change in the same
-commit and extractor that replaces a reference to the old name with the new one, such as a
-`comodel` moving to the renamed model, adds 0.1, up to 0.3, to a pair already scoring 0.4. Pairs are assigned one to one, best
-score first and the lowest symbol id on a tie. A scope with more than 100,000 possible pairs, such
-as a regenerated chart of accounts, is not scored. A symbol removed and added under one name is
-never a rename: the move pass decides it.
+any other attribute 1. Such an attribute, a label or a reference, that both sides hold with
+different values counts once, matched for the share of words the two values have in common: a
+rename usually rewrites its label, as a field's `string` or a model's `_description` and `class`.
+A hash or a trivial value that differs counts double against the pair. Words split at
+non-alphanumerics and where a capital follows a small letter, so `GardenPlotNote` and
+`garden.plot.note` share theirs, and a word of two letters or more matches one it begins,
+as `mo` does `mon`. The old and new names' share of words adds to both sides of the ratio with a
+weight of 2, so a close name raises a pair and an unrelated one costs nothing; names whose numbers
+all differ, as `coa_4011` and `coa_4021`, share none. A pair matching less than a weight of 4,
+the names' share included, scores in proportion, so two `Char` fields sharing only their type, or
+two view nodes sharing only `count` and `path`, are no rename.
+
+Two hashes that differ count, instead of against the pair, for the share of their weight that
+their sketches say is alike, from 0.5 up. Each Python def, JS function and SCSS mixin or function
+of at least eight shingles of three tokens carries a 32-slot b-bit MinHash sketch of its
+normalized tokens; each data declaration a sketch of the set of its `values` parts and of the
+elements and texts of a view's arch. Sketches are cached with the symbol but never stored in an
+event. A renamed method with one line of its body edited, or a renamed view with one element of
+its arch edited, so pairs below an exact rename. The Python and JS sketches take 107 MB of the 673
+MB Python cache and 4 MB of 126 MB for JS, from 17.0 to 18.0 (2026-10-23). A parent averages its
+score with the overlap of its members' names. Each change in the same commit and extractor that
+replaces a reference to the old name with the new one, such as a `comodel` moving to the renamed
+model, adds 0.1, up to 0.3, to a pair already scoring 0.4.
+
+Pairs are assigned one to one, best score first and the lowest symbol id on a tie, and a pair is
+taken only when it scores at least 0.06 above any other pair its removal or its addition could
+still take: of two equal candidates, as in a renumbered chart of accounts, neither pairs. A symbol
+removed and added under one name is never a rename: the move pass decides it.
 
 Before scoring, a removal and an addition under one qualname whose kind changed in a way the
 extractor declares pair as a rename with confidence 1 and the signal `kind`, when each is alone
@@ -96,8 +116,10 @@ does. No other kinds pair, since a view and a record can share an id without bei
 
 `confidence` runs from 0.6 to 1 in steps of 0.001, and is 1 for a rename an upgrade script
 declares, as [Matching](upgrade.md#matching) describes. `signals` is a JSON array of what matched: the
-top-level attributes equal on both sides, then `similar`, `members`, `refs` and `parent` when
-they counted, and `upgrade` last for a rename an upgrade script declares. `similarity` is the estimate that made bodies count as `similar`, from 0.5 to 1.
+top-level attributes equal on both sides, then `similar`, `words` (the names share at least half
+their words), `members`, `refs` and `parent` when they counted, and `upgrade` last for a rename
+an upgrade script declares. `similarity` is the estimate that made hashes count as `similar`,
+from 0.5 to 1.
 `referrers` is a JSON array of the qualnames whose change in the same commit and extractor
 replaced the old name with the new one, such as the templates whose `t-call` follows a renamed
 template, whatever the score; a symbol still naming the old one is not listed.

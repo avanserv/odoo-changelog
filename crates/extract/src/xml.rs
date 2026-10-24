@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::bound::{Budget, bounded};
 use crate::data::{ACTION, DATA_FUNCTION, DELETE, MENU, RECORD, VIEW, VIEW_NODE, kind_of};
 use crate::hash::digest;
-use crate::{Parts, Span, Symbol, SymbolTable};
+use crate::{Parts, Span, Symbol, SymbolTable, sketch};
 use dom::{Attr, Element, Node, elements};
 use refs::Refs;
 
@@ -278,6 +278,7 @@ impl<'d> Walker<'d> {
             if decl.declared != "delete" {
                 references(decl).put(&mut attrs);
             }
+            let sketch = content_sketch(kind, decl, parts.as_ref());
             let symbol = Symbol {
                 kind: (*kind).into(),
                 name: name.clone(),
@@ -285,7 +286,7 @@ impl<'d> Walker<'d> {
                 span: decl.span,
                 attrs,
                 parts: parts.filter(|_| spellings[kind].both(name)),
-                sketch: None,
+                sketch,
             };
             keep(&mut table, symbol);
             let owner = if nodes.is_empty() {
@@ -446,6 +447,21 @@ fn attrs(kind: &str, decl: &Decl) -> (BTreeMap<String, Value>, Vec<arch::NamedNo
     (out, nodes, Some(parts))
 }
 
+/// A set sketch of what `values` and `arch` hash: each part, and each element and text of a view's
+/// arch, so that renames can tell how alike two declarations are once those hashes differ.
+fn content_sketch(kind: &str, decl: &Decl, parts: Option<&Parts>) -> Option<String> {
+    let mut items: Vec<String> = parts.map(part_items).into_iter().flatten().collect();
+    let arch = match (kind, decl.declared) {
+        (VIEW, "template") => decl.content.map(|(content, _)| content),
+        (VIEW, _) => decl.fields.get("arch").map(|field| field.children.as_slice()),
+        _ => None,
+    };
+    if let Some(arch) = arch {
+        arch::items(arch, &mut items);
+    }
+    sketch::set(&items)
+}
+
 /// The xmlids a declaration names: in its own attributes, its fields' `ref`, `eval` and text,
 /// and the arch or content it holds, of which an inheriting view's specs only put in their content.
 fn references(decl: &Decl) -> Refs {
@@ -569,6 +585,11 @@ fn parts(decl: &Decl, skip: &[&str], skip_fields: &[&str], content: Option<(&[No
         out.insert("#content".into(), (line, digest(&hasher)));
     }
     out
+}
+
+/// Each part as one item of a set sketch, `key 0x00 hash`.
+pub(crate) fn part_items(parts: &Parts) -> impl Iterator<Item = String> + '_ {
+    parts.iter().map(|(key, (_, hash))| format!("{key}\x00{hash}"))
 }
 
 /// A hash over each part as `key 0x00 hash 0x00`, in key order, or None when there is none.

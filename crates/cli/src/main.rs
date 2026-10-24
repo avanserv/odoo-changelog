@@ -129,8 +129,8 @@ fn print_upgrade(counts: &upgrade::Counts) {
 
 fn print_validation(rows: &[((String, &str), matching::Tally)]) {
     println!(
-        "{:<11} {:<6} {:>7} {:>7} {:>7} {:>8} {:>9} {:>9}",
-        "version", "kind", "upgrade", "matched", "recall", "detected", "confirmed", "precision"
+        "{:<11} {:<6} {:>7} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9}",
+        "version", "kind", "upgrade", "matched", "recall", "reachable", "reach", "detected", "confirmed", "precision"
     );
     let share = |part: usize, whole: usize| {
         if whole == 0 {
@@ -141,10 +141,12 @@ fn print_validation(rows: &[((String, &str), matching::Tally)]) {
     };
     for ((version, kind), t) in rows {
         println!(
-            "{version:<11} {kind:<6} {:>7} {:>7} {:>7} {:>8} {:>9} {:>9}",
+            "{version:<11} {kind:<6} {:>7} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9}",
             t.upgrade,
             t.matched,
             share(t.matched, t.upgrade),
+            t.reachable,
+            share(t.matched, t.reachable),
             t.detected,
             t.confirmed,
             share(t.confirmed, t.detected)

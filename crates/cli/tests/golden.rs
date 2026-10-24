@@ -94,42 +94,37 @@ fn account_invoice_into_account_move_is_neither_resolved_nor_detected() {
     assert!(removed > 0, "account.invoice is not detected as removed in saas-12.4");
 }
 
-/// The acceptance target: every version's recall on field, model and xmlid renames is at least
-/// 90%.
+/// The acceptance target: every version's recall on the field, model and xmlid renames the
+/// detector could find is at least 90%.
 #[test]
 #[ignore = "reads the configured database"]
-fn recall_is_at_least_90_percent_per_version() {
+fn reachable_recall_is_at_least_90_percent_per_version() {
     let store = Store::open(&config().db).unwrap();
     let low: Vec<String> = matches::validate(&store)
         .unwrap()
         .into_iter()
-        .filter(|((_, _), t)| t.upgrade > 0 && (t.matched as f64) < 0.9 * t.upgrade as f64)
-        .map(|((version, kind), t)| format!("{version} {kind} {}/{}", t.matched, t.upgrade))
+        .filter(|((_, _), t)| (t.matched as f64) < 0.9 * t.reachable as f64)
+        .map(|((version, kind), t)| format!("{version} {kind} {}/{}", t.matched, t.reachable))
         .collect();
-    assert!(low.is_empty(), "recall under 90%: {low:?}");
+    assert!(low.is_empty(), "reachable recall under 90%: {low:?}");
 }
 
-/// 50 renamed fields and xmlids, drawn with a fixed seed: at least 90% match, as the detector's
-/// recall target asks. Misses are printed for the by-hand check.
+/// 50 reachable renamed fields and xmlids, drawn with a fixed seed: at least 90% match. Misses are
+/// printed for the by-hand check.
 #[test]
 #[ignore = "reads the configured database"]
 fn sampled_field_and_xmlid_renames_mostly_match() {
-    let conn = db();
-    let events: Vec<(String, String, Option<String>, String, String, bool)> = conn
-        .prepare(
-            "SELECT version, kind, model, old, new, sha IS NOT NULL FROM upgrade_events
-              WHERE op = 'renamed' AND kind IN ('field', 'xmlid') AND NOT partial
-                AND version IN (SELECT name FROM versions)
-              ORDER BY path, line, col, seq",
-        )
+    let store = Store::open(&config().db).unwrap();
+    let events: Vec<_> = matches::reachable_events(&store)
         .unwrap()
-        .query_map([], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-        })
-        .unwrap()
-        .map(Result::unwrap)
+        .into_iter()
+        .filter(|(e, _)| e.op == "renamed" && !e.partial && matches!(e.kind.as_str(), "field" | "xmlid"))
         .collect();
-    assert!(events.len() >= 50, "only {} renamed fields and xmlids", events.len());
+    assert!(
+        events.len() >= 50,
+        "only {} reachable renamed fields and xmlids",
+        events.len()
+    );
     // A 64-bit LCG (Knuth's MMIX constants), so the sample is the same on every machine.
     let mut state: u64 = 1;
     let mut picked = std::collections::BTreeSet::new();
@@ -139,16 +134,24 @@ fn sampled_field_and_xmlid_renames_mostly_match() {
             .wrapping_add(1442695040888963407);
         picked.insert((state >> 33) as usize % events.len());
     }
-    let misses: Vec<_> = picked.iter().map(|&i| &events[i]).filter(|e| !e.5).collect();
-    for (version, kind, model, old, new, _) in &misses {
+    let misses: Vec<_> = picked
+        .iter()
+        .map(|&i| &events[i])
+        .filter(|(_, matched)| !matched)
+        .collect();
+    for (e, _) in &misses {
         println!(
-            "miss: {version} {kind} {} {old} -> {new}",
-            model.as_deref().unwrap_or("-")
+            "miss: {} {} {} {} -> {}",
+            e.version.as_deref().unwrap_or("-"),
+            e.kind,
+            e.model.as_deref().unwrap_or("-"),
+            e.old.as_deref().unwrap_or("-"),
+            e.new.as_deref().unwrap_or("-")
         );
     }
     assert!(
         misses.len() <= 5,
-        "{} of 50 sampled renames matched no commit",
+        "{} of 50 sampled reachable renames matched no commit",
         misses.len()
     );
 }

@@ -2,7 +2,7 @@
 //! how many of each side the other confirms. Works on plain rows: qualnames follow the formats
 //! `docs/extractors/` defines.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The kinds of the `data` extractor that an xmlid names; `view_node` is part of a view.
 const XMLID_KINDS: &[&str] = &["view", "menu", "action", "group", "rule", "access", "record"];
@@ -27,6 +27,40 @@ pub struct DetectedRename<'a> {
     pub qualname: &'a str,
 }
 
+/// A symbol one commit removed, added or renamed, as one side of a rename that may have happened
+/// there.
+pub struct Sighting<'a> {
+    pub version: &'a str,
+    pub repo_id: i64,
+    pub sha: &'a str,
+    pub extractor: &'a str,
+    /// A removed symbol or a rename's old side, rather than an added one or a rename's new side.
+    pub old: bool,
+    pub kind: &'a str,
+    pub qualname: &'a str,
+}
+
+/// The `(kind, name)` pairs that renamed upgrade events give as an old or a new name, the field,
+/// model and xmlid kinds grouped as `tally` groups them.
+pub struct Mentioned<'a>(HashSet<(&'static str, &'a str)>);
+
+impl<'a> Mentioned<'a> {
+    /// The symbol kinds an upgrade event can name.
+    pub fn kinds() -> impl Iterator<Item = &'static str> {
+        ["field", "model"].into_iter().chain(XMLID_KINDS.iter().copied())
+    }
+
+    pub fn new(upgrade: &[UpgradeRef<'a>]) -> Self {
+        let keys = upgrade.iter().filter(|e| e.op == "renamed").filter_map(upgrade_key);
+        Mentioned(keys.flat_map(|k| [(k.kind, k.old), (k.kind, k.new)]).collect())
+    }
+
+    /// Whether a symbol of `kind` named `qualname` bears a name some event gives.
+    pub fn contains(&self, kind: &str, qualname: &str) -> bool {
+        name(kind, qualname).is_some_and(|(kind, _, name)| self.0.contains(&(kind, name)))
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Matches {
     /// `(upgrade, rename)` indexes into the inputs, sorted.
@@ -36,12 +70,14 @@ pub struct Matches {
     pub followers: Vec<usize>,
 }
 
-/// One row of the validation report. `upgrade` and `matched` count renamed upgrade events, not
-/// merged ones; `detected` and `confirmed` count renames.
+/// One row of the validation report. `upgrade`, `matched` and `reachable` count renamed upgrade
+/// events, not merged ones; `detected` and `confirmed` count renames.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Tally {
     pub upgrade: usize,
     pub matched: usize,
+    /// Those `reachable` returns.
+    pub reachable: usize,
     pub detected: usize,
     pub confirmed: usize,
 }
@@ -50,7 +86,7 @@ pub struct Tally {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Key<'a> {
     version: &'a str,
-    kind: &'a str,
+    kind: &'static str,
     /// A field's model, either side's; `None` for any other kind.
     model: Option<&'a str>,
     old: &'a str,
@@ -95,11 +131,25 @@ pub fn match_renames(upgrade: &[UpgradeRef], renames: &[DetectedRename]) -> Matc
     }
 }
 
+/// The renamed upgrade events the detector could have matched: those matched, and those whose old
+/// name one commit and extractor of their version removed or renamed away while adding or renaming
+/// to the new one.
+pub fn reachable(upgrade: &[UpgradeRef], matches: &Matches, sightings: &[Sighting]) -> BTreeSet<usize> {
+    let seen = Seen::new(sightings);
+    let matched = matches.pairs.iter().map(|&(u, _)| u);
+    let witnessed = (upgrade.iter().enumerate())
+        .filter(|(_, e)| upgrade_key(e).is_some_and(|k| seen.witnessed(&k)))
+        .map(|(u, _)| u);
+    let renamed = |&u: &usize| upgrade[u].op == "renamed";
+    matched.chain(witnessed).filter(renamed).collect()
+}
+
 /// Per `(version, kind)`, for the field, model and xmlid kinds.
 pub fn tally(
     upgrade: &[UpgradeRef],
     renames: &[DetectedRename],
     matches: &Matches,
+    reachable: &BTreeSet<usize>,
 ) -> BTreeMap<(String, &'static str), Tally> {
     let matched: BTreeSet<usize> = matches.pairs.iter().map(|&(u, _)| u).collect();
     let confirmed: BTreeSet<usize> = matches
@@ -119,6 +169,7 @@ pub fn tally(
         let t = out.entry((version.to_string(), kind)).or_default();
         t.upgrade += 1;
         t.matched += usize::from(matched.contains(&i));
+        t.reachable += usize::from(reachable.contains(&i));
     }
     for (i, r) in renames.iter().enumerate() {
         let Some(kind) = rename_group(r) else { continue };
@@ -127,6 +178,61 @@ pub fn tally(
         t.confirmed += usize::from(confirmed.contains(&i));
     }
     out
+}
+
+/// A commit, as `(repo_id, sha, extractor)`.
+type Commit<'a> = (i64, &'a str, &'a str);
+
+/// The commits that hold each side of a name: by `(version, kind, model, name, old)`, the model
+/// being a field's, and `None` for any model.
+struct Seen<'a>(HashMap<SeenKey<'a>, BTreeSet<Commit<'a>>>);
+
+/// `(version, kind, model, name, old)`.
+type SeenKey<'a> = (&'a str, &'static str, Option<&'a str>, &'a str, bool);
+
+impl<'a> Seen<'a> {
+    fn new(sightings: &[Sighting<'a>]) -> Self {
+        let mut out: HashMap<_, BTreeSet<_>> = HashMap::new();
+        for s in sightings {
+            let Some((kind, model, name)) = name(s.kind, s.qualname) else {
+                continue;
+            };
+            let commit = (s.repo_id, s.sha, s.extractor);
+            out.entry((s.version, kind, None, name, s.old))
+                .or_default()
+                .insert(commit);
+            if model.is_some() {
+                out.entry((s.version, kind, model, name, s.old))
+                    .or_default()
+                    .insert(commit);
+            }
+        }
+        Seen(out)
+    }
+
+    /// Whether one commit holds both sides of the event's rename, a field's on the event's model
+    /// on at least one side, since the model may have been renamed with it.
+    fn witnessed(&self, k: &Key) -> bool {
+        let none = BTreeSet::new();
+        let get = |model, name, old| self.0.get(&(k.version, k.kind, model, name, old)).unwrap_or(&none);
+        let (old, new) = (get(None, k.old, true), get(None, k.new, false));
+        match k.model {
+            None => !old.is_disjoint(new),
+            Some(model) => {
+                !get(Some(model), k.old, true).is_disjoint(new) || !get(Some(model), k.new, false).is_disjoint(old)
+            }
+        }
+    }
+}
+
+/// The kind group, field model and name an upgrade event would give a symbol by.
+fn name<'q>(kind: &str, qualname: &'q str) -> Option<(&'static str, Option<&'q str>, &'q str)> {
+    match kind {
+        "field" => member(qualname).map(|(model, name)| ("field", Some(model), name)),
+        "model" => Some(("model", None, model(qualname))),
+        _ if XMLID_KINDS.contains(&kind) => Some(("xmlid", None, model(qualname))),
+        _ => None,
+    }
 }
 
 fn group(kind: &str) -> Option<&'static str> {
@@ -337,13 +443,14 @@ mod tests {
             det("13.0", "method", "a.b#m1@m", "a.b#m2@m"),
         ];
         let m = match_renames(&upgrade, &renames);
-        let t = tally(&upgrade, &renames, &m);
+        let t = tally(&upgrade, &renames, &m, &reachable(&upgrade, &m, &[]));
         let row = |kind| t[&("13.0".to_string(), kind)].clone();
         assert_eq!(
             row("model"),
             Tally {
                 upgrade: 1,
                 matched: 1,
+                reachable: 1,
                 detected: 2,
                 confirmed: 2
             }
@@ -353,10 +460,59 @@ mod tests {
             Tally {
                 upgrade: 1,
                 matched: 0,
+                reachable: 0,
                 detected: 2,
                 confirmed: 1
             }
         );
         assert_eq!(t.len(), 2);
+    }
+
+    #[test]
+    fn a_rename_is_reachable_when_one_commit_removes_the_old_name_and_adds_the_new() {
+        let upgrade = [
+            up("17.0", "field", Some("sale.order"), "a", "b"),
+            up("17.0", "field", Some("sale.order"), "c", "d"),
+            up("17.0", "xmlid", None, "sale.x", "sale_stock.y"),
+            up("17.0", "model", None, "p.q", "p.r"),
+        ];
+        let seen = |sha, old, kind, qualname| Sighting {
+            version: "17.0",
+            repo_id: 1,
+            sha,
+            extractor: if kind == "field" || kind == "model" {
+                "python"
+            } else {
+                "data"
+            },
+            old,
+            kind,
+            qualname,
+        };
+        let sightings = [
+            // The model was renamed along: one side on the event's model is enough.
+            seen("s1", true, "field", "shop.order#a@sale"),
+            seen("s1", false, "field", "sale.order#b@sale"),
+            // Two commits: removed in one, added in the next.
+            seen("s1", true, "field", "sale.order#c@sale"),
+            seen("s2", false, "field", "sale.order#d@sale"),
+            seen("s3", true, "record", "sale.x@sale"),
+            seen("s3", false, "view", "sale_stock.y@sale_stock"),
+            // One commit, but another extractor.
+            seen("s4", true, "model", "p.q@p"),
+            Sighting {
+                extractor: "data",
+                ..seen("s4", false, "model", "p.r@p")
+            },
+        ];
+        assert_eq!(
+            reachable(&upgrade, &Matches::default(), &sightings),
+            BTreeSet::from([0, 2])
+        );
+        let mentioned = Mentioned::new(&upgrade);
+        assert!(mentioned.contains("field", "res.partner#b@base"));
+        assert!(mentioned.contains("action", "sale.x@sale"));
+        assert!(!mentioned.contains("view_node", "sale.x#y@sale"));
+        assert!(!mentioned.contains("field", "sale.order#e@sale"));
     }
 }
