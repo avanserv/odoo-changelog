@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/avanserv/odoo-changelog/compare/v0.2.0...v0.3.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **extract:** Pair renames across modules, by shared words and content sketches ([#37](https://github.com/avanserv/odoo-changelog/issues/37))
+
+### Features
+
+* **extract:** Pair renames across modules, by shared words and content sketches ([#37](https://github.com/avanserv/odoo-changelog/issues/37)) ([c25b234](https://github.com/avanserv/odoo-changelog/commit/c25b23446818275fcdd86ad4179508b104ef83bc))
+* **extract:** Record the symbols a merge's conflict resolution changed ([#38](https://github.com/avanserv/odoo-changelog/issues/38)) ([a0a7c14](https://github.com/avanserv/odoo-changelog/commit/a0a7c14a27cb2942f1ad1fc4d0ab362f986853bc))
+* **upgrade:** Match upgrade events to the renames they confirm and report the detector's recall ([#36](https://github.com/avanserv/odoo-changelog/issues/36)) ([c92c088](https://github.com/avanserv/odoo-changelog/commit/c92c08829c366923202a575b35928fdf0cc3186d))
+* **upgrade:** Read upgrade scripts into rename, move and removal events ([#34](https://github.com/avanserv/odoo-changelog/issues/34)) ([7dc87e3](https://github.com/avanserv/odoo-changelog/commit/7dc87e384333e3db34d79389e5a572d69bca9b77))
+
 ## [0.2.0](https://github.com/avanserv/odoo-changelog/compare/v0.1.0...v0.2.0) (2026-10-23)
 
 
