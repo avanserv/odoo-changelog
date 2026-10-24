@@ -70,18 +70,20 @@ parent follow it by name with the parent's confidence: renaming `mail.channel` r
 members of parents of one name (the fields, methods and constraints of models of one name, a
 field's selection values, a view's nodes, a JS module's exports, components and widgets), and any
 other symbol by kind. A field moved from `garden_rent` to `garden` with its rename so pairs, as
-does an xmlid moved from `l10n_x` to `account_x`. Where that would make more than 100,000 possible
+does an xmlid moved from `l10n_x` to `account_x`. Where that would make more than 250,000 possible
 pairs, as a regenerated chart of accounts does, members are scored by parent and other symbols by
-module, and a scope still past that is not scored. When a symbol without a parent was renamed, its
-depth is scored once more with the old name read as the new one in the attributes of the symbols
-left, so that a menu whose `action` follows a renamed action pairs too. A reference across
-extractors, such as an action's `res_model` naming a model the same commit renamed, is not
-followed.
+module, and a scope still past that is not scored. When a symbol was renamed, its depth is scored
+once more with the old name read as the new one in the attributes of the symbols left, so that a
+menu whose `action` follows a renamed action pairs too, as does a field whose `related` path
+follows a field renamed on another model. An old name the commit renamed to two new ones, as
+`name` on two models, is not read. A reference across extractors, such as an action's
+`res_model` naming a model the same commit renamed, is not followed.
 
 A pair's score is the share of attribute weight equal on both sides, an attribute counting as
-equal when it differs only by the old name written as the new one, as `_name` does. The `body`,
-`arch` and `values` hashes weigh 4, a boolean, number, empty value or one-character string 0.5,
-any other attribute 1. Such an attribute, a label or a reference, that both sides hold with
+equal when it differs only by the old name written as the new one, as `_name` does. An old name of
+four characters or more is also read between underscores, so that `compute='_compute_<old>'`
+matches `compute='_compute_<new>'`. The `body`, `arch` and `values` hashes weigh 4, a boolean,
+number, empty value or one-character string 0.5, any other attribute 1. Such an attribute, a label or a reference, that both sides hold with
 different values counts once, matched for the share of words the two values have in common: a
 rename usually rewrites its label, as a field's `string` or a model's `_description` and `class`.
 A hash or a trivial value that differs counts double against the pair. Words split at
@@ -97,8 +99,9 @@ Two hashes that differ count, instead of against the pair, for the share of thei
 their sketches say is alike, from 0.5 up. Each Python def, JS function and SCSS mixin or function
 of at least eight shingles of three tokens carries a 32-slot b-bit MinHash sketch of its
 normalized tokens; each data declaration a sketch of the set of its `values` parts and of the
-elements and texts of a view's arch. Sketches are cached with the symbol but never stored in an
-event. A renamed method with one line of its body edited, or a renamed view with one element of
+elements and texts of a view's arch: the items' hashes themselves up to 16 distinct ones, compared
+exactly, so that a three-part record with one part edited is 0.5 alike, and a MinHash sketch past
+that. Sketches are cached with the symbol but never stored in an event. A renamed method with one line of its body edited, or a renamed view with one element of
 its arch edited, so pairs below an exact rename. The Python and JS sketches take 107 MB of the 673
 MB Python cache and 4 MB of 126 MB for JS, from 17.0 to 18.0 (2026-10-23). A parent averages its
 score with the overlap of its members' names. Each change in the same commit and extractor that

@@ -40,7 +40,7 @@ impl Extractor for Python {
     /// Bump with any change to the output, including a tree-sitter or tree-sitter-python upgrade
     /// and changes to `syntax`.
     fn version(&self) -> u32 {
-        4
+        5
     }
 
     /// Importable files only: migration scripts and other paths that are no Python identifier

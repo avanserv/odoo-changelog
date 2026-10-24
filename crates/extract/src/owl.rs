@@ -41,7 +41,7 @@ impl Extractor for Owl {
     /// Bump with any change to the output, including a quick-xml upgrade and changes to
     /// `xml::dom` or `xml::arch`, which `data` shares.
     fn version(&self) -> u32 {
-        3
+        4
     }
 
     /// Client templates Odoo serves from `static/src`; tests, third-party files under

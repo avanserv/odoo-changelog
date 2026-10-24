@@ -35,7 +35,10 @@ const REF_BOOST: f64 = 0.1;
 const MAX_REF_BOOST: f64 = 0.3;
 /// Removed × added pairs past which a scope is not scored: a mass rewrite, such as a regenerated
 /// chart of accounts, is not worth the quadratic cost.
-const MAX_PAIRS: usize = 100_000;
+const MAX_PAIRS: usize = 250_000;
+/// Shortest old name also read as the new one inside an identifier, as in `_compute_<name>`: a
+/// shorter one, such as `id`, is part of too many.
+const SEGMENT_MIN: usize = 4;
 
 /// The symbol a member belongs to, such as a field's model, and the member's name in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,9 +142,10 @@ struct Sides<'n, 'r> {
 /// The `(removed, added)` index pairs that are renames, each with its evidence. Parents pair
 /// before their members; members of a renamed parent pair by name first, then are scored with
 /// the new parent's other members. Each depth is scored in scopes across modules, or by module
-/// past `MAX_PAIRS`, and once more when a symbol without a parent was renamed, its old name read as
-/// the new one in what is left. A change in `refs` that replaces a reference to the old name adds to a pair's
-/// confidence and lists the change among its referrers.
+/// past `MAX_PAIRS`, and once more when a symbol was renamed, its old name read as the new one in
+/// what is left wherever the commit renamed that name to one other only. A change in `refs` that
+/// replaces a reference to the old name adds to a pair's confidence and lists the change among its
+/// referrers.
 pub(crate) fn pairs(
     ex: &dyn Extractor,
     removed: &[Item],
@@ -168,6 +172,8 @@ pub(crate) fn pairs(
         new: vec![false; new.len()],
         renamed: BTreeMap::new(),
         names: BTreeMap::new(),
+        ambiguous: BTreeSet::new(),
+        learned: 0,
         refs,
         out: Vec::new(),
     };
@@ -201,13 +207,13 @@ pub(crate) fn pairs(
 
         let mut read = 0;
         for round in 0..2 {
-            if taken.names.len() > read {
+            if taken.learned > read {
                 for i in (0..old.len()).filter(|&i| old[i].depth == depth && !taken.old[i]) {
                     for leaf in &mut old_leaves[i] {
                         leaf.2 = rewrite(&leaf.2, &taken.names);
                     }
                 }
-                read = taken.names.len();
+                read = taken.learned;
             } else if round > 0 {
                 break;
             }
@@ -325,9 +331,13 @@ struct Taken<'n, 'r> {
     /// Old `(kind, qualname)` to the new qualname, the new one without `@<module>`, and the
     /// confidence in thousandths.
     renamed: BTreeMap<(&'n str, &'n str), (&'n str, &'n str, u32)>,
-    /// The old name of each renamed symbol without a parent to its new one, which the symbols left
-    /// may still reference.
+    /// The old name of each renamed symbol to its new one, which the symbols left may still
+    /// reference, as a field's `related` path names a field renamed on another model.
     names: BTreeMap<&'n str, &'n str>,
+    /// Old names renamed to more than one new name, as `name` on two models, which are not read.
+    ambiguous: BTreeSet<&'n str>,
+    /// How many times `names` changed, so that a round reads it again only when it did.
+    learned: usize,
     refs: &'r [Change<'r>],
     out: Vec<(usize, usize, Rename)>,
 }
@@ -338,8 +348,15 @@ impl<'n> Taken<'n, '_> {
         self.new[j] = true;
         self.renamed
             .insert((o.kind, o.qualname), (n.qualname, n.unscoped, milli));
-        if o.parent.is_none() {
-            self.names.entry(o.local).or_insert(n.local);
+        if o.local != n.local && !self.ambiguous.contains(o.local) {
+            match self.names.insert(o.local, n.local) {
+                Some(to) if to != n.local => {
+                    self.names.remove(o.local);
+                    self.ambiguous.insert(o.local);
+                }
+                Some(_) => {}
+                None => self.learned += 1,
+            }
         }
         let confidence = f64::from(milli) / 1000.0;
         let referrers: BTreeSet<&str> = (self.refs.iter())
@@ -600,15 +617,17 @@ fn shared(a: &BTreeSet<String>, b: &BTreeSet<String>) -> f64 {
 /// Whether a change replaced a reference to `old` with one to `new`: the old side names `old`
 /// and not `new`, the new side the reverse.
 fn replaces(before: &str, after: &str, old: &str, new: &str) -> bool {
-    let names = |text: &str, name: &str| occurrences(text, name).next().is_some();
+    let names = |text: &str, name: &str| occurrences(text, name, false).next().is_some();
     names(before, old) && !names(before, new) && names(after, new) && !names(after, old)
 }
 
-/// `text` with each whole-name occurrence of `old` read as `new`.
+/// `text` with each whole-name occurrence of `old` read as `new`, and each occurrence between
+/// underscores too when `old` is at least `SEGMENT_MIN` long, so that a field's compute method
+/// follows its rename.
 fn replace(text: &str, old: &str, new: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut last = 0;
-    for at in occurrences(text, old) {
+    for at in occurrences(text, old, old.len() >= SEGMENT_MIN) {
         out.push_str(&text[last..at]);
         out.push_str(new);
         last = at + old.len();
@@ -653,10 +672,10 @@ fn rewrite(text: &str, names: &BTreeMap<&str, &str>) -> String {
 }
 
 /// Where `name` occurs in `text` as a whole name: between characters that cannot continue an
-/// identifier and, for a dotted name such as a model's, not followed by a dot, so that
-/// `mail.channel` is not found in `mail.channel.member`.
-fn occurrences<'t>(text: &'t str, name: &'t str) -> impl Iterator<Item = usize> + 't {
-    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+/// identifier, or `within` one between underscores, and, for a dotted name such as a model's, not
+/// followed by a dot, so that `mail.channel` is not found in `mail.channel.member`.
+fn occurrences<'t>(text: &'t str, name: &'t str, within: bool) -> impl Iterator<Item = usize> + 't {
+    let word = move |c: u8| c.is_ascii_alphanumeric() || (c == b'_' && !within);
     let bytes = text.as_bytes();
     text.match_indices(name).map(|(at, _)| at).filter(move |&at| {
         let before = at.checked_sub(1).map(|k| bytes[k]);
@@ -765,6 +784,47 @@ mod tests {
         let old = table(&[("field", "sale.order#note", json!({"type": "Char"}))]);
         let new = table(&[("field", "sale.order#memo", json!({"type": "Char"}))]);
         assert!(renames(&one(&Python, SALE, &old, &new)).is_empty());
+    }
+
+    #[test]
+    fn a_related_field_follows_the_field_renamed_on_another_model() {
+        let company = |field: &str| {
+            let attrs =
+                json!({"type": "Boolean", "args": {"string": "Test environment", "help": "Send to the test server"}});
+            table(&[("field", &format!("res.company#{field}"), attrs)])
+        };
+        let settings = |field: &str, target: &str| {
+            let attrs =
+                json!({"type": "Boolean", "args": {"related": format!("company_id.{target}"), "readonly": false}});
+            table(&[("field", &format!("res.config.settings#{field}"), attrs)])
+        };
+        let (old_company, new_company) = (company("edi_test_env"), company("sii_test_env"));
+        let (old_settings, new_settings) = (
+            settings("use_test", "edi_test_env"),
+            settings("sandbox", "sii_test_env"),
+        );
+        let files: [(Side, Side); 2] = [
+            (
+                Some(("addons/l10n_es/models/res_company.py", &old_company)),
+                Some(("addons/l10n_es/models/res_company.py", &new_company)),
+            ),
+            (
+                Some(("addons/l10n_es/models/res_config_settings.py", &old_settings)),
+                Some(("addons/l10n_es/models/res_config_settings.py", &new_settings)),
+            ),
+        ];
+        let d = delta(&Python, &files);
+        let pairs: Vec<_> = renames(&d).iter().map(|r| (r.0, r.1)).collect();
+        assert_eq!(
+            pairs,
+            [
+                ("res.company#edi_test_env@l10n_es", "res.company#sii_test_env@l10n_es"),
+                (
+                    "res.config.settings#use_test@l10n_es",
+                    "res.config.settings#sandbox@l10n_es"
+                ),
+            ]
+        );
     }
 
     #[test]
@@ -1128,7 +1188,7 @@ mod tests {
     #[test]
     fn a_scope_past_the_pair_limit_is_not_scored() {
         let side = |prefix: &str| {
-            let symbols: Vec<(String, Value)> = (0..317)
+            let symbols: Vec<(String, Value)> = (0..501)
                 .map(|i| (format!("sale.order#{prefix}{i}"), json!({"body": format!("h{i}")})))
                 .collect();
             let refs: Vec<(&str, &str, Value)> =
@@ -1141,12 +1201,17 @@ mod tests {
 
     #[test]
     fn names_match_whole() {
-        let found = |text: &str, name: &str| occurrences(text, name).collect::<Vec<_>>();
+        let found = |text: &str, name: &str| occurrences(text, name, false).collect::<Vec<_>>();
         assert_eq!(found(r#"{"comodel":"mail.channel"}"#, "mail.channel"), [12]);
         assert!(found(r#"["mail.channel.member"]"#, "mail.channel").is_empty());
         assert_eq!(found("partner_id.name", "partner_id"), [0]);
         assert!(found("partner_id_x", "partner_id").is_empty());
         assert_eq!(replace("a.b a.bc a.b.c", "a.b", "x"), "x a.bc a.b.c");
+        assert_eq!(
+            replace("_compute_kanban_state kanban_states", "kanban_state", "state"),
+            "_compute_state kanban_states"
+        );
+        assert_eq!(replace("_compute_uid", "uid", "user"), "_compute_uid");
     }
 
     #[test]
@@ -1215,8 +1280,8 @@ mod tests {
                 .collect();
             table(&refs)
         };
-        // 400 × 300 pairs across both modules, but 1 × 1 within `sale`.
-        let (big_old, big_new) = (side("x", "old", 400), side("y", "new", 300));
+        // 600 × 450 pairs across both modules, but 1 × 1 within `sale`.
+        let (big_old, big_new) = (side("x", "old", 600), side("y", "new", 450));
         let (old, new) = (side("s", "before", 1), side("s", "after", 1));
         let files: [(Side, Side); 3] = [
             (

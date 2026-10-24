@@ -469,3 +469,24 @@ fn an_unrelated_field_of_another_type_is_no_rename() {
     );
     assert_eq!(renames(&[(path, &old)], &[(path, &new)]), []);
 }
+
+#[test]
+fn a_field_renamed_with_its_compute_method_pairs() {
+    let path = "addons/garden/models/garden_plot.py";
+    let side = |field: &str, label: &str| {
+        fields(
+            "garden.plot",
+            &format!(
+                "    {field} = fields.Float(string='{label}', compute='_compute_{field}', store=True, help='Weight harvested this season')\n"
+            ),
+        )
+    };
+    let (old, new) = (side("harvest_weight", "Harvest weight"), side("yield_kg", "Yield"));
+    assert_eq!(
+        renames(&[(path, &old)], &[(path, &new)]),
+        [(
+            "garden.plot#harvest_weight@garden".into(),
+            "garden.plot#yield_kg@garden".into()
+        )]
+    );
+}
