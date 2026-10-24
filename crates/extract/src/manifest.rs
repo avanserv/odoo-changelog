@@ -24,7 +24,7 @@ impl Extractor for Manifest {
     /// Bump with any change to the output, including changes to `python::value`,
     /// `python::python2` or `syntax`, and a tree-sitter or tree-sitter-python upgrade.
     fn version(&self) -> u32 {
-        2
+        3
     }
 
     /// A manifest in a directory Odoo accepts as a module name (`MODULE_NAME_RE`, ASCII only).

@@ -979,3 +979,79 @@ fn a_menu_follows_the_action_renamed_with_it() {
         ])
     );
 }
+
+#[test]
+fn country_states_moved_to_base_with_their_country_ref_requalified_pair_one_to_one() {
+    let header = "\"id\",\"country_id:id\",\"name\",\"code\"\n";
+    let old = format!("{header}state_gd_n,base.gd,Nordheim,GD-N\nstate_gd_s,base.gd,Sudheim,GD-S\n");
+    let new = format!("{header}state_gd_n,gd,Nordheim,GD-N\nstate_gd_s,gd,Sudheim,GD-S\n");
+    let r = renames(
+        &[("addons/l10n_gd/data/res.country.state.csv", &old)],
+        &[("odoo/addons/base/data/res.country.state.csv", &new)],
+    );
+    let pairs: BTreeSet<(&str, &str)> = r.iter().map(|r| (r.0.as_str(), r.1.as_str())).collect();
+    assert_eq!(
+        pairs,
+        BTreeSet::from([
+            ("l10n_gd.state_gd_n@l10n_gd", "base.state_gd_n@base"),
+            ("l10n_gd.state_gd_s@l10n_gd", "base.state_gd_s@base"),
+        ])
+    );
+}
+
+#[test]
+fn report_lines_renamed_with_translated_names_pair_by_their_codes() {
+    let line = |prefix: &str, n: u32, name: &str, formula: &str| {
+        format!(
+            r#"<record id="{prefix}_line_gd_{n}" model="account.report.line"><field name="name">{name}</field><field name="code">GD_{n}</field><field name="hide_if_zero" eval="True"/><field name="groupby">account_id</field><field name="foldable" eval="True"/>{formula}</record>"#
+        )
+    };
+    let old = format!(
+        "<odoo>{}{}</odoo>",
+        line(
+            "account_financial_report",
+            10,
+            "Hazır Değerler",
+            r#"<field name="domain_formula">sum([('account_id.code', '=like', '10%')])</field>"#
+        ),
+        line(
+            "account_financial_report",
+            11,
+            "Menkul Kıymetler",
+            r#"<field name="domain_formula">sum([('account_id.code', '=like', '11%')])</field>"#
+        ),
+    );
+    let new = format!(
+        "<odoo>{}{}</odoo>",
+        line(
+            "account_report",
+            10,
+            "Liquid Assets",
+            r#"<field name="account_codes_formula">10</field>"#
+        ),
+        line(
+            "account_report",
+            11,
+            "Marketable Securities",
+            r#"<field name="account_codes_formula">11</field>"#
+        ),
+    );
+    let r = renames(
+        &[("l10n_gd_reports/data/balance_sheet_old.xml", &old)],
+        &[("l10n_gd_reports/data/balance_sheet.xml", &new)],
+    );
+    let pairs: BTreeSet<(&str, &str)> = r.iter().map(|r| (r.0.as_str(), r.1.as_str())).collect();
+    assert_eq!(
+        pairs,
+        BTreeSet::from([
+            (
+                "l10n_gd_reports.account_financial_report_line_gd_10@l10n_gd_reports",
+                "l10n_gd_reports.account_report_line_gd_10@l10n_gd_reports"
+            ),
+            (
+                "l10n_gd_reports.account_financial_report_line_gd_11@l10n_gd_reports",
+                "l10n_gd_reports.account_report_line_gd_11@l10n_gd_reports"
+            ),
+        ])
+    );
+}

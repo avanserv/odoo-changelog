@@ -64,7 +64,7 @@ impl Extractor for Data {
     /// Bump with any change to the output, including a quick-xml upgrade and changes to
     /// `xml::dom` or `xml::arch`, which `owl` shares.
     fn version(&self) -> u32 {
-        6
+        7
     }
 
     /// Data files of a module, wherever they sit (views/, data/, template/, tests/, ...): Odoo
