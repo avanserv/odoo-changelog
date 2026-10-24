@@ -63,13 +63,13 @@ impl Store {
         Ok(())
     }
 
-    /// Non-merge commits every one of the `extractors` current extractors has processed and
+    /// Commits every one of the `extractors` current extractors has processed and
     /// that `version` has not classified, in walk order. `sync_extractors` drops the marks of
     /// any other extractor, so counting them is enough.
     pub fn classify_candidates(&self, repo_id: i64, version: i64, extractors: usize) -> Result<Vec<Unclassified>> {
         let mut stmt = self.conn.prepare(
             "SELECT c.sha, c.tag FROM commits c
-              WHERE c.repo_id = ?1 AND c.is_merge = 0 AND c.classified IS NOT ?2
+              WHERE c.repo_id = ?1 AND c.classified IS NOT ?2
                 AND (SELECT COUNT(*) FROM extracted e WHERE e.repo_id = c.repo_id AND e.sha = c.sha) = ?3
               ORDER BY c.branch, c.fp_idx, c.sub_idx",
         )?;

@@ -3,10 +3,11 @@ use rusqlite::{OptionalExtension, params};
 
 use crate::Store;
 
-/// A non-merge commit walk recorded, with the extractors that already processed it.
+/// A commit walk recorded, with the extractors that already processed it.
 pub struct PendingCommit {
     pub sha: String,
     pub version: Option<String>,
+    pub is_merge: bool,
     pub done: Vec<String>,
 }
 
@@ -105,25 +106,26 @@ impl Store {
         Ok(purged)
     }
 
-    /// Every non-merge commit of the repo, in walk order: `(branch, fp_idx, sub_idx)`.
+    /// Every commit of the repo, in walk order: `(branch, fp_idx, sub_idx)`.
     pub fn extract_candidates(&self, repo_id: i64) -> Result<Vec<PendingCommit>> {
         let mut stmt = self.conn.prepare(
-            "SELECT c.sha, c.version,
+            "SELECT c.sha, c.version, c.is_merge,
                     (SELECT json_group_array(extractor) FROM
                         (SELECT e.extractor FROM extracted e
                           WHERE e.repo_id = c.repo_id AND e.sha = c.sha ORDER BY e.extractor))
                FROM commits c
-              WHERE c.repo_id = ?1 AND c.is_merge = 0
+              WHERE c.repo_id = ?1
               ORDER BY c.branch, c.fp_idx, c.sub_idx",
         )?;
         let rows = stmt.query_map([repo_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get(1)?, r.get::<_, String>(2)?))
+            Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get::<_, String>(3)?))
         })?;
         rows.map(|row| {
-            let (sha, version, done) = row?;
+            let (sha, version, is_merge, done) = row?;
             Ok(PendingCommit {
                 sha,
                 version,
+                is_merge,
                 done: serde_json::from_str(&done)?,
             })
         })

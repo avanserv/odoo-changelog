@@ -1,14 +1,15 @@
 # Extract
 
 `extract` diffs each walked commit against its parent and turns its changed files into symbol
-events, as [Events](#events) describes. Merge commits are skipped, so each event belongs to the
-commit that made the change. File renames are paired with git's default settings (50%
-similarity), whatever the clone's config says, and file renames, moves and renames are paired only
-among the files one extractor reads: an extractor's events never depend on which other extractors run. A symbol's id
-is `blake3(kind, 0x00, qualname)`. Each blob is parsed
-once per extractor version: the result is cached under the blob id, the extractor's name and its
-version, and bumping the version re-extracts that extractor's commits only. `--from` and `--to`
-bound the `version` of the commits extracted, and a later run picks up the rest.
+events, as [Events](#events) describes. A merge records only what resolving it changed, as
+[Merges](#merges) describes, so each event belongs to the commit that made the change. File
+renames are paired with git's default settings (50% similarity), whatever the clone's config
+says, and file renames, moves and renames are paired only among the files one extractor reads: an
+extractor's events never depend on which other extractors run. A symbol's id is
+`blake3(kind, 0x00, qualname)`. Each blob is parsed once per extractor version: the result is
+cached under the blob id, the extractor's name and its version, and bumping the version
+re-extracts that extractor's commits only. `--from` and `--to` bound the `version` of the
+commits extracted, and a later run picks up the rest.
 
 Each extractor leaves a warning on the file's table for input it could read only in part, as its
 page says, and `extract` reports how many file sides (the old or new version of a changed file)
@@ -129,6 +130,32 @@ SELECT o.qualname, s.qualname, e.confidence, e.signals FROM events e
   JOIN symbols s ON s.id = e.symbol_id
   JOIN symbols o ON o.id = e.old_symbol_id
  WHERE e.op = 'renamed' AND s.kind = 'model';
+```
+
+## Merges
+
+A merge is diffed against each of its parents, on the files `git diff --cc` lists: those the merge
+left unlike every parent at one same line, or between the same two lines, and those added or
+deleted against a parent. A file each side changed in other places and merged cleanly gives no
+event, even when both edited one method. On each file listed, a symbol gives an event only when it
+differs from every parent in one same respect: its name, its path or one attribute value, down into
+nested objects so that each keyword argument of a field counts on its own. A fix merged into a file
+the other side renamed gives none: the symbol differs from one parent in its body and from the
+other in its path. A hashed value, such as a method's body, is one value, so a method each side
+edited cleanly still gives an event when its file holds a resolved conflict elsewhere. The event is
+taken against a parent whose name and path for the symbol both differ, and keeps only the
+attributes that differ from every parent.
+
+Up to 13.0, stable branches were merged forward into master, and a conflict resolved there is
+often where a fix was adapted to a rename or a refactor on the newer branch. On 2026-10-24, about
+580 merges of `odoo` and `enterprise` resolved a conflict in a file an extractor reads, all in
+12.0 to 13.0, and about 480 of them give 4,100 events. `commits.is_merge` tells a merge's events
+from the rest:
+
+```sql
+SELECT e.* FROM events e
+  JOIN commits c ON c.repo_id = e.repo_id AND c.sha = e.sha
+ WHERE c.is_merge;
 ```
 
 ## Extractors

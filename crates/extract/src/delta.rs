@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
@@ -162,6 +162,149 @@ pub fn delta(ex: &dyn Extractor, files: &[(Side, Side)]) -> Vec<Delta> {
     }
     out.sort_by(|a, b| (&a.path, &a.kind, &a.qualname).cmp(&(&b.path, &b.kind, &b.qualname)));
     out
+}
+
+/// What resolving a merge changed, from its `delta` against each parent, first parent first. A
+/// symbol gives an event only when it differs from every parent in one same respect: its name,
+/// its path or one attr leaf, so a symbol each side changed in its own respect, as a clean merge
+/// leaves it, gives none. A hashed attr such as a body is one leaf, whichever lines changed. A
+/// parent that lacks the symbol differs from it in every respect. The event is the first view
+/// that is neither an addition nor a removal and whose name and path differ from every parent,
+/// with its attrs cut to the leaves that do; failing that, the first parent's. Same order as
+/// `delta`.
+pub fn resolved(deltas: &[Vec<Delta>]) -> Vec<Delta> {
+    let Some((first, others)) = deltas.split_first() else {
+        return Vec::new();
+    };
+    // By path too: `delta` qualifies each file on its own, so one id can change in several files.
+    let others: Vec<BTreeMap<(SymbolId, &str), &Delta>> = others
+        .iter()
+        .map(|ds| ds.iter().map(|d| ((d.id, d.path.as_str()), d)).collect())
+        .collect();
+    let mut out = Vec::new();
+    'symbol: for d in first {
+        let mut common = aspects(d);
+        let mut views = vec![d];
+        for by_key in &others {
+            let Some(&theirs) = by_key.get(&(d.id, d.path.as_str())) else {
+                continue 'symbol;
+            };
+            if let Some(theirs) = aspects(theirs) {
+                common = Some(match common {
+                    Some(mut c) => {
+                        c.retain(|a| theirs.contains(a));
+                        c
+                    }
+                    None => theirs,
+                });
+            }
+            views.push(theirs);
+        }
+        let Some(common) = common else {
+            out.push(d.clone());
+            continue;
+        };
+        if common.is_empty() {
+            continue;
+        }
+        let present = |v: &&&Delta| !matches!(v.op, Op::Added | Op::Removed);
+        let fits = |v: &&&Delta| present(v) && structural(v).iter().all(|a| common.contains(a));
+        let view = views.iter().find(fits).or_else(|| views.iter().find(present));
+        let mut event = (*view.unwrap_or(&d)).clone();
+        if present(&&&event) {
+            let leaves: Vec<&[String]> = common
+                .iter()
+                .filter_map(|a| match a {
+                    Aspect::Attr(path) => Some(path.as_slice()),
+                    _ => None,
+                })
+                .collect();
+            if leaves.is_empty() {
+                (event.attrs_before, event.attrs_after) = (None, None);
+            } else {
+                event.attrs_before = event.attrs_before.map(|s| cut(&s, &leaves));
+                event.attrs_after = event.attrs_after.map(|s| cut(&s, &leaves));
+            }
+        }
+        out.push(event);
+    }
+    out.sort_by(|a, b| (&a.path, &a.kind, &a.qualname).cmp(&(&b.path, &b.kind, &b.qualname)));
+    out
+}
+
+/// A respect in which a symbol differs from a parent's; an attr is the key path to a leaf.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Aspect {
+    Name,
+    Path,
+    Attr(Vec<String>),
+}
+
+/// `None` for an addition or a removal: the parent lacks the symbol, which differs in every
+/// respect.
+fn aspects(d: &Delta) -> Option<BTreeSet<Aspect>> {
+    if matches!(d.op, Op::Added | Op::Removed) {
+        return None;
+    }
+    let mut out: BTreeSet<Aspect> = structural(d).into_iter().collect();
+    for attrs in [&d.attrs_before, &d.attrs_after].into_iter().flatten() {
+        if let Ok(value) = serde_json::from_str(attrs) {
+            leaves(&value, &mut Vec::new(), &mut out);
+        }
+    }
+    Some(out)
+}
+
+/// The name and path aspects the op itself says differ.
+fn structural(d: &Delta) -> Vec<Aspect> {
+    let mut out = Vec::new();
+    if d.op == Op::Renamed {
+        out.push(Aspect::Name);
+    }
+    if d.old.as_ref().is_some_and(|o| o.path != d.path) {
+        out.push(Aspect::Path);
+    }
+    out
+}
+
+/// An empty object is no leaf: in `changed_keys` output it stands for keys only the other side has.
+fn leaves(value: &Value, path: &mut Vec<String>, out: &mut BTreeSet<Aspect>) {
+    match value {
+        Value::Object(map) => {
+            for (k, v) in map {
+                path.push(k.clone());
+                leaves(v, path, out);
+                path.pop();
+            }
+        }
+        _ if !path.is_empty() => {
+            out.insert(Aspect::Attr(path.clone()));
+        }
+        _ => {}
+    }
+}
+
+/// The canonical JSON `attrs` cut to the key paths in `keep`.
+fn cut(attrs: &str, keep: &[&[String]]) -> String {
+    fn retain(value: &mut Value, keep: &[&[String]]) {
+        let Value::Object(map) = value else {
+            return;
+        };
+        map.retain(|k, v| {
+            let below: Vec<&[String]> = keep.iter().filter(|p| p.first() == Some(k)).map(|p| &p[1..]).collect();
+            if !below.is_empty() && !below.iter().any(|p| p.is_empty()) {
+                retain(v, &below);
+            }
+            !below.is_empty()
+        });
+    }
+    match serde_json::from_str(attrs) {
+        Ok(mut value) => {
+            retain(&mut value, keep);
+            value.to_string()
+        }
+        Err(_) => attrs.to_string(),
+    }
 }
 
 type Leftovers<'a> = Vec<(Key, Found<'a>)>;
@@ -705,5 +848,174 @@ mod tests {
         let t = table(&[("f", 1, "x")]);
         assert_eq!(ops(&one(&ByDir, None, Some(("a/f.py", &t)))), [("a:f", "added")]);
         assert_eq!(ops(&one(&ByDir, Some(("a/f.py", &t)), None)), [("a:f", "removed")]);
+    }
+
+    /// `delta` of one file `a/f.py` against each parent, for `resolved`.
+    fn merge(parents: &[&SymbolTable], merged: &SymbolTable) -> Vec<Delta> {
+        let deltas: Vec<_> = parents
+            .iter()
+            .map(|p| one(&ByDir, Some(("a/f.py", p)), Some(("a/f.py", merged))))
+            .collect();
+        resolved(&deltas)
+    }
+
+    fn fields(defs: &[(&str, &[(&str, i64)])]) -> SymbolTable {
+        let mut t = SymbolTable::default();
+        for (i, (name, attrs)) in defs.iter().enumerate() {
+            let attrs: Vec<_> = attrs.iter().map(|(k, v)| (*k, Value::from(*v))).collect();
+            t.insert(symbol("def", name, i as u32 + 1, &attrs));
+        }
+        t
+    }
+
+    #[test]
+    fn an_auto_merge_of_two_symbols_is_no_event() {
+        let ours = table(&[("f", 1, "ours"), ("g", 2, "base")]);
+        let theirs = table(&[("f", 1, "base"), ("g", 2, "theirs")]);
+        let merged = table(&[("f", 1, "ours"), ("g", 2, "theirs")]);
+        assert_eq!(ops(&merge(&[&ours, &theirs], &merged)), []);
+    }
+
+    #[test]
+    fn an_edit_unlike_every_parent_is_kept() {
+        let ours = table(&[("f", 1, "ours"), ("g", 2, "base")]);
+        let theirs = table(&[("f", 1, "theirs"), ("g", 2, "theirs")]);
+        let merged = table(&[("f", 1, "resolved"), ("g", 2, "theirs")]);
+        let d = merge(&[&ours, &theirs], &merged);
+        assert_eq!(ops(&d), [("a:f", "changed")]);
+        assert_eq!(
+            attrs(&d[0]),
+            (Some(r#"{"body":"ours"}"#), Some(r#"{"body":"resolved"}"#))
+        );
+    }
+
+    #[test]
+    fn a_symbol_each_side_changed_in_its_own_attr_is_no_event() {
+        let ours = fields(&[("f", &[("help", 0), ("string", 1)])]);
+        let theirs = fields(&[("f", &[("help", 1), ("string", 0)])]);
+        let merged = fields(&[("f", &[("help", 1), ("string", 1)])]);
+        assert_eq!(ops(&merge(&[&ours, &theirs], &merged)), []);
+    }
+
+    #[test]
+    fn a_change_keeps_only_the_attrs_unlike_every_parent() {
+        let ours = fields(&[("f", &[("help", 0), ("string", 1)])]);
+        let theirs = fields(&[("f", &[("help", 1), ("string", 0)])]);
+        let merged = fields(&[("f", &[("help", 1), ("string", 2)])]);
+        let d = merge(&[&ours, &theirs], &merged);
+        assert_eq!(ops(&d), [("a:f", "changed")]);
+        assert_eq!(attrs(&d[0]), (Some(r#"{"string":1}"#), Some(r#"{"string":2}"#)));
+    }
+
+    #[test]
+    fn a_symbol_one_parent_lacks_takes_the_other_parents_view() {
+        let ours = table(&[]);
+        let theirs = table(&[("f", 1, "fix")]);
+        let merged = table(&[("f", 1, "adapted")]);
+        let d = merge(&[&ours, &theirs], &merged);
+        assert_eq!(ops(&d), [("a:f", "changed")]);
+        assert_eq!(attrs(&d[0]), (Some(r#"{"body":"fix"}"#), Some(r#"{"body":"adapted"}"#)));
+        // Taken from the side that added it unchanged, it is that side's addition.
+        assert_eq!(ops(&merge(&[&ours, &theirs], &theirs)), []);
+    }
+
+    #[test]
+    fn a_removal_both_parents_had_is_kept() {
+        let ours = table(&[("f", 1, "ours"), ("g", 2, "x")]);
+        let theirs = table(&[("f", 1, "theirs"), ("g", 2, "x")]);
+        let merged = table(&[("f", 1, "ours")]);
+        assert_eq!(ops(&merge(&[&ours, &theirs], &merged)), [("a:g", "removed")]);
+        let gone = table(&[("f", 1, "theirs")]);
+        assert_eq!(ops(&merge(&[&ours, &gone], &merged)), []);
+    }
+
+    #[test]
+    fn an_edit_merged_into_a_file_renamed_on_the_other_side_is_no_event() {
+        let ours = table(&[("f", 1, "base")]);
+        let theirs = table(&[("f", 1, "fix")]);
+        let merged = table(&[("f", 1, "fix")]);
+        let deltas = [
+            one(&ByDir, Some(("a/g.py", &ours)), Some(("a/g.py", &merged))),
+            one(&ByDir, Some(("a/f.py", &theirs)), Some(("a/g.py", &merged))),
+        ];
+        assert_eq!(ops(&resolved(&deltas)), []);
+    }
+
+    fn field(args: Value) -> SymbolTable {
+        let mut t = SymbolTable::default();
+        t.insert(symbol("field", "f", 1, &[("type", "Char".into()), ("args", args)]));
+        t
+    }
+
+    #[test]
+    fn kwargs_each_side_changed_are_no_event() {
+        let ours = field(serde_json::json!({"help": "h", "string": "Ours"}));
+        let theirs = field(serde_json::json!({"help": "Theirs", "string": "S"}));
+        let merged = field(serde_json::json!({"help": "Theirs", "string": "Ours"}));
+        assert_eq!(ops(&merge(&[&ours, &theirs], &merged)), []);
+    }
+
+    #[test]
+    fn a_resolved_kwarg_keeps_only_its_own_leaf() {
+        let ours = field(serde_json::json!({"help": "h", "string": "Ours"}));
+        let theirs = field(serde_json::json!({"help": "Theirs", "string": "S"}));
+        let merged = field(serde_json::json!({"help": "Theirs", "string": "Both"}));
+        let d = merge(&[&ours, &theirs], &merged);
+        assert_eq!(ops(&d), [("a:f", "changed")]);
+        assert_eq!(
+            attrs(&d[0]),
+            (
+                Some(r#"{"args":{"string":"Ours"}}"#),
+                Some(r#"{"args":{"string":"Both"}}"#)
+            )
+        );
+    }
+
+    #[test]
+    fn one_qualname_in_two_files_is_compared_per_file() {
+        // `ByDir` gives `x` in a/f.py and a/g.py one qualname: the merge took f from ours and g
+        // from theirs, and resolved h in g.
+        let (ours_f, ours_g) = (table(&[("x", 1, "ours")]), table(&[("x", 1, "base"), ("h", 2, "ours")]));
+        let (theirs_f, theirs_g) = (
+            table(&[("x", 1, "base")]),
+            table(&[("x", 1, "theirs"), ("h", 2, "theirs")]),
+        );
+        let (merged_f, merged_g) = (
+            table(&[("x", 1, "ours")]),
+            table(&[("x", 1, "theirs"), ("h", 2, "both")]),
+        );
+        let deltas = [
+            delta(
+                &ByDir,
+                &[
+                    (Some(("a/f.py", &ours_f)), Some(("a/f.py", &merged_f))),
+                    (Some(("a/g.py", &ours_g)), Some(("a/g.py", &merged_g))),
+                ],
+            ),
+            delta(
+                &ByDir,
+                &[
+                    (Some(("a/f.py", &theirs_f)), Some(("a/f.py", &merged_f))),
+                    (Some(("a/g.py", &theirs_g)), Some(("a/g.py", &merged_g))),
+                ],
+            ),
+        ];
+        let d = resolved(&deltas);
+        assert_eq!(ops(&d), [("a:h", "changed")]);
+        assert_eq!(d[0].path, "a/g.py");
+    }
+
+    #[test]
+    fn a_move_the_other_side_made_is_not_the_merges() {
+        let ours = table(&[("f", 1, "ours")]);
+        let theirs = table(&[("f", 1, "theirs")]);
+        let merged = table(&[("f", 1, "both")]);
+        let deltas = [
+            one(&ByDir, Some(("a/f.py", &ours)), Some(("a/g.py", &merged))),
+            one(&ByDir, Some(("a/g.py", &theirs)), Some(("a/g.py", &merged))),
+        ];
+        let d = resolved(&deltas);
+        assert_eq!(ops(&d), [("a:f", "changed")]);
+        assert_eq!(attrs(&d[0]), (Some(r#"{"body":"theirs"}"#), Some(r#"{"body":"both"}"#)));
     }
 }

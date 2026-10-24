@@ -49,22 +49,31 @@ impl Extractor for Defs {
         *self.calls.lock().unwrap().entry(text.to_string()).or_default() += 1;
         // Finishes out of submission order, so a result that follows thread timing shows.
         std::thread::sleep(Duration::from_millis(blob.len() as u64 % 3));
-        let mut table = SymbolTable::default();
+        // An indented line extends the body of the def above it.
+        let mut found: Vec<(usize, &str, String)> = Vec::new();
         for (i, line) in text.lines().enumerate() {
             if line.starts_with('!') {
                 anyhow::bail!("line {}: {line}", i + 1);
             }
             if let Some((name, body)) = line.strip_prefix("def ").and_then(|l| l.split_once(": ")) {
-                table.insert(Symbol {
-                    kind: "def".into(),
-                    name: name.into(),
-                    line: i as u32 + 1,
-                    span: Span::default(),
-                    attrs: [("body".to_string(), body.into())].into(),
-                    parts: None,
-                    sketch: None,
-                });
+                found.push((i, name, body.into()));
+            } else if let (Some(more), Some((_, _, body))) = (line.strip_prefix("  "), found.last_mut()) {
+                body.push_str(more);
+            } else {
+                found.push((i, "", String::new()));
             }
+        }
+        let mut table = SymbolTable::default();
+        for (i, name, body) in found.into_iter().filter(|(_, name, _)| !name.is_empty()) {
+            table.insert(Symbol {
+                kind: "def".into(),
+                name: name.into(),
+                line: i as u32 + 1,
+                span: Span::default(),
+                attrs: [("body".to_string(), body.into())].into(),
+                parts: None,
+                sketch: None,
+            });
         }
         Ok(table)
     }
@@ -156,6 +165,176 @@ fn revert_head(fx: &mut Fixture, message: &str) {
     fx.clock += 60;
     fx.git(&["revert", "--no-commit", "HEAD"]);
     fx.git(&["commit", "-q", "-m", message]);
+}
+
+/// 16.0 and master share `a.py`, `b.py` and `c.py`, then each changes them: `f` in `a.py` and
+/// `c.py` conflict, `b.py` merges cleanly though its blob ends unlike either parent's.
+fn diverged(name: &str) -> (PathBuf, Fixture, PathBuf) {
+    let (dir, mut fx, clone) = setup(name);
+    let base = [
+        ("addons/sale/a.py", "def f: base\ndef g: base\n"),
+        ("addons/sale/b.py", "def k: base\n\n\n\ndef m: base\n"),
+        ("addons/sale/c.py", "def n: base\n"),
+    ];
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(&base, "[ADD] sale: a, b, c");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.merge("16.0", "[MERGE] forward port 16.0");
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(&[("addons/sale/a.py", "def f: fix\ndef g: base\n")], "[FIX] sale: f");
+    for i in 0..8 {
+        fx.commit_files(&[("addons/sale/other.py", &format!("def o: {i}\n"))], "[FIX] sale: o");
+    }
+    fx.commit_files(
+        &[("addons/sale/b.py", "def k: fix\n\n\n\ndef m: base\n")],
+        "[FIX] sale: k",
+    );
+    fx.commit_files(&[("addons/sale/c.py", "def n: fix\n")], "[FIX] sale: n");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.commit_files(
+        &[
+            ("addons/sale/a.py", "def f: master\ndef g: base\n"),
+            ("addons/sale/b.py", "def k: base\n\n\n\ndef m: master\n"),
+            ("addons/sale/c.py", "def n: master\n"),
+        ],
+        "[IMP] sale: f, m, n",
+    );
+    (dir, fx, clone)
+}
+
+#[test]
+fn a_merge_records_only_what_its_resolution_changed() {
+    let (dir, mut fx, clone) = diverged("extract-merge-resolution");
+    fx.merge_resolving(
+        "16.0",
+        &[
+            ("addons/sale/a.py", "def f: master and fix\ndef g: base\n"),
+            ("addons/sale/c.py", "def n: master\n"),
+        ],
+        "[MERGE] forward port 16.0",
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+    let (py, _) = defs("py", 1, "py");
+    extract(&cfg, vec![py], &options());
+
+    let db = dir.join("walk.db");
+    let merge = rev_parse(&clone, "origin/master");
+    let one = |path: &str, op: &str, qualname: &str| (path.into(), op.into(), qualname.into(), None);
+    assert_eq!(
+        events(&db, &merge),
+        [one("addons/sale/a.py", "changed", "addons/sale:f")]
+    );
+    let attrs = "SELECT attrs_before || ' ' || attrs_after FROM events WHERE sha = ?1";
+    let attrs: String = Connection::open(&db)
+        .unwrap()
+        .query_row(attrs, [&merge], |r| r.get(0))
+        .unwrap();
+    assert_eq!(attrs, r#"{"body":"master"} {"body":"master and fix"}"#);
+    let is_merge = "SELECT is_merge FROM commits WHERE sha = ?1";
+    assert_eq!(count(&db, is_merge, [&merge]), 1);
+}
+
+#[test]
+fn a_body_each_side_edited_and_merged_cleanly_is_no_event() {
+    let (dir, mut fx, clone) = setup("extract-merge-clean-body");
+    let body = |one: &str, two: &str| format!("def f: base\n  {one}\n  -\n  -\n  {two}\n");
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(&[("addons/sale/a.py", &body("one", "two"))], "[ADD] sale: f");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.merge("16.0", "[MERGE] forward port 16.0");
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(&[("addons/sale/a.py", &body("one fix", "two"))], "[FIX] sale: f");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.commit_files(&[("addons/sale/a.py", &body("one", "two master"))], "[IMP] sale: f");
+    fx.merge("16.0", "[MERGE] forward port 16.0");
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+    let (py, _) = defs("py", 1, "py");
+    extract(&cfg, vec![py], &options());
+
+    assert_eq!(events(&dir.join("walk.db"), &rev_parse(&clone, "origin/master")), []);
+}
+
+#[test]
+fn a_merge_resolved_by_renaming_records_the_rename() {
+    let (dir, mut fx, clone) = diverged("extract-merge-rename");
+    fx.merge_resolving(
+        "16.0",
+        &[
+            ("addons/sale/a.py", "def f_merged: master\ndef g: base\n"),
+            ("addons/sale/c.py", "def n: fix\n"),
+        ],
+        "[MERGE] forward port 16.0",
+    );
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+    let (py, _) = defs("py", 1, "py");
+    extract(&cfg, vec![py], &options());
+
+    let db = dir.join("walk.db");
+    let merge = rev_parse(&clone, "origin/master");
+    let renamed = (
+        "addons/sale/a.py".into(),
+        "renamed".into(),
+        "addons/sale:f_merged".into(),
+        Some("addons/sale/a.py".into()),
+    );
+    assert_eq!(events(&db, &merge), [renamed]);
+    let old = "SELECT o.qualname FROM events e JOIN symbols o ON o.id = e.old_symbol_id WHERE e.sha = ?1";
+    let old: String = Connection::open(&db)
+        .unwrap()
+        .query_row(old, [&merge], |r| r.get(0))
+        .unwrap();
+    assert_eq!(old, "addons/sale:f");
+    assert_eq!(count(&db, "SELECT is_merge FROM commits WHERE sha = ?1", [&merge]), 1);
+}
+
+#[test]
+fn an_edit_merged_into_a_file_the_other_side_renamed_is_no_event() {
+    let (dir, mut fx, clone) = setup("extract-merge-moved-file");
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(
+        &[("addons/sale/x.py", "def f: base\ndef g: base\ndef h: base\n")],
+        "[ADD] sale: x",
+    );
+    // Deleted on master: against 16.0, y.py must pair with x.py among more than 1000 deletions.
+    let old: Vec<(String, String)> = (0..1001)
+        .map(|i| (format!("addons/old/m{i}.py"), format!("def m{i}: {i}\n")))
+        .collect();
+    let old: Vec<(&str, &str)> = old.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+    fx.commit_files(&old, "[ADD] old");
+    fx.git(&["checkout", "-q", "master"]);
+    fx.merge("16.0", "[MERGE] forward port 16.0");
+    fx.clock += 60;
+    fx.git(&["rm", "-q", "-r", "addons/old"]);
+    fx.git(&["commit", "-q", "-m", "[REM] old"]);
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(
+        &[("addons/sale/x.py", "def f: fix\ndef g: base\ndef h: base\n")],
+        "[FIX] sale: f",
+    );
+    fx.git(&["checkout", "-q", "master"]);
+    fx.mv("addons/sale/x.py", "addons/sale/y.py", "[MOV] sale: x to y");
+    fx.commit_files(
+        &[("addons/sale/y.py", "def f: base\ndef g: base\ndef h: master\n")],
+        "[IMP] sale: h",
+    );
+    fx.merge("16.0", "[MERGE] forward port 16.0");
+    fetch(&clone);
+    let cfg = config(&dir, "walk", &clone, "");
+    walk(&cfg);
+    let (py, _) = defs("py", 1, "py");
+    extract(&cfg, vec![py], &options());
+
+    let db = dir.join("walk.db");
+    let merge = rev_parse(&clone, "origin/master");
+    let merged = std::fs::read_to_string(fx.upstream.join("addons/sale/y.py")).unwrap();
+    assert_eq!(merged, "def f: fix\ndef g: base\ndef h: master\n");
+    assert_eq!(events(&db, &merge), []);
 }
 
 #[test]
@@ -285,7 +464,7 @@ fn reclassifying_reads_no_blob() {
     let (py, _) = defs("py", 1, "py");
     let (xml, _) = defs("xml", 1, "xml");
     extract(&cfg, vec![py, xml], &options());
-    let unclassified = "SELECT COUNT(*) FROM commits WHERE is_merge = 0 AND classified IS NULL";
+    let unclassified = "SELECT COUNT(*) FROM commits WHERE classified IS NULL";
     assert_eq!(count(&db, unclassified, []), 0);
     assert!(count(&db, "SELECT COUNT(*) FROM events WHERE rule_id IS NOT NULL", []) > 0);
     let before = dump(&db);
@@ -295,8 +474,7 @@ fn reclassifying_reads_no_blob() {
         .unwrap()
         .execute_batch(
             "UPDATE events SET category = NULL, breaking = NULL, rule_id = NULL;
-             UPDATE commits SET category = NULL, breaking = NULL, rule_id = NULL, classified = 0
-              WHERE is_merge = 0;",
+             UPDATE commits SET category = NULL, breaking = NULL, rule_id = NULL, classified = 0;",
         )
         .unwrap();
     let (py, py_calls) = defs("py", 1, "py");
@@ -306,11 +484,11 @@ fn reclassifying_reads_no_blob() {
     assert_eq!(dump(&db), before);
 }
 
-/// About 30 commits across 16.0, 17.0 and master: forward-port merges, renames, deletions,
-/// reverts, one blob at many paths, a blob that fails to parse, unclaimed files, a manifest per
-/// module for `Manifest`, a model file for `Python` that gains a field and renames a method, a
-/// view and an access CSV per module for `Data`, a registry entry per module for `Js`, and a
-/// template and a stylesheet per module for `Owl` and `Scss`.
+/// About 35 commits across 16.0, 17.0 and master: forward-port merges (one resolving a conflict
+/// with an edit), renames, deletions, reverts, one blob at many paths, a blob that fails to parse,
+/// unclaimed files, a manifest per module for `Manifest`, a model file for `Python` that gains a
+/// field and renames a method, a view and an access CSV per module for `Data`, a registry entry
+/// per module for `Js`, and a template and a stylesheet per module for `Owl` and `Scss`.
 fn busy(name: &str) -> (PathBuf, PathBuf) {
     let (dir, mut fx, clone) = setup(name);
     for round in 0..3 {
@@ -390,6 +568,20 @@ fn busy(name: &str) -> (PathBuf, PathBuf) {
         "[MOV] sale_ext: foo to sale_more",
     );
     fx.merge("17.0", "[MERGE] forward port 17.0");
+    // A forward port whose conflict the merge resolves with an edit of its own.
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(&[("addons/fp/models.py", "def p: base\n")], "[ADD] fp");
+    fx.git(&["checkout", "-q", "17.0"]);
+    fx.merge("16.0", "[MERGE] forward port 16.0");
+    fx.git(&["checkout", "-q", "16.0"]);
+    fx.commit_files(&[("addons/fp/models.py", "def p: fix\n")], "[FIX] fp");
+    fx.git(&["checkout", "-q", "17.0"]);
+    fx.commit_files(&[("addons/fp/models.py", "def p: 17.0\n")], "[IMP] fp");
+    fx.merge_resolving(
+        "16.0",
+        &[("addons/fp/models.py", "def p: 17.0 and fix\n")],
+        "[MERGE] forward port 16.0",
+    );
     fetch(&clone);
     (dir, clone)
 }
@@ -428,11 +620,10 @@ fn thread_count_does_not_change_the_database() {
     assert_eq!(dumps[0], dumps[1]);
 
     let db = dir.join("t1.db");
-    let merges = "SELECT COUNT(*) FROM commits c WHERE is_merge = 1 AND (
-        EXISTS (SELECT 1 FROM extracted e WHERE e.sha = c.sha) OR EXISTS (SELECT 1 FROM events e WHERE e.sha = c.sha))";
-    assert_eq!(count(&db, merges, []), 0, "a merge was extracted");
-    let unmarked = "SELECT COUNT(*) FROM commits c WHERE is_merge = 0
-        AND (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 8";
+    let merges = "SELECT COUNT(*) FROM events e JOIN commits c ON c.sha = e.sha WHERE c.is_merge = 1";
+    assert_eq!(count(&db, merges, []), 1, "only the resolved merge gives an event");
+    let unmarked = "SELECT COUNT(*) FROM commits c
+        WHERE (SELECT COUNT(*) FROM extracted e WHERE e.sha = c.sha) != 8";
     assert_eq!(
         count(&db, unmarked, []),
         0,
@@ -490,7 +681,7 @@ fn thread_count_does_not_change_the_database() {
     let functional = "SELECT COUNT(*) FROM events WHERE category = 'functional' AND rule_id = ?1";
     assert_eq!(count(&db, functional, ["module"]), 9);
     assert_eq!(count(&db, functional, ["arch-node-visible"]), 18);
-    let unclassified = "SELECT COUNT(*) FROM commits WHERE is_merge = 0 AND classified IS NULL";
+    let unclassified = "SELECT COUNT(*) FROM commits WHERE classified IS NULL";
     assert_eq!(
         count(&db, unclassified, []),
         0,

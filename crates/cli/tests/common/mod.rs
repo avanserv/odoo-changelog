@@ -34,6 +34,21 @@ impl Fixture {
         self.git(&["merge", "-q", "--no-ff", "-m", message, branch]);
     }
 
+    /// Merges `branch`, conflicts allowed, then writes `files` over the result and commits it.
+    pub fn merge_resolving(&mut self, branch: &str, files: &[(&str, &str)], message: &str) {
+        self.clock += 60;
+        git_status(
+            &self.upstream,
+            &["merge", "-q", "--no-ff", "--no-commit", branch],
+            self.clock,
+        );
+        for (file, content) in files {
+            self.write(file, content);
+            self.git(&["add", file]);
+        }
+        self.git(&["commit", "-q", "-m", message]);
+    }
+
     pub fn write(&self, file: &str, content: &str) {
         let path = self.upstream.join(file);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -60,8 +75,13 @@ impl Fixture {
 }
 
 pub fn git(dir: &Path, args: &[&str], clock: u64) {
+    assert!(git_status(dir, args, clock), "git {args:?} failed in {}", dir.display());
+}
+
+/// Whether git succeeded, with the environment `git` pins.
+pub fn git_status(dir: &Path, args: &[&str], clock: u64) -> bool {
     let date = format!("@{} +0000", 1_700_000_000 + clock);
-    let status = Command::new("git")
+    Command::new("git")
         .args(["-c", "init.defaultBranch=master", "-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(dir)
@@ -74,8 +94,8 @@ pub fn git(dir: &Path, args: &[&str], clock: u64) {
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?} failed in {}", dir.display());
+        .unwrap()
+        .success()
 }
 
 /// A relative `config` resolves against the target tmpdir, the parent of every fixture directory.
