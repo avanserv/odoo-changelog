@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::data::{RECORD, RULE};
 use crate::hash::digest;
 use crate::xml::refs::Refs;
-use crate::{Parts, Span, Symbol, SymbolTable, access_csv, xml};
+use crate::{Parts, Span, Symbol, SymbolTable, access_csv, sketch, xml};
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
@@ -250,6 +250,7 @@ fn records(sheet: &Sheet, kind: &'static str, table: &mut SymbolTable, warnings:
             refs.ids(v);
         }
         refs.put(&mut attrs);
+        let sketch = sketch::set(xml::part_items(&parts));
         table.insert(Symbol {
             kind: kind.into(),
             name: (*id).into(),
@@ -257,7 +258,7 @@ fn records(sheet: &Sheet, kind: &'static str, table: &mut SymbolTable, warnings:
             span: rows.span,
             attrs,
             parts: spellings.both(id).then_some(parts),
-            sketch: None,
+            sketch,
         });
     }
 }

@@ -560,7 +560,8 @@ mod tests {
     fn rename_across_directories_qualifies_each_side_with_its_path() {
         let t = table(&[("f", 1, "x")]);
         let d = one(&ByDir, Some(("a/f.py", &t)), Some(("b/f.py", &t)));
-        assert_eq!(ops(&d), [("a:f", "removed"), ("b:f", "added")]);
+        assert_eq!(ops(&d), [("b:f", "renamed")]);
+        assert_eq!(d[0].old.as_ref().unwrap().qualname, "a:f");
     }
 
     #[test]

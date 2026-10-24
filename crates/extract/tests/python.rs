@@ -374,3 +374,98 @@ fn a_renamed_method_with_an_edited_body_pairs_below_an_exact_rename() {
 ";
     assert_eq!(rename(unrelated), None);
 }
+
+/// The renames from `old` to `new`, each `(path, src)` on its own side, as `(old, new)`.
+fn renames(old: &[(&str, &str)], new: &[(&str, &str)]) -> Vec<(String, String)> {
+    let read = |files: &[(&str, &str)]| -> Vec<(String, SymbolTable)> {
+        files.iter().map(|(p, s)| (p.to_string(), extract(s))).collect()
+    };
+    let (old, new) = (read(old), read(new));
+    let files: Vec<_> = (old.iter().map(|(p, t)| (Some((p.as_str(), t)), None)))
+        .chain(new.iter().map(|(p, t)| (None, Some((p.as_str(), t)))))
+        .collect();
+    delta(&Python, &files)
+        .into_iter()
+        .filter(|d| d.rename.is_some())
+        .map(|d| (d.old.unwrap().qualname, d.qualname))
+        .collect()
+}
+
+fn fields(model: &str, fields: &str) -> String {
+    format!("from odoo import fields, models\n\n\nclass Ext(models.Model):\n    _inherit = '{model}'\n\n{fields}")
+}
+
+#[test]
+fn a_field_renamed_with_its_label_pairs() {
+    let path = "addons/garden/models/garden_plot.py";
+    let old = fields(
+        "garden.plot",
+        "    tool_id = fields.Many2one('garden.tool', string='Tool', domain=\"[('broken', '=', False)]\")\n",
+    );
+    let new = fields(
+        "garden.plot",
+        "    spare_tool_id = fields.Many2one('garden.tool', string='Spare Tool', domain=\"[('broken', '=', False)]\")\n",
+    );
+    assert_eq!(
+        renames(&[(path, &old)], &[(path, &new)]),
+        [(
+            "garden.plot#tool_id@garden".into(),
+            "garden.plot#spare_tool_id@garden".into()
+        )]
+    );
+}
+
+#[test]
+fn a_model_renamed_with_its_description_and_class_pairs() {
+    let model = |class: &str, name: &str, description: &str| {
+        format!(
+            "from odoo import fields, models\n\n\nclass {class}(models.Model):\n    _name = '{name}'\n    _description = '{description}'\n\n    plot_id = fields.Many2one('garden.plot')\n    bed_id = fields.Many2one('garden.bed')\n    text = fields.Html()\n"
+        )
+    };
+    let old = model("GardenPlotNote", "garden.plot.note", "Garden Plot Note");
+    let new = model("GardenPlotRemark", "garden.plot.remark", "Garden Plot Remark");
+    let path = "addons/garden/models/garden_plot.py";
+    let r = renames(&[(path, &old)], &[(path, &new)]);
+    assert!(
+        r.contains(&("garden.plot.note@garden".into(), "garden.plot.remark@garden".into())),
+        "{r:?}"
+    );
+    assert_eq!(r.len(), 4, "the model and its three fields: {r:?}");
+}
+
+#[test]
+fn a_field_moved_to_another_module_with_its_rename_pairs() {
+    let side = |field: &str| {
+        fields(
+            "res.partner",
+            &format!(
+                "    {field} = fields.Char(string='Plot code', help='Code of the plot the partner rents', size=20)\n"
+            ),
+        )
+    };
+    let r = renames(
+        &[(
+            "addons/garden_rent/models/res_partner.py",
+            &side("garden_rent_plot_code"),
+        )],
+        &[("addons/garden/models/res_partner.py", &side("plot_code"))],
+    );
+    assert!(
+        r.contains(&(
+            "res.partner#garden_rent_plot_code@garden_rent".into(),
+            "res.partner#plot_code@garden".into()
+        )),
+        "{r:?}"
+    );
+}
+
+#[test]
+fn an_unrelated_field_of_another_type_is_no_rename() {
+    let path = "addons/garden/models/garden_plot.py";
+    let old = fields("garden.plot", "    partner_note = fields.Text(string='Partner note')\n");
+    let new = fields(
+        "garden.plot",
+        "    partner_count = fields.Integer(string='Partner count', compute='_compute_partner_count')\n",
+    );
+    assert_eq!(renames(&[(path, &old)], &[(path, &new)]), []);
+}

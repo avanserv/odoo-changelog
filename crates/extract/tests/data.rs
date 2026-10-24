@@ -861,3 +861,121 @@ fn a_rule_redeclared_as_an_access_right_is_one_renamed_symbol() {
         (1.0, ["kind".to_string()].as_slice())
     );
 }
+
+/// The renames from `old` to `new`, each `(path, src)` on its own side, as `(old, new, signals)`.
+fn renames(old: &[(&str, &str)], new: &[(&str, &str)]) -> Vec<(String, String, Vec<String>)> {
+    let old: Vec<(&str, SymbolTable)> = old.iter().map(|(p, s)| (*p, extract(s))).collect();
+    let new: Vec<(&str, SymbolTable)> = new.iter().map(|(p, s)| (*p, extract(s))).collect();
+    let files: Vec<_> = (old.iter().map(|(p, t)| (Some((*p, t)), None)))
+        .chain(new.iter().map(|(p, t)| (None, Some((*p, t)))))
+        .collect();
+    delta(&Data, &files)
+        .into_iter()
+        .filter(|d| d.op == Op::Renamed)
+        .map(|d| {
+            let r = d.rename.unwrap();
+            (d.old.unwrap().qualname, d.qualname, r.signals)
+        })
+        .collect()
+}
+
+fn form(id: &str, title: &str, model: &str, fields: &[&str]) -> String {
+    let fields: String = fields.iter().map(|f| format!(r#"<field name="{f}"/>"#)).collect();
+    format!(
+        r#"<odoo><record id="{id}" model="ir.ui.view"><field name="name">{title}</field><field name="model">{model}</field><field name="arch" type="xml"><form><sheet><group>{fields}</group></sheet></form></field></record></odoo>"#
+    )
+}
+
+#[test]
+fn a_view_renamed_with_its_arch_edited_pairs_by_its_sketch() {
+    let path = "addons/garden/views/views.xml";
+    let fields = [
+        "name",
+        "bed_id",
+        "seeded_on",
+        "harvest_on",
+        "yield_kg",
+        "variety",
+        "notes",
+        "gardener_id",
+    ];
+    let old = form(
+        "view_garden_plot_plot_form",
+        "garden.plot.plot.form",
+        "garden.plot",
+        &fields,
+    );
+    let new = form(
+        "view_garden_plot_form",
+        "garden.plot.form",
+        "garden.plot",
+        &[&fields[..7], &["watered_on"]].concat(),
+    );
+    let r = renames(&[(path, &old)], &[(path, &new)]);
+    let view = r.iter().find(|r| !r.0.contains('#')).expect("the view pairs");
+    assert_eq!(view.1, "garden.view_garden_plot_form@garden");
+    assert!(view.2.contains(&"similar".to_string()), "{view:?}");
+
+    let other = form(
+        "view_garden_tool_tree",
+        "garden.tool.tree",
+        "garden.tool",
+        &["code", "brand", "price"],
+    );
+    assert_eq!(renames(&[(path, &old)], &[(path, &other)]), []);
+}
+
+#[test]
+fn a_csv_row_renamed_with_one_cell_edited_pairs_by_its_sketch() {
+    let rows = |id: &str, code: &str| {
+        format!("id,name,code,sequence,active,color,parent_id:id\n{id},Rose bed,{code},10,True,3,garden.bed_root\n")
+    };
+    let path = "addons/garden/data/garden.bed.csv";
+    let r = renames(
+        &[(path, &rows("bed_rose", "RB1"))],
+        &[(path, &rows("garden_bed_rose", "RB2"))],
+    );
+    assert_eq!(r.len(), 1, "{r:?}");
+    assert!(r[0].2.contains(&"similar".to_string()), "{r:?}");
+}
+
+#[test]
+fn a_record_moved_to_another_module_pairs_under_its_new_xmlid() {
+    let record = r#"<odoo><record id="plot_group_shade" model="garden.plot.group"><field name="name">Shade</field><field name="sequence">10</field></record></odoo>"#;
+    let r = renames(
+        &[("addons/garden_extra/data/groups.xml", record)],
+        &[("addons/garden/data/groups.xml", record)],
+    );
+    assert_eq!(
+        r.iter().map(|r| (r.0.as_str(), r.1.as_str())).collect::<Vec<_>>(),
+        [(
+            "garden_extra.plot_group_shade@garden_extra",
+            "garden.plot_group_shade@garden"
+        )]
+    );
+}
+
+#[test]
+fn a_menu_follows_the_action_renamed_with_it() {
+    let side = |action: &str, menu: &str| {
+        format!(
+            r#"<odoo>
+            <record id="{action}" model="ir.actions.act_window"><field name="name">Harvests</field><field name="res_model">garden.harvest</field></record>
+            <menuitem id="{menu}" action="{action}" sequence="5"/>
+        </odoo>"#
+        )
+    };
+    let path = "addons/garden/views/menus.xml";
+    let r = renames(
+        &[(path, &side("action_crops", "menu_crops"))],
+        &[(path, &side("action_harvests", "menu_harvests"))],
+    );
+    let pairs: BTreeSet<(&str, &str)> = r.iter().map(|r| (r.0.as_str(), r.1.as_str())).collect();
+    assert_eq!(
+        pairs,
+        BTreeSet::from([
+            ("garden.action_crops@garden", "garden.action_harvests@garden"),
+            ("garden.menu_crops@garden", "garden.menu_harvests@garden"),
+        ])
+    );
+}

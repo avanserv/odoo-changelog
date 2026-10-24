@@ -451,6 +451,10 @@ fn thread_count_does_not_change_the_database() {
     assert_eq!(
         renamed,
         [
+            // Moved to another module under a name the module qualifies: renamed across modules.
+            "addons/mmaster_1:a addons/moved:a",
+            "addons/mmaster_1:b addons/moved:b",
+            "addons/mmaster_1:c addons/moved:c",
             "sale.order#_prepare@sale_ext sale.order#_prepare_vals@sale_ext",
             "x.thing#name@x x.item#name@x",
             "x.thing#qty@x x.item#qty@x",
@@ -482,7 +486,7 @@ fn thread_count_does_not_change_the_database() {
     assert_eq!(count(&db, unclassified, []), 0, "an event was not classified");
     let breaking = "SELECT COUNT(*) FROM events WHERE breaking = 1 AND rule_id = ?1";
     assert_eq!(count(&db, breaking, ["moved-module"]), 1, "foo left sale_ext");
-    assert_eq!(count(&db, breaking, ["renamed"]), 4);
+    assert_eq!(count(&db, breaking, ["renamed"]), 7);
     let functional = "SELECT COUNT(*) FROM events WHERE category = 'functional' AND rule_id = ?1";
     assert_eq!(count(&db, functional, ["module"]), 9);
     assert_eq!(count(&db, functional, ["arch-node-visible"]), 18);

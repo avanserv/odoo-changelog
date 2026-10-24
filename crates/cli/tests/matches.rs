@@ -127,7 +127,7 @@ fn matched_renames_get_full_confidence_whatever_runs_last() {
             r#"shop.order#cust_id@shop -> shop.order#partner_id@shop 1 ["args","comodel","type","upgrade"]"#,
             r#"shop.view_shop_form#field[@name='cust_id']@shop -> shop.shop_order_view_form#field[@name='cust_id']@shop 1 ["parent"]"#,
             r#"shop.view_shop_form#field[@name='date']@shop -> shop.shop_order_view_form#field[@name='date']@shop 1 ["parent"]"#,
-            r#"shop.view_shop_form@shop -> shop.shop_order_view_form@shop 1 ["arch","declared","mode","model","name","record_model","type","values","members","upgrade"]"#,
+            r#"shop.view_shop_form@shop -> shop.shop_order_view_form@shop 1 ["arch","declared","mode","model","name","record_model","type","values","words","members","upgrade"]"#,
         ]
     );
     let conn = Connection::open(&db).unwrap();
@@ -152,9 +152,10 @@ fn matched_renames_get_full_confidence_whatever_runs_last() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    assert_eq!(row("17.0 field"), "2 1 50.0% 1 1 100.0%");
-    assert_eq!(row("17.0 xmlid"), "1 1 100.0% 1 1 100.0%");
-    assert_eq!(row("all field"), "2 1 50.0% 1 1 100.0%");
+    // No extractor declares `never_declared`, so its rename is out of reach.
+    assert_eq!(row("17.0 field"), "2 1 50.0% 1 100.0% 1 1 100.0%");
+    assert_eq!(row("17.0 xmlid"), "1 1 100.0% 1 100.0% 1 1 100.0%");
+    assert_eq!(row("all field"), "2 1 50.0% 1 100.0% 1 1 100.0%");
 }
 
 #[test]

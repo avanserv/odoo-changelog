@@ -23,7 +23,8 @@ pub struct Symbol {
     /// that another of the file may merge with, and never in an event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parts: Option<Parts>,
-    /// A sketch of a body's tokens, which renames compare when `body` differs; never in an event.
+    /// A sketch of a body's tokens, or of a data declaration's parts and arch, which renames compare
+    /// when a hash differs; never in an event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sketch: Option<String>,
 }

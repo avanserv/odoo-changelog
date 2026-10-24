@@ -34,6 +34,18 @@ pub struct StoredRename {
     pub qualname: String,
 }
 
+/// A symbol a commit of a known version removed, added or renamed: a removal and a rename's old
+/// side are `old`.
+pub struct StoredSighting {
+    pub version: String,
+    pub repo_id: i64,
+    pub sha: String,
+    pub extractor: String,
+    pub old: bool,
+    pub kind: String,
+    pub qualname: String,
+}
+
 pub struct MatchRow<'a> {
     pub upgrade: &'a StoredUpgradeEvent,
     pub rename: &'a StoredRename,
@@ -95,6 +107,49 @@ impl Store {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The sightings of the symbols of `kinds` that `keep` accepts by kind and qualname, in no set
+    /// order.
+    pub fn sightings(&self, kinds: &[&str], keep: impl Fn(&str, &str) -> bool) -> Result<Vec<StoredSighting>> {
+        let marks = vec!["?"; kinds.len()].join(", ");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT c.version, e.repo_id, e.sha, e.extractor, e.op, s.kind, s.qualname, o.kind, o.qualname
+               FROM events e
+               JOIN commits c ON c.repo_id = e.repo_id AND c.sha = e.sha
+               JOIN symbols s ON s.id = e.symbol_id
+               LEFT JOIN symbols o ON o.id = e.old_symbol_id
+              WHERE e.op IN ('added', 'removed', 'renamed') AND c.version IS NOT NULL
+                AND (s.kind IN ({marks}) OR o.kind IN ({marks}))"
+        ))?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(kinds.iter().chain(kinds)))?;
+        let mut out = Vec::new();
+        while let Some(r) = rows.next()? {
+            let sides = match r.get_ref(4)?.as_str()? {
+                "removed" => [Some((true, 5)), None],
+                "added" => [Some((false, 5)), None],
+                _ => [Some((true, 7)), Some((false, 5))],
+            };
+            for (old, at) in sides.into_iter().flatten() {
+                let (Some(kind), Some(qualname)) =
+                    (r.get_ref(at)?.as_str_or_null()?, r.get_ref(at + 1)?.as_str_or_null()?)
+                else {
+                    continue;
+                };
+                if keep(kind, qualname) {
+                    out.push(StoredSighting {
+                        version: r.get(0)?,
+                        repo_id: r.get(1)?,
+                        sha: r.get(2)?,
+                        extractor: r.get(3)?,
+                        old,
+                        kind: kind.to_string(),
+                        qualname: qualname.to_string(),
+                    });
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Replaces every match with `rows`. The events of the old matches get the detector's
@@ -228,6 +283,38 @@ mod tests {
             })
             .collect();
         store.replace_matches(&rows).unwrap();
+    }
+
+    #[test]
+    fn sightings_give_each_side_of_the_kinds_asked() {
+        let store = store();
+        store
+            .conn
+            .execute_batch(
+                "INSERT INTO symbols (id, kind, qualname)
+                 VALUES (x'03', 'field', 'a.c#f@m'), (x'04', 'field', 'a.c#g@m'), (x'05', 'method', 'a.c#h@m');
+                 INSERT INTO events (repo_id, sha, path, extractor, symbol_id, op, line)
+                 VALUES (1, 'c1', 'm/models.py', 'python', x'03', 'removed', 1),
+                        (1, 'c1', 'm/models.py', 'python', x'04', 'added', 2),
+                        (1, 'c1', 'm/models.py', 'python', x'05', 'added', 3);",
+            )
+            .unwrap();
+        let mut seen: Vec<(String, bool, String)> = (store.sightings(&["field", "model"], |_, q| q != "a.c@m"))
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.sha, s.old, s.qualname))
+            .collect();
+        seen.sort();
+        let row = |sha: &str, old, q: &str| (sha.to_string(), old, q.to_string());
+        assert_eq!(
+            seen,
+            [
+                row("c0", true, "a.b@m"),
+                row("c1", false, "a.c#g@m"),
+                row("c1", true, "a.b@m"),
+                row("c1", true, "a.c#f@m"),
+            ]
+        );
     }
 
     #[test]

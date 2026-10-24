@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Result, bail};
 use odoo_changelog_core::Version;
-use odoo_changelog_store::{MatchRow, Store, StoredRename, StoredUpgradeEvent};
-use odoo_changelog_upgrade::matching::{self, DetectedRename, Matches, Tally, UpgradeRef};
+use odoo_changelog_store::{MatchRow, Store, StoredRename, StoredSighting, StoredUpgradeEvent};
+use odoo_changelog_upgrade::matching::{self, DetectedRename, Matches, Mentioned, Sighting, Tally, UpgradeRef};
 use tracing::info;
 
 /// Rematches every stored upgrade event against every detected rename, so that the result
@@ -41,9 +41,10 @@ pub fn validate(store: &Store) -> Result<Vec<((String, &'static str), Tally)>> {
     let renames = store.detected_renames()?;
     let m = find(&upgrade, &renames);
     let (u, r) = (refs(&upgrade), detected(&renames));
+    let reachable = reachable(store, &u, &m)?;
     let walked = store.walked_versions()?;
     // An upgrade folder for a version no repo walked has no commit to match.
-    let mut rows: Vec<_> = matching::tally(&u, &r, &m)
+    let mut rows: Vec<_> = matching::tally(&u, &r, &m, &reachable)
         .into_iter()
         .filter(|((version, _), _)| walked.contains(version))
         .collect();
@@ -54,11 +55,35 @@ pub fn validate(store: &Store) -> Result<Vec<((String, &'static str), Tally)>> {
         let total = totals.entry(kind).or_default();
         total.upgrade += t.upgrade;
         total.matched += t.matched;
+        total.reachable += t.reachable;
         total.detected += t.detected;
         total.confirmed += t.confirmed;
     }
     rows.extend(totals.into_iter().map(|(kind, t)| (("all".to_string(), kind), t)));
     Ok(rows)
+}
+
+/// The stored upgrade events the detector could have matched, in key order, each with whether it
+/// did.
+pub fn reachable_events(store: &Store) -> Result<Vec<(StoredUpgradeEvent, bool)>> {
+    let upgrade = store.upgrade_events()?;
+    let renames = store.detected_renames()?;
+    let m = find(&upgrade, &renames);
+    let reachable = reachable(store, &refs(&upgrade), &m)?;
+    let matched: BTreeSet<usize> = m.pairs.iter().map(|&(u, _)| u).collect();
+    Ok(upgrade
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| reachable.contains(i))
+        .map(|(i, e)| (e, matched.contains(&i)))
+        .collect())
+}
+
+fn reachable(store: &Store, upgrade: &[UpgradeRef], m: &Matches) -> Result<BTreeSet<usize>> {
+    let mentioned = Mentioned::new(upgrade);
+    let kinds: Vec<&str> = Mentioned::kinds().collect();
+    let sightings = store.sightings(&kinds, |kind, qualname| mentioned.contains(kind, qualname))?;
+    Ok(matching::reachable(upgrade, m, &seen(&sightings)))
 }
 
 fn find(upgrade: &[StoredUpgradeEvent], renames: &[StoredRename]) -> Matches {
@@ -89,6 +114,21 @@ fn detected(renames: &[StoredRename]) -> Vec<DetectedRename<'_>> {
             old_qualname: &r.old_qualname,
             kind: &r.kind,
             qualname: &r.qualname,
+        })
+        .collect()
+}
+
+fn seen(sightings: &[StoredSighting]) -> Vec<Sighting<'_>> {
+    sightings
+        .iter()
+        .map(|s| Sighting {
+            version: &s.version,
+            repo_id: s.repo_id,
+            sha: &s.sha,
+            extractor: &s.extractor,
+            old: s.old,
+            kind: &s.kind,
+            qualname: &s.qualname,
         })
         .collect()
 }

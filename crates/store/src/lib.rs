@@ -14,7 +14,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 pub use classify::{ClassRow, StoredEvent, Unclassified};
 pub use extract::{CachedBlob, EventRow, OldSide, PendingCommit, RenameRow};
-pub use matches::{MatchRow, StoredRename, StoredUpgradeEvent};
+pub use matches::{MatchRow, StoredRename, StoredSighting, StoredUpgradeEvent};
 pub use upgrade::UpgradeEventRow;
 
 const MIGRATIONS: &[&str] = &[

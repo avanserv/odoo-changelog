@@ -253,6 +253,32 @@ fn feed_element(hasher: &mut blake3::Hasher, element: &Element, skip: &[&str]) {
     hasher.update(&[0x04]);
 }
 
+/// Each element of `nodes`, descendants included, as its tag and its attributes sorted by name, and
+/// each run of text, as `feed` writes them but without children: the items a view's sketch is made
+/// of, so that one edited element leaves the others alike.
+pub(crate) fn items(nodes: &[Node], out: &mut Vec<String>) {
+    for node in nodes {
+        match node {
+            Node::Element(element) => {
+                let mut attrs: Vec<_> = element.attrs.iter().collect();
+                attrs.sort_by(|a, b| a.name.cmp(&b.name));
+                let mut item = format!("\x01{}\x00", element.tag);
+                for attr in attrs {
+                    item.push_str(&format!("{}\x02{}\x00", attr.name, collapse(&attr.value)));
+                }
+                out.push(item);
+                items(&element.children, out);
+            }
+            Node::Text(text) => {
+                let text = collapse(text);
+                if !text.is_empty() {
+                    out.push(format!("\x05{text}\x00"));
+                }
+            }
+        }
+    }
+}
+
 /// XML whitespace runs as one space, trimmed.
 fn collapse(text: &str) -> String {
     text.split([' ', '\t', '\r', '\n'])

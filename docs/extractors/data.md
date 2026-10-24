@@ -38,7 +38,10 @@ node, so that `field[@name='partner_id']` joins the node it changes; the nodes i
 own. Other records keep `name`, `model`, `res_model` and a `model_id` reference in clear, and hash
 everything else into `values`. Arch and markup hashes ignore whitespace runs, comments, attribute
 order and how a character is escaped; plain field text is hashed as written, since Odoo stores it
-verbatim. Menuitems and access rows keep every attribute or cell in clear.
+verbatim. Menuitems and access rows keep every attribute or cell in clear. A declaration also
+carries a sketch of what `values` and `arch` hash, each field and each element of the arch apart,
+which [renames](../extract.md#renames) compare once those hashes differ; it is cached, never
+stored in an event.
 
 Every declaration but a `<delete>` lists in `references` the xmlids it names literally, sorted:
 a field's `ref`, `ref('x')` and `%(x)d` or `%(x)s` in an `eval`, a field's text or an attribute
