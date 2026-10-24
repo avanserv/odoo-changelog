@@ -6,7 +6,7 @@ use anyhow::{Context, Result, anyhow};
 use gix::ObjectId;
 use odoo_changelog_core::{Config, RepoConfig, Version};
 use odoo_changelog_extract::classify::{self, Event};
-use odoo_changelog_extract::{Delta, Extractor, Registry, SymbolTable, delta};
+use odoo_changelog_extract::{Delta, Extractor, Registry, SymbolTable, delta, resolved};
 use odoo_changelog_git::{FileChange, FileSide, Repo, SharedRepo};
 use odoo_changelog_store::{CachedBlob, ClassRow, EventRow, OldSide, RenameRow, Store};
 use rayon::prelude::*;
@@ -54,9 +54,14 @@ struct Counts {
 struct Commit {
     sha: String,
     oid: ObjectId,
+    is_merge: bool,
     /// Indexes into the extractors, in name order, of those that have not processed it.
     pending: Vec<usize>,
 }
+
+/// Per pending extractor, in `pending` order, the changes it sees against each parent: one list
+/// but for a merge. `None` when a parent is beyond the shallow boundary.
+type Diff = Option<Vec<Vec<Vec<FileChange>>>>;
 
 /// A cached parse failure is `Err` with the extractor's message.
 type Parsed = std::result::Result<SymbolTable, String>;
@@ -70,12 +75,13 @@ struct Ctx<'a> {
     name: &'a str,
 }
 
-/// Records the symbol events of every walked, non-merge commit that some extractor has not
-/// processed yet, then classifies each commit every extractor has processed whose events changed
-/// since it was last classified, and matches the renames to the stored upgrade events. Each
-/// commit is diffed against its only parent, and renames and moves are paired per extractor, so
-/// an extractor's events depend on the commit and that extractor alone, and an incremental run
-/// equals a full rebuild.
+/// Records the symbol events of every walked commit that some extractor has not processed yet,
+/// then classifies each commit every extractor has processed whose events changed since it was
+/// last classified, and matches the renames to the stored upgrade events. Each commit is diffed
+/// against its parent, a merge against each parent at the files it resolved and kept to what it
+/// changed from all of them, and renames and moves are paired per extractor, so an extractor's
+/// events depend on the commit and that extractor alone, and an incremental run equals a full
+/// rebuild.
 pub fn run(cfg: &Config, store: &Store, registry: &Registry, opts: &Options) -> Result<Timings> {
     let repos = cfg.select_repos(&opts.repos)?;
     let mut timings = Timings::default();
@@ -133,6 +139,7 @@ fn extract_repo(
             commits.push(Commit {
                 oid: ObjectId::from_hex(c.sha.as_bytes())?,
                 sha: c.sha,
+                is_merge: c.is_merge,
                 pending,
             });
         }
@@ -240,20 +247,30 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
     let (ex, shared, name) = (ctx.extractors, ctx.shared, ctx.name);
 
     let start = Instant::now();
-    // Per commit, the changes each pending extractor sees, in `pending` order.
-    let diffs: Vec<Result<Option<Vec<Vec<FileChange>>>>> = ctx.pool.install(|| {
+    let diffs: Vec<Result<Diff>> = ctx.pool.install(|| {
         batch
             .par_iter()
             .map_init(
                 || shared.worker(),
                 |w, c| {
                     let claimed = |p: &str| c.pending.iter().any(|&i| ex[i].claims(p));
+                    if c.is_merge {
+                        let Some(merge) = w.merge_changes(c.oid, &claimed)? else {
+                            return Ok(None);
+                        };
+                        return c
+                            .pending
+                            .iter()
+                            .map(|&i| w.pair_merge(&merge, &|p| ex[i].claims(p)))
+                            .collect::<Result<Vec<_>>>()
+                            .map(Some);
+                    }
                     let Some(changes) = w.changed_files(c.oid, &claimed)? else {
                         return Ok(None);
                     };
                     c.pending
                         .iter()
-                        .map(|&i| w.pair_renames(&changes, &|p| ex[i].claims(p)))
+                        .map(|&i| w.pair_renames(&changes, &|p| ex[i].claims(p)).map(|c| vec![c]))
                         .collect::<Result<Vec<_>>>()
                         .map(Some)
                 },
@@ -271,8 +288,8 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
     let start = Instant::now();
     let mut keys = BTreeSet::new();
     for (c, per_extractor) in batch.iter().zip(&diffs) {
-        for (&i, changes) in c.pending.iter().zip(per_extractor.iter().flatten()) {
-            for change in changes {
+        for (&i, parents) in c.pending.iter().zip(per_extractor.iter().flatten()) {
+            for change in parents.iter().flatten() {
                 keys.extend([&change.old, &change.new].into_iter().flatten().map(|s| (s.blob, i)));
             }
         }
@@ -337,25 +354,41 @@ fn extract_batch(ctx: &Ctx, batch: &[Commit], counts: &mut Counts, timings: &mut
             counts.shallow += 1;
             continue;
         };
-        for (&i, changes) in c.pending.iter().zip(per_extractor) {
-            let mut files = Vec::with_capacity(changes.len());
-            for change in changes {
-                let (Some(old), Some(new)) = (
-                    parsed_side(&tables, i, &change.old),
-                    parsed_side(&tables, i, &change.new),
-                ) else {
-                    counts.failures += 1;
-                    continue;
-                };
-                for (path, table) in [old, new].into_iter().flatten() {
-                    if !table.warnings().is_empty() {
-                        counts.partial += 1;
-                        debug!("{name}: {} {path}: {}", c.sha, table.warnings().join("; "));
+        for (&i, parents) in c.pending.iter().zip(per_extractor) {
+            let mut deltas = Vec::with_capacity(parents.len());
+            // A merge's side recurs against each parent and is counted once.
+            let mut counted = BTreeSet::new();
+            for changes in parents {
+                let mut files = Vec::with_capacity(changes.len());
+                for change in changes {
+                    let sides = [&change.old, &change.new];
+                    let (Some(old), Some(new)) = (
+                        parsed_side(&tables, i, &change.old),
+                        parsed_side(&tables, i, &change.new),
+                    ) else {
+                        if sides
+                            .iter()
+                            .any(|s| s.as_ref().is_some_and(|s| counted.insert((s.path.as_str(), s.blob))))
+                        {
+                            counts.failures += 1;
+                        }
+                        continue;
+                    };
+                    for (side, (path, table)) in sides.into_iter().flatten().zip([old, new].into_iter().flatten()) {
+                        if !table.warnings().is_empty() && counted.insert((side.path.as_str(), side.blob)) {
+                            counts.partial += 1;
+                            debug!("{name}: {} {path}: {}", c.sha, table.warnings().join("; "));
+                        }
                     }
+                    files.push((old, new));
                 }
-                files.push((old, new));
+                deltas.push(delta(ex[i], &files));
             }
-            for d in delta(ex[i], &files) {
+            let deltas = match deltas.len() {
+                1 => deltas.pop().expect("one delta"),
+                _ => resolved(&deltas),
+            };
+            for d in deltas {
                 events.push((&c.sha, ex[i].name(), d));
             }
         }

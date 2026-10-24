@@ -28,7 +28,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 pub use data::Data;
-pub use delta::{Delta, Op, Origin, Side, delta};
+pub use delta::{Delta, Op, Origin, Side, delta, resolved};
 pub use js::Js;
 pub use manifest::Manifest;
 pub use owl::Owl;

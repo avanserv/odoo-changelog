@@ -1,5 +1,6 @@
 //! Per-commit file changes for the extract pipeline, one `Worker` per thread.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ops::ControlFlow;
 
@@ -7,6 +8,7 @@ use anyhow::{Result, anyhow};
 use gix::ObjectId;
 use gix::bstr::{BStr, ByteSlice};
 use gix::diff::Rewrites;
+use gix::diff::blob::{Algorithm, Diff, InternedInput};
 use gix::diff::tree::recorder::Change as Recorded;
 use gix::diff::tree::visit::Change;
 use gix::objs::TreeRefIter;
@@ -20,6 +22,14 @@ const REWRITES: Rewrites = Rewrites {
     percentage: Some(0.5),
     limit: 1000,
     track_empty: false,
+};
+
+/// Against a merge's second parent, a resolved file renamed on the first parent's side is an
+/// addition that must pair with one of hundreds of deletions. gix compares sources × destinations
+/// with `limit` unsquared, so this is the 1000 × 1000 git's default `diff.renameLimit` allows.
+const MERGE_REWRITES: Rewrites = Rewrites {
+    limit: 1_000_000,
+    ..REWRITES
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +53,15 @@ impl FileChange {
             (None, None) => unreachable!("a change has at least one side"),
         }
     }
+}
+
+/// What `Worker::merge_changes` found in one merge.
+#[derive(Debug)]
+pub struct MergeChanges {
+    /// Per parent, in parent order: its changes at a resolved path, and its deletions when one
+    /// of those is an addition, for `pair_merge` to pair with it.
+    parents: Vec<Vec<FileChange>>,
+    resolved: BTreeSet<String>,
 }
 
 /// A clone that any thread can open a `Worker` on.
@@ -93,6 +112,111 @@ impl Worker {
             (old_tree, c.tree_id()?.detach())
         };
 
+        self.diff_trees(old_tree, new_tree, keep).map(Some)
+    }
+
+    /// The files a merge left unlike every parent at one same place, as `git diff --cc` lists
+    /// them, with each parent's changes at them; a file each side changed elsewhere and merged
+    /// cleanly is not among them. `None` when a parent is missing from a shallow clone.
+    /// `pair_merge` pairs them per extractor.
+    pub fn merge_changes(&mut self, commit: ObjectId, keep: &dyn Fn(&str) -> bool) -> Result<Option<MergeChanges>> {
+        let (parent_trees, new_tree) = {
+            let c = self.repo.find_commit(commit)?;
+            let mut trees = Vec::new();
+            for parent in c.parent_ids() {
+                match self.repo.try_find_object(parent.detach())? {
+                    Some(object) => trees.push(object.try_into_commit()?.tree_id()?.detach()),
+                    None => return Ok(None),
+                }
+            }
+            (trees, c.tree_id()?.detach())
+        };
+        let mut parents = Vec::with_capacity(parent_trees.len());
+        for tree in parent_trees {
+            parents.push(self.diff_trees(tree, new_tree, keep)?);
+        }
+        let mut resolved: BTreeSet<String> = match parents.first() {
+            Some(first) => first.iter().map(|c| c.path().to_string()).collect(),
+            None => BTreeSet::new(),
+        };
+        for changes in parents.iter().skip(1) {
+            let here: BTreeSet<&str> = changes.iter().map(FileChange::path).collect();
+            resolved.retain(|p| here.contains(p.as_str()));
+        }
+        // A path added or deleted against a parent stays: the symbols decide a file renamed on
+        // one side.
+        let mut edits: BTreeMap<&str, (ObjectId, Vec<ObjectId>)> = BTreeMap::new();
+        for changes in &parents {
+            for c in changes {
+                if let (Some(old), Some(new)) = (&c.old, &c.new)
+                    && resolved.contains(&new.path)
+                {
+                    edits
+                        .entry(&new.path)
+                        .or_insert((new.blob, Vec::new()))
+                        .1
+                        .push(old.blob);
+                }
+            }
+        }
+        let mut clean = Vec::new();
+        for (path, (merged, olds)) in edits {
+            if olds.len() == parents.len() && !self.dense(merged, &olds)? {
+                clean.push(path.to_string());
+            }
+        }
+        for path in clean {
+            resolved.remove(&path);
+        }
+        for changes in &mut parents {
+            // A deletion outside `resolved` is kept only as a rename source for a resolved addition.
+            let added = changes.iter().any(|c| c.old.is_none() && resolved.contains(c.path()));
+            changes.retain(|c| resolved.contains(c.path()) || (added && c.new.is_none()));
+        }
+        Ok(Some(MergeChanges { parents, resolved }))
+    }
+
+    /// Each parent's `merge_changes` as an extractor that `claims` paths sees them: paired into
+    /// renames as `pair_renames` does, then cut down to those that end at a resolved path.
+    pub fn pair_merge(&mut self, merge: &MergeChanges, claims: &dyn Fn(&str) -> bool) -> Result<Vec<Vec<FileChange>>> {
+        let mut out = Vec::with_capacity(merge.parents.len());
+        for changes in &merge.parents {
+            let mut paired = self.pair_with(changes, claims, MERGE_REWRITES)?;
+            paired.retain(|c| merge.resolved.contains(c.path()));
+            out.push(paired);
+        }
+        Ok(out)
+    }
+
+    /// Whether `merged` differs from each of `parents` at one same line, or gap between lines,
+    /// as a hunk of `git diff --cc` does. A hunk marks the merged side's lines `i` as `2i + 1`
+    /// and its bounding gaps as `2i`, so a deletion meets an edit next to it.
+    fn dense(&self, merged: ObjectId, parents: &[ObjectId]) -> Result<bool> {
+        let merged = self.repo.find_blob(merged)?;
+        let mut common: Option<Vec<(u32, u32)>> = None;
+        for &parent in parents {
+            let parent = self.repo.find_blob(parent)?;
+            let input = InternedInput::new(parent.data.as_slice(), merged.data.as_slice());
+            let diff = Diff::compute(Algorithm::Myers, &input);
+            let marks: Vec<(u32, u32)> = diff.hunks().map(|h| (2 * h.after.start, 2 * h.after.end)).collect();
+            let marks = match common {
+                Some(common) => overlap(&common, &marks),
+                None => marks,
+            };
+            if marks.is_empty() {
+                return Ok(false);
+            }
+            common = Some(marks);
+        }
+        Ok(common.is_some())
+    }
+
+    fn diff_trees(
+        &mut self,
+        old_tree: ObjectId,
+        new_tree: ObjectId,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<FileChange>> {
         let mut recorder = gix::diff::tree::Recorder::default();
         {
             let old = self.repo.find_tree(old_tree)?;
@@ -138,13 +262,22 @@ impl Worker {
             }
         }
         out.sort_by(by_path);
-        Ok(Some(out))
+        Ok(out)
     }
 
     /// The `changes` of one commit as an extractor that `claims` paths sees them: its additions
     /// and deletions paired into renames as git does by default, sorted by path. Pairing only
     /// among the files one extractor claims keeps its events independent of the others.
     pub fn pair_renames(&mut self, changes: &[FileChange], claims: &dyn Fn(&str) -> bool) -> Result<Vec<FileChange>> {
+        self.pair_with(changes, claims, REWRITES)
+    }
+
+    fn pair_with(
+        &mut self,
+        changes: &[FileChange],
+        claims: &dyn Fn(&str) -> bool,
+        rewrites: Rewrites,
+    ) -> Result<Vec<FileChange>> {
         let mut out = Vec::new();
         let (mut added, mut deleted) = (Vec::new(), Vec::new());
         for change in changes {
@@ -170,7 +303,7 @@ impl Worker {
 
         // Executable or not, blobs pair with each other, so the mode the tracker sees is moot.
         let entry_mode = EntryKind::Blob.into();
-        let mut tracker = gix::diff::rewrites::Tracker::new(REWRITES);
+        let mut tracker = gix::diff::rewrites::Tracker::new(rewrites);
         for new in added {
             let change = Change::Addition {
                 entry_mode,
@@ -258,4 +391,32 @@ fn side(path: &str, blob: ObjectId) -> FileSide {
 
 fn lossy(path: &BStr) -> String {
     path.to_str_lossy().into_owned()
+}
+
+/// The overlaps of two sorted lists of disjoint inclusive ranges.
+fn overlap(a: &[(u32, u32)], b: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let (mut i, mut j, mut out) = (0, 0, Vec::new());
+    while i < a.len() && j < b.len() {
+        let (lo, hi) = (a[i].0.max(b[j].0), a[i].1.min(b[j].1));
+        if lo <= hi {
+            out.push((lo, hi));
+        }
+        if a[i].1 < b[j].1 { i += 1 } else { j += 1 }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlaps_keep_shared_points_and_drop_disjoint_ranges() {
+        assert_eq!(
+            overlap(&[(2, 4), (10, 12)], &[(4, 6), (7, 9), (11, 20)]),
+            [(4, 4), (11, 12)]
+        );
+        assert_eq!(overlap(&[(2, 4)], &[(5, 8)]), []);
+        assert_eq!(overlap(&[], &[(0, 9)]), []);
+    }
 }

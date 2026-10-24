@@ -13,7 +13,7 @@ use gix::bstr::ByteSlice;
 use gix::revision::walk::Sorting;
 use odoo_changelog_core::Version;
 
-pub use diff::{FileChange, FileSide, SharedRepo, Worker};
+pub use diff::{FileChange, FileSide, MergeChanges, SharedRepo, Worker};
 pub use forks::{Fork, ForkSource, resolve_forks};
 
 pub struct Repo {
